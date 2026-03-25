@@ -1,12 +1,16 @@
 # TerraStorage Changelog
-## [0.2.5] - Unreleased
+## [0.2.6] - Unreleased
+
+### Fixed
+- Texture smearing on tiles (Terminal, CraftingCore, DriveBay)
+- Fix stack merging issues caused by the previous patch.
+- The collapsed browse pane in Encyclopedia no longer allows queries on an invisible item grid.
+
+## [0.2.5] - Released
 
 ### Fixed
 - Items with per-instance data from other mods (e.g. enchantments from Entropy) are no longer stripped on deposit into storage.
 - Disk tier upgrades now preserve per-instance data (enchantments, GlobalItem state).
-- Texture smearing on tiles
-- Fix stack merging issues.
-- The collapsed browse pane in Encyclopedia no longer allows queries on an invisible item grid
 
 ### Changed
 - Network packets for unique items are now more compact — eliminated redundant ModData when FullItemTag is already present.
