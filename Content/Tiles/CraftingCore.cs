@@ -23,7 +23,11 @@ namespace TerraStorage.Content.Tiles
 
             TileObjectData.newTile.CopyFrom(TileObjectData.Style2x2);
             TileObjectData.newTile.Origin = new Point16(0, 1);
+            // Fix for texture stretching - ensure proper coordinate heights
             TileObjectData.newTile.CoordinateHeights = new[] { 16, 16 };
+            // Ensure the tile uses actual pixel dimensions 
+            TileObjectData.newTile.Width = 2;
+            TileObjectData.newTile.Height = 2;
             TileObjectData.newTile.HookPostPlaceMyPlayer = new PlacementHook(
                 ModContent.GetInstance<CraftingCoreEntity>().Hook_AfterPlacement, -1, 0, true);
             TileObjectData.newTile.UsesCustomCanPlace = true;
