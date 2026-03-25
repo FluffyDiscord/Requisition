@@ -215,16 +215,46 @@ namespace TerraStorage.Content.UI
                     if (!_entity.StationSlots[i].IsAir)
                     {
                         var item = _entity.StationSlots[i].Clone();
-                        item = Main.LocalPlayer.GetItem(Main.myPlayer, item, GetItemSettings.InventoryEntityToPlayerInventorySettings);
-                        if (item.IsAir)
+                        // Directly place item in inventory instead of using ground pickup logic
+                        bool placedInInventory = false;
+                        var player = Main.LocalPlayer;
+                        for (int j = 0; j < 50; j++)
                         {
-                            _entity.StationSlots[i].TurnToAir();
-                            NetworkHandler.SendSyncStationRemove(mod, _entity.ID, i);
+                            if (player.inventory[j].IsAir)
+                            {
+                                player.inventory[j] = item.Clone();
+                                placedInInventory = true;
+                                break;
+                            }
+                            else if (player.inventory[j].type == item.type && 
+                                     player.inventory[j].prefix == item.prefix &&
+                                     player.inventory[j].stack < player.inventory[j].maxStack)
+                            {
+                                int spaceAvailable = player.inventory[j].maxStack - player.inventory[j].stack;
+                                if (spaceAvailable >= item.stack)
+                                {
+                                    player.inventory[j].stack += item.stack;
+                                    placedInInventory = true;
+                                    break;
+                                }
+                                else
+                                {
+                                    // Partially fill the stack and put remaining in next empty slot
+                                    item.stack -= spaceAvailable;
+                                    player.inventory[j].stack = player.inventory[j].maxStack;
+                                }
+                            }
+                        }
+                        
+                        if (!placedInInventory)
+                        {
+                            // If no inventory space, re-insert into storage
+                            _entity.StationSlots[i] = item;
                         }
                         else
                         {
-                            _entity.StationSlots[i] = item;
-                            NetworkHandler.SendSyncStationInsert(mod, _entity.ID, i, _entity.StationSlots[i]);
+                            _entity.StationSlots[i].TurnToAir();
+                            NetworkHandler.SendSyncStationRemove(mod, _entity.ID, i);
                         }
                         SoundEngine.PlaySound(SoundID.Grab);
                     }
