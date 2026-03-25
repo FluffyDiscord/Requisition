@@ -78,6 +78,11 @@ namespace TerraStorage.Content.UI.Encyclopedia
         /// </summary>
         public int GetGridHoveredItemType() => _itemGrid?.GetHoveredItemType() ?? 0;
 
+        /// <summary>
+        /// Returns true if the browse pane is currently visible (fully or partially animated in).
+        /// </summary>
+        public bool IsBrowsePaneVisible() => _browseLerp > 0.001f;
+
         public override void OnInitialize()
         {
             _panelHeight = Math.Min(Math.Max(500, Main.screenHeight - 200), Main.screenHeight * 0.75f);

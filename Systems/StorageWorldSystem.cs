@@ -316,6 +316,10 @@ namespace TerraStorage.Systems
             // per-instance GlobalItem state, so serializing the clone can lose that data.
             var originalTag = ItemIO.Save(item);
 
+            // Always pass the pre-serialized tag so DiskData can compare globalData
+            // between the incoming item and stored items to decide whether to merge.
+            TagCompound tagToPreserve = originalTag;
+
             foreach (var diskId in diskIds)
             {
                 if (!_allDiskData.TryGetValue(diskId, out var disk))
@@ -325,7 +329,7 @@ namespace TerraStorage.Systems
                 var tempItem = item.Clone();
                 tempItem.stack = remaining;
                 int before = remaining;
-                remaining = disk.InsertItem(tempItem, _insertionCounter, originalTag);
+                remaining = disk.InsertItem(tempItem, _insertionCounter, tagToPreserve);
                 if (remaining < before)
                     _modifiedTracker?.Add(diskId);
 

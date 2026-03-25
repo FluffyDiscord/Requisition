@@ -109,7 +109,8 @@ namespace TerraStorage.Content.UI.Encyclopedia
         private int GetHoveredItemType()
         {
             // Check our own grid first (works during UpdateUI, before Draw sets Main.HoverItem)
-            if (_isOpen)
+            // Only if the browse pane is visible (prevents queries on hidden grid)
+            if (_isOpen && _state.IsBrowsePaneVisible())
             {
                 int gridItem = _state.GetGridHoveredItemType();
                 if (gridItem > 0) return gridItem;

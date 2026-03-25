@@ -53,31 +53,27 @@ namespace TerraStorage.Common
                     modData = tempTag;
             }
 
-            // Use the pre-serialized tag from the original item when available (avoids
-            // GlobalItem data loss if the caller passed us a Clone()). Fall back to
-            // serializing the item ourselves so the code path still works standalone.
-            TagCompound fullItemTag = null;
+            // Always capture the full serialized tag so globalData (enchantments from mods,
+            // e.g. CalamityGlobalItem, Entropy enchantments) is preserved on extraction.
             var fullSave = preSerializedTag ?? ItemIO.Save(item);
-            if (fullSave.ContainsKey("globalData") || modData != null)
-                fullItemTag = fullSave;
+            TagCompound fullItemTag = (modData != null || fullSave.ContainsKey("globalData"))
+                ? fullSave : null;
 
-            // Only merge stackable items that carry NO per-instance data. Items with per-instance
-            // data (disks, enchanted items, etc.) are unique — merging them would silently
-            // discard one item's data and corrupt the other's stack count.
-            if (fullItemTag == null)
+            // Merge with an existing stack only if per-instance data matches.
+            // Two vanilla iron bars have identical CalamityGlobalItem data → they merge.
+            // Two iron bars with different enchantments have different globalData → they don't.
+            foreach (var stored in Items)
             {
-                foreach (var stored in Items)
+                if (stored.Matches(item.type, item.prefix) && stored.Stack < item.maxStack
+                    && PerInstanceDataMatches(stored.FullItemTag, fullItemTag, stored.ModData, modData))
                 {
-                    if (stored.Matches(item.type, item.prefix) && stored.Stack < item.maxStack)
-                    {
-                        int canAdd = Math.Min(remaining, item.maxStack - stored.Stack);
-                        stored.Stack += canAdd;
-                        if (insertionOrder > 0)
-                            stored.InsertionOrder = insertionOrder;
-                        remaining -= canAdd;
-                        if (remaining <= 0)
-                            return 0;
-                    }
+                    int canAdd = Math.Min(remaining, item.maxStack - stored.Stack);
+                    stored.Stack += canAdd;
+                    if (insertionOrder > 0)
+                        stored.InsertionOrder = insertionOrder;
+                    remaining -= canAdd;
+                    if (remaining <= 0)
+                        return 0;
                 }
             }
 
@@ -227,6 +223,38 @@ namespace TerraStorage.Common
             TagIO.Write(a, new BinaryWriter(msA));
             TagIO.Write(b, new BinaryWriter(msB));
             return msA.ToArray().SequenceEqual(msB.ToArray());
+        }
+
+        /// <summary>
+        /// Returns true if two items have compatible per-instance data for merging.
+        /// Compares globalData and modData independently so that items with identical
+        /// mod-attached state (e.g. two unenchanted items both carrying default CalamityGlobalItem)
+        /// are still allowed to merge, while items with differing enchantments are not.
+        /// </summary>
+        private static bool PerInstanceDataMatches(
+            TagCompound storedFullTag, TagCompound incomingFullTag,
+            TagCompound storedModData, TagCompound incomingModData)
+        {
+            // Compare modData (ModItem.SaveData)
+            if (storedModData == null != (incomingModData == null)) return false;
+            if (storedModData != null && !TagCompoundEquals(storedModData, incomingModData)) return false;
+
+            // Compare globalData (GlobalItem state from mods — extract just that key)
+            bool storedHas  = storedFullTag?.ContainsKey("globalData")   == true;
+            bool incomingHas = incomingFullTag?.ContainsKey("globalData") == true;
+            if (storedHas != incomingHas) return false;
+            if (!storedHas) return true; // neither has globalData
+
+            try
+            {
+                var wrapA = new TagCompound(); wrapA["g"] = storedFullTag["globalData"];
+                var wrapB = new TagCompound(); wrapB["g"] = incomingFullTag["globalData"];
+                return TagCompoundEquals(wrapA, wrapB);
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         /// <summary>
