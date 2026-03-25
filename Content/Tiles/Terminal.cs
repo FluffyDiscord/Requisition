@@ -22,9 +22,8 @@ namespace TerraStorage.Content.Tiles
 
             TileObjectData.newTile.CopyFrom(TileObjectData.Style3x3);
             TileObjectData.newTile.Origin = new Point16(1, 2);
-            // Fix for texture stretching - ensure proper coordinate heights
             TileObjectData.newTile.CoordinateHeights = new[] { 16, 16, 16 };
-            // Ensure the tile uses actual pixel dimensions 
+            TileObjectData.newTile.CoordinatePadding = 0;
             TileObjectData.newTile.Width = 3;
             TileObjectData.newTile.Height = 3;
             TileObjectData.newTile.HookPostPlaceMyPlayer = new PlacementHook(
