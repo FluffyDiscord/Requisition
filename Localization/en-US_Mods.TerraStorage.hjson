@@ -1,0 +1,162 @@
+Items: {
+	StorageDiskTier1: {
+		DisplayName: Basic Storage Disk
+		Tooltip: ""
+	}
+
+	StorageDiskTier2: {
+		DisplayName: Advanced Storage Disk
+		Tooltip: ""
+	}
+
+	StorageDiskTier3: {
+		DisplayName: Superior Storage Disk
+		Tooltip: ""
+	}
+
+	StorageDiskTier4: {
+		DisplayName: Elite Storage Disk
+		Tooltip: ""
+	}
+
+	StorageDiskTier5: {
+		DisplayName: Ultimate Storage Disk
+		Tooltip: ""
+	}
+
+	StorageDiskTier6: {
+		DisplayName: Terra Storage Disk
+		Tooltip: ""
+	}
+
+	DriveBayItem: {
+		DisplayName: Drive Bay
+		Tooltip: Place disks inside to store items. Connect to a Crafting Terminal for access.
+	}
+
+	TerminalItem: {
+		DisplayName: Crafting Terminal
+		Tooltip: Access all items stored on nearby Drive Bays. Supports searching and recursive crafting.
+	}
+
+	CraftingCoreItem: {
+		DisplayName: Crafting Core
+		Tooltip: Insert crafting station items (Workbench, Anvil, etc.) to enable recipes at the Terminal.
+	}
+
+	CrimsonAltarItem: {
+		DisplayName: Crimson Altar
+		Tooltip: Place in a Crafting Core to enable Crimson Altar recipes at any connected Terminal.
+	}
+
+	DemonAltarItem: {
+		DisplayName: Demon Altar
+		Tooltip: Place in a Crafting Core to enable Demon Altar recipes at any connected Terminal.
+	}
+
+	RemoteTerminal: {
+		DisplayName: Remote Terminal
+		Tooltip:
+			'''
+			Middle-click to open the bound Crafting Terminal from anywhere in the world.
+			Right-click a Terminal to bind.
+			'''
+	}
+}
+
+Tiles: {
+	DriveBay.MapEntry: Drive Bay
+	Terminal.MapEntry: Crafting Terminal
+	CraftingCore.MapEntry: Crafting Core
+}
+
+Conditions: {
+	RemoteTerminalHard: Easier Remote Terminal is disabled
+	RemoteTerminalEasy: Easier Remote Terminal is enabled
+}
+
+ConditionTooltips: {
+	BottomlessBucket: Enables Near Water recipes in the Crafting Terminal.
+	BottomlessLavaBucket: Enables Near Lava recipes in the Crafting Terminal.
+	BottomlessHoneyBucket: Enables Near Honey recipes in the Crafting Terminal.
+	IceMachine: Enables Snow Biome recipes in the Crafting Terminal.
+	Gravestone: Enables Graveyard recipes in the Crafting Terminal.
+}
+
+Keybinds: {
+	CraftingTree.DisplayName: Open Crafting Tree
+	Encyclopedia.DisplayName: Toggle Encyclopedia
+	EncyclopediaQuery.DisplayName: Look Up Hovered Item
+}
+
+Configs: {
+	TerraStorageConfig: {
+		DisplayName: TerraStorage (Server)
+
+		Version: {
+			Label: Version
+			Tooltip: ""
+		}
+
+		QuickStarterPack: {
+			Label: Quick Starter Pack
+			Tooltip: New characters entering a world for the first time receive a Terminal, Crafting Core, Drive Bay, and one Advanced Storage Disk.
+		}
+
+		EasierRemoteTerminal: {
+			Label: Easier Remote Terminal
+			Tooltip: Removes Post-Moonlord item requirements from the Remote Terminal.
+		}
+
+		PredictiveSyncMode: {
+			Label: Predictive Sync Mode
+			Tooltip: Uses delta-based syncing with client-side prediction for storage operations. Reduces network traffic. Disable to use the classic full-sync method if issues arise.
+		}
+	}
+
+	TerraStorageClientConfig: {
+		DisplayName: TerraStorage (Client)
+
+		Version: {
+			Label: Version
+			Tooltip: ""
+		}
+
+		RememberSearchQuery: {
+			Label: Remember Search Query
+			Tooltip: When enabled, the Terminal's search field retains its text after closing.
+		}
+
+		DebugTooltips: {
+			Label: Debug Tooltips
+			Tooltip: Hold Alt while hovering an item to show classification and property debug info.
+		}
+
+		BackupRestore: {
+			Label: Backup & Restore
+			Tooltip: ""
+		}
+
+		Headers: {
+			Debug: Debug
+			Appearance: Appearance
+			CraftingTree: Crafting Tree
+			General: General
+		}
+
+		PanelUnderlayOpacity: {
+			Tooltip: Opacity of the dark underlay behind panels (0 = fully transparent, 100 = fully opaque)
+			Label: Panel Underlay Opacity
+		}
+
+		CraftingTreeDefaultZoom: {
+			Tooltip: Default zoom level when opening the Crafting Tree
+			Label: Crafting Tree Default Zoom
+		}
+
+		InStorageTooltip: {
+			Tooltip: Show 'In Storage: X' on item tooltips when a Terminal has been opened
+			Label: In Storage Tooltip
+		}
+	}
+}

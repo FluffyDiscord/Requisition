@@ -1,0 +1,115 @@
+Adds a networked bulk storage system to Terraria. Store thousands of item stacks across tiered Storage Disks, access and craft from them through a Terminal, and take your collection with you between worlds.
+
+[b]This mod is in alpha — bugs are expected. Please report anything you find![/b]
+[hr][/hr]
+
+[h2]Storage Disks[/h2]
+Six tiers of Storage Disks, each upgradable from the previous tier in the Terminal (Disks Tab).  Only the Basic Disk can be crafted.
+Upgrading a disk preserves its identity and all stored items — nothing is lost when upgrade.  Items are not stored on the disk themselves. Each disk has a GUID which matches to a table that stores the items.  Even if you lose the disk, your items are safe.
+
+[h2]Drive Bay[/h2]
+A placeable block that holds up to 40 Storage Disks. Multiple Drive Bays can be linked into a single network. The Drive Bay is simply the physical housing for disks.
+
+[h2]Terminal[/h2]
+The access point for the storage network. Open it to:
+[list]
+[*] Browse all items across every connected Drive Bay in a scrollable, searchable grid
+[*] Deposit items from your inventory into the network (shift-click or drag)
+[*] Withdraw items directly to your inventory
+[*] Craft using items stored in the network, with full multi-step recipe support
+[/list]
+The Terminal window is draggable and resizable.
+
+[b]Filtering & Sorting[/b]
+16 category filter buttons (left-click to isolate, right-click to toggle)
+7 sort modes with ascending/descending toggle (right-click the active button to flip direction)
+
+Favorited items always sort to the top regardless of other sort settings. Favorites persist per character.
+
+[b]Search Prefixes[/b]
+[list]
+[*] Type normally to search by item name
+[*] Start with [b]#[/b] to search by tooltip and item properties (e.g. [b]#bait[/b], [b]#damage[/b], [b]#accessory[/b])
+[*] Start with [b]@[/b] to search by mod name (e.g. [b]@calamity[/b], [b]@terraria[/b])
+[/list]
+
+[b]Storage Count Tooltips[/b]
+After opening a Terminal, hovering any item anywhere in the game shows how many of that item are in your storage.
+
+[b]Crafting Tab[/b]
+[list]
+[*] Multi-step crafting: if you lack an intermediate ingredient, the Terminal will craft it automatically
+[*] Toggle to show uncraftable recipes
+[*] Toggle recursive crafting — highlights recipes whose ingredients can themselves be crafted. Right-click drag the checkbox to set recursion depth
+[*] Right-click an ingredient in the detail view to navigate to its recipe, with full back-navigation history
+[*] Cycle between recipe variants for items with multiple crafting paths
+[/list]
+
+[h2]Crafting Core[/h2]
+Place one on your network to enable Terminal crafting. Load it with crafting station items —  including those from other mods — to make those stations available for crafting. Demon Altars and Crimson Altars are provided to enable recipes that require them.
+
+[h2]Favorited Recipes Panel[/h2]
+A separate floating panel that tracks your favorited recipes. For each recipe it shows the output item and every ingredient with a live have/need count drawn from both storage and your inventory. Collapsible, pinnable, and is transparent when pinned with the inventory closed.
+
+[h2]Crafting Tree[/h2]
+A visual graph explorer for item relationships. Hover any item in your inventory and press a configurable hotkey to open.
+[list]
+[*] [b]Bidirectional[/b] — the right side shows what an item crafts into; the left side shows the ingredients needed to create it. Right-click nodes to expand or collapse branches.
+[*] [b]Info Panel[/b] — left-click a node to select it and reveal a sidebar with all non-crafting sources: NPC drops (with drop chance and stack range), NPC shop availability, and Shimmer transmutations.
+[*] [b]Terminal integration[/b] — middle-click any node while a Terminal is open to jump directly to that recipe in the crafting tab.
+[*] [b]Minimap[/b] — a corner overview of the full graph. Click and drag to navigate.
+[*] Animated expand/collapse transitions, category-colored nodes. Draggable, resizable, minimizable window.
+[/list]
+
+[h2]Disk Archiving[/h2]
+Middle-click a disk in your inventory to archive it. An archived disk embeds all its stored items into itself, removes them from the world's storage, and can be carried to a different world and unarchived there. Middle-click again to unarchive — inserting it into any Drive Bay restores all items.
+
+[h2]Disk Backups[/h2]
+TerraStorage automatically backs up your storage as you play. Up to 3 rolling backups are kept per world — the current session is updated continuously, and older sessions are preserved as you come and go.
+
+Restore from the [b]Client Config[/b] page: pick a world, pick a slot, click Restore. Load the world and the backup replaces your current storage state.
+
+Dedicated server admins can use the [b]tsrestore[/b] console command:
+[list]
+[*] [b]tsrestore list[/b] — show available backups with timestamps
+[*] [b]tsrestore [0|1|2][/b] — apply a restore immediately without restarting the world
+[/list]
+
+[h2]Disk Recovery[/h2]
+Opened from the Drive Bay UI. Shows all known disk records in world storage, including orphaned disks whose physical item was lost. Select a lost disk, place a blank replacement disk of matching tier in the slot, and click Restore to recover full access to its contents.
+
+[h2]Multiplayer[/h2]
+Fully multiplayer-compatible. Storage operations are server-authoritative; clients send requests and receive synced state back. An optional [b]Predictive Sync Mode[/b] (server config) uses lightweight delta packets instead of full disk broadcasts, reducing network traffic.
+
+[h2]Mod Compatibility[/h2]
+[list]
+[*] Accepts any placeable item as a crafting station — no hardcoded station list
+[*] Damage class filters catch modded subclasses (Calamity Rogue, True Melee, etc.)
+[*] Disk data is preserved through all storage, cloning, and network operations
+[*] Does not scan the world for tiles; all station availability is driven by items in the Crafting Core
+[/list]
+[hr][/hr]
+[h1]Blocks & Items[/h1]
+[list]
+[*] [b]Drive Bay[/b] — Placeable housing for up to 40 Storage Disks
+[*] [b]Terminal[/b] — UI access point for browsing, withdrawing, and crafting
+[*] [b]Remote Terminal[/b] — Binds to a Terminal; opens the full storage UI from anywhere
+[*] [b]Crafting Core[/b] — Holds station items; enables Terminal crafting
+[*] [b]Storage Disk T1–T6[/b] — Tiered storage media, upgradeable in sequence
+[/list]
+
+[hr][/hr]
+[h1]Art[/h1]
+I am not an artist — I have Aphantasia, so it's difficult for me to put my mind on "paper". If you're interested in texturing the items/tiles in this mod, feel free to message me!
+[hr][/hr]
+
+[h1]Credits[/h1]
+Developed by _/Stixx with assistance from [b]Claude[/b] (Anthropic).
+Claude assisted with architecture design, feature implementation, bug diagnosis, and code review throughout the project. I understand the hate around AI in general, but this simply would not exist without the insight into the very complex details and my limited knowledge of tModLoader API and C#/XNA in general. I write my own code and read every line generated, understanding rather than blindly accepting.
+
+[h1]Current Known Bugs[/h1]
+No known bugs at this time.
+
+[h1]Change Log[/h1]
+Please click [url=https://steamcommunity.com/sharedfiles/filedetails/changelog/3687137546]here[/url] to view the change log to ensure you don't run into issues when updating.
+Report bugs [url=https://steamcommunity.com/sharedfiles/filedetails/discussions/3687137546]here[/url]

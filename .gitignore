@@ -1,0 +1,51 @@
+# tModLoader / Terraria
+*.backup/
+*.bak
+*.orig
+*~
+Thumbs.db
+
+# Visual Studio / MonoDevelop
+bin/
+obj/
+*.csproj.user
+*.suo
+*.sln
+*.userprefs
+*.pdb
+*.dll
+*.exe
+*.log
+
+# tModLoader build artifacts
+bin/
+obj/
+*.mlib
+*.tmod
+
+# IDE settings
+.idea/
+.vs/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.cache
+
+# Backup files (your existing .backup folder)
+.backup/
+*.backup.zip
+
+# Build outputs
+build/
+dist/
+```
+
+Now let me add all your current files and make the first commit:
