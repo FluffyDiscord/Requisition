@@ -244,15 +244,19 @@ namespace TerraStorage.Content.UI.Elements
 
                         if (cellRect.Contains(Main.MouseScreen.ToPoint()))
                         {
+                            // Tooltip/stat display code can mutate Main.HoverItem's fields.
+                            // We must not point Terraria at our cached instance, otherwise
+                            // values (e.g. knockback) can accumulate across frames.
                             var hoverItem = GetOrCreateDrawItem(index, consolidatedItem);
-                            Main.HoverItem = hoverItem;
+                            var tooltipItem = hoverItem.Clone();
+                            Main.HoverItem = tooltipItem;
 
                             bool altHeld = Keyboard.GetState().IsKeyDown(Keys.LeftAlt)
                                         || Keyboard.GetState().IsKeyDown(Keys.RightAlt);
                             if (altHeld)
                             {
                                 var dbg = new StringBuilder();
-                                dbg.Append(hoverItem.Name);
+                                dbg.Append(tooltipItem.Name);
                                 if (_showFavoriteHint)
                                     dbg.Append(favorited ? "\nAlt+Click to unfavorite" : "\nAlt+Click to favorite");
                                 dbg.Append("\n[DEBUG NBT]");
@@ -269,12 +273,12 @@ namespace TerraStorage.Content.UI.Elements
                             else if (_showFavoriteHint)
                             {
                                 Main.hoverItemName = favorited
-                                    ? hoverItem.Name + "\nAlt+Click to unfavorite"
-                                    : hoverItem.Name + "\nAlt+Click to favorite";
+                                    ? tooltipItem.Name + "\nAlt+Click to unfavorite"
+                                    : tooltipItem.Name + "\nAlt+Click to favorite";
                             }
                             else
                             {
-                                Main.hoverItemName = hoverItem.Name;
+                                Main.hoverItemName = tooltipItem.Name;
                             }
                         }
                     }
