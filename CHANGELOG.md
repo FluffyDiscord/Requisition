@@ -1,5 +1,5 @@
 # TerraStorage Changelog
-## [0.2.6] - Unreleased
+## [0.2.6] - Released
 
 ### Fixed
 - Texture smearing on tiles (Terminal, CraftingCore, DriveBay)
@@ -57,7 +57,7 @@
 ### Fixed
 - Crafting with a full storage network no longer silently destroys the crafted item — it goes to the player's inventory instead. If both storage and inventory are full, crafting is blocked.
 
-## [0.2.1] - Unreleased
+## [0.2.1] - Released
 
 ### Added
 - **Item Encyclopedia** (rebindable keybind)
