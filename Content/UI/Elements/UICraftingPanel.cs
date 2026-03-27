@@ -71,6 +71,8 @@ namespace TerraStorage.Content.UI.Elements
         private int _amountDragBaseAmount;
         private bool _prevMouseRight;
         private Rectangle _amountFieldRect; // screen-space rect, updated each draw
+        private bool _cleanCraft; // When true, skip vanilla prefix rolling and mod craft hooks
+        private Rectangle _cleanCraftCheckRect; // screen-space rect for the checkbox
 
         // Detail panel scroll
         private float _detailScrollOffset = 0f;
@@ -857,6 +859,14 @@ namespace TerraStorage.Content.UI.Elements
                 return;
             }
 
+            // Clean Craft checkbox (on the middle row, right of amount field)
+            if (_cleanCraftCheckRect.Contains(mousePoint))
+            {
+                _cleanCraft = !_cleanCraft;
+                Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.MenuTick);
+                return;
+            }
+
             // Input field row (middle row) — left-click focuses text input
             if (relY >= dims.Height - 70 && relY < dims.Height - 45)
             {
@@ -977,7 +987,7 @@ namespace TerraStorage.Content.UI.Elements
                 {
                     var mod = Terraria.ModLoader.ModLoader.GetMod("TerraStorage");
                     NetworkHandler.SendCraftRequest(mod, _diskIds, _selectedRecipe.createItem.type,
-                        _craftAmount * _selectedRecipe.createItem.stack, _availableStations, _availableConditions);
+                        _craftAmount * _selectedRecipe.createItem.stack, _availableStations, _availableConditions, _cleanCraft);
                     Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.Grab);
                 }
                 return;
@@ -1004,7 +1014,7 @@ namespace TerraStorage.Content.UI.Elements
             if (!storageHasRoom && !PlayerHasRoomFor(Main.LocalPlayer, resultPreview))
                 return;
 
-            var result = RecipeResolver.ExecutePlan(planToUse, _diskIds);
+            var result = RecipeResolver.ExecutePlan(planToUse, _diskIds, _cleanCraft);
             if (!result.IsAir)
             {
                 int leftover = StorageWorldSystem.Instance.InsertItem(_diskIds, result);
@@ -1316,7 +1326,9 @@ namespace TerraStorage.Content.UI.Elements
             Utils.DrawBorderString(spriteBatch, amtLabel,
                 new Vector2(dims.X + 5, craftMaxBtnY + 4), Color.LightGray, 0.75f);
             float fieldOffsetX = amtLabelSize.X + 10;
-            var fieldRect = new Rectangle((int)(dims.X + 5 + fieldOffsetX), (int)craftMaxBtnY, (int)(dims.Width - 14 - fieldOffsetX), 25);
+            int checkboxSize = 18;
+            int checkboxGap = 6;
+            var fieldRect = new Rectangle((int)(dims.X + 5 + fieldOffsetX), (int)craftMaxBtnY, (int)(dims.Width - 14 - fieldOffsetX - checkboxSize - checkboxGap), 25);
             _amountFieldRect = fieldRect; // expose to Update for raw mouse detection
             Color fieldBg = _amountFieldFocused  ? new Color(45, 55, 100)
                           : _amountDragActive    ? new Color(60, 45, 110)
@@ -1329,6 +1341,29 @@ namespace TerraStorage.Content.UI.Elements
                 new Vector2(fieldRect.X + 6, craftMaxBtnY + 2), Color.White, 0.8f);
             if (!_amountFieldFocused && !_amountDragActive && fieldRect.Contains(Main.MouseScreen.ToPoint()))
                 Main.hoverItemName = "Left-click to type  |  Right-drag to adjust  |  Middle-click to reset";
+
+            // Clean Craft checkbox (right of amount field)
+            int cbX = fieldRect.Right + checkboxGap;
+            int cbY = (int)craftMaxBtnY + (25 - checkboxSize) / 2;
+            var cbRect = new Rectangle(cbX, cbY, checkboxSize, checkboxSize);
+            _cleanCraftCheckRect = cbRect;
+            bool cbHover = cbRect.Contains(Main.MouseScreen.ToPoint());
+            Color cbBg = cbHover ? new Color(83, 104, 181) : new Color(53, 74, 141);
+            Utils.DrawInvBG(spriteBatch, cbRect, cbBg);
+            if (_cleanCraft)
+            {
+                var checkSize = FontAssets.MouseText.Value.MeasureString("x") * 0.7f;
+                Utils.DrawBorderString(spriteBatch, "x",
+                    new Vector2(cbX + checkboxSize / 2f - checkSize.X / 2f, cbY + checkboxSize / 2f - checkSize.Y / 2f - 1),
+                    Color.White, 0.7f);
+            }
+            if (cbHover)
+            {
+                Main.LocalPlayer.mouseInterface = true;
+                Main.hoverItemName = _cleanCraft
+                    ? "Clean Craft: ON\nCrafts items with no prefixes or other modifiers.\nClick to disable."
+                    : "Clean Craft: OFF\nItems receive vanilla prefixes and mod modifiers.\nClick to enable.";
+            }
 
             // Craft button + output slot row
             int outSlotSize = 30;

@@ -1,4 +1,4 @@
 displayName = TerraStorage
 author = _/Stixx
-version = 0.2.6
+version = 0.2.7
 buildIgnore = .gitignore, .git/*, .continue/*, .claude/*, CLAUDE.md, CHANGELOG.md, DESCRIPTION.md, *.kra, *.kra~, *.png~, Backup_*.zip, icon.kra, thumb.kra, thumb.png~, icon.png~

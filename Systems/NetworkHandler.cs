@@ -492,7 +492,7 @@ namespace TerraStorage.Systems
         // ─── Crafting ───────────────────────────────────────────────────
 
         public static void SendCraftRequest(Mod mod, List<Guid> diskIds, int recipeItemType,
-            int craftAmount, HashSet<int> stations, HashSet<CraftingCondition> conditions)
+            int craftAmount, HashSet<int> stations, HashSet<CraftingCondition> conditions, bool cleanCraft)
         {
             if (Main.netMode != NetmodeID.MultiplayerClient)
                 return;
@@ -511,6 +511,7 @@ namespace TerraStorage.Systems
             packet.Write(conditions.Count);
             foreach (var c in conditions)
                 packet.Write((byte)c);
+            packet.Write(cleanCraft);
             packet.Send();
         }
 
@@ -529,6 +530,7 @@ namespace TerraStorage.Systems
             var conditions = new HashSet<CraftingCondition>();
             for (int i = 0; i < condCount; i++)
                 conditions.Add((CraftingCondition)reader.ReadByte());
+            bool cleanCraft = reader.ReadBoolean();
 
             if (Main.netMode == NetmodeID.Server)
             {
@@ -551,7 +553,7 @@ namespace TerraStorage.Systems
 
                     if (canCraft)
                     {
-                        var result = RecipeResolver.ExecutePlan(plan, diskIds);
+                        var result = RecipeResolver.ExecutePlan(plan, diskIds, cleanCraft);
                         if (!result.IsAir)
                         {
                             int leftover = StorageWorldSystem.Instance.InsertItem(diskIds, result);

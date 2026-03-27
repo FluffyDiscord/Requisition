@@ -1,4 +1,11 @@
 # TerraStorage Changelog
+## [0.2.7]
+
+### Fixed
+- Protect the floor/platform where a Crafting Core/Drive Bay contains items.
+- Added simulated vanilla crafting mode (experimental, there will be bugs at the moment)
+  - Brings support for mods that add data to items on craft
+
 ## [0.2.6] - Released
 
 ### Fixed

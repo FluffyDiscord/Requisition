@@ -4,6 +4,7 @@ using System.Linq;
 using Terraria;
 using Terraria.ID;
 using Terraria.Localization;
+using Terraria.DataStructures;
 using Terraria.ModLoader;
 using Terraria.Map;
 using TerraStorage.Common;
@@ -911,7 +912,7 @@ namespace TerraStorage.Helpers
         /// Execute a crafting plan, consuming items from storage and player inventory,
         /// producing the result back into storage.
         /// </summary>
-        public static Item ExecutePlan(CraftingPlan plan, IEnumerable<Guid> diskIds)
+        public static Item ExecutePlan(CraftingPlan plan, IEnumerable<Guid> diskIds, bool cleanCraft = true)
         {
             if (!plan.IsFeasible)
                 return new Item();
@@ -974,6 +975,57 @@ namespace TerraStorage.Helpers
                 {
                     // Intermediate step: insert into storage so the next step can consume it.
                     StorageWorldSystem.Instance.InsertItem(diskList, produced);
+                }
+            }
+
+            // Apply vanilla crafting simulation (prefix rolling + mod hooks) on the
+            // final result, unless Clean Craft is enabled or this is a disk upgrade.
+            // Runs after all steps complete so ingredients are safely consumed even if
+            // a mod hook throws an exception.
+            if (!cleanCraft && !finalResult.IsAir && plan.Steps.Count > 0
+                && !(finalResult.ModItem is StorageDiskBase))
+            {
+                var finalStep = plan.Steps[^1];
+                if (finalStep.Recipe != null)
+                {
+                    int savedStack = finalResult.stack;
+
+                    // Roll a random prefix (no-op for items that can't have prefixes)
+                    try { finalResult.Prefix(-1); }
+                    catch { /* prefix rolling failed — item stays unmodified */ }
+                    finalResult.stack = savedStack;
+
+                    // Build consumed items list for mod hooks
+                    var consumedItems = new List<Item>();
+                    foreach (var kvp in finalStep.Consumed)
+                    {
+                        var ci = new Item();
+                        ci.SetDefaults(kvp.Key);
+                        ci.stack = kvp.Value;
+                        consumedItems.Add(ci);
+                    }
+
+                    // Fire OnCreated hooks with per-hook exception isolation.
+                    // tModLoader's ItemLoader.OnCreated (also called internally by
+                    // RecipeLoader.OnCraft) iterates all GlobalItem hooks in a single
+                    // loop without try-catch — one mod throwing prevents all subsequent
+                    // hooks from running (e.g. TerraCards' CardSystemItem never getting
+                    // its card slots initialized). Iterating manually ensures every
+                    // GlobalItem.OnCreated is called regardless of earlier failures.
+                    var creationContext = new RecipeItemCreationContext(finalStep.Recipe, consumedItems, finalResult);
+                    foreach (var gi in finalResult.EntityGlobals)
+                    {
+                        if (gi == null) continue;
+                        try { gi.OnCreated(finalResult, creationContext); }
+                        catch { }
+                    }
+                    if (finalResult.ModItem != null)
+                    {
+                        try { finalResult.ModItem.OnCreated(creationContext); }
+                        catch { }
+                    }
+
+                    finalResult.stack = savedStack;
                 }
             }
 
