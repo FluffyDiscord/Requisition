@@ -7,6 +7,7 @@ using Terraria.GameContent;
 using Terraria.GameContent.UI.Elements;
 using Terraria.ID;
 using Terraria.ModLoader;
+using Terraria.Localization;
 using Terraria.UI;
 using TerraStorage.Content.Items;
 using TerraStorage.Content.Tiles;
@@ -59,7 +60,7 @@ namespace TerraStorage.Content.UI
             _panel.SetPadding(10);
             Append(_panel);
 
-            var title = new UIText("Drive Bay");
+            var title = new UIText(Language.GetTextValue("Mods.TerraStorage.UI.DriveBay.Title"));
             title.HAlign = 0.5f;
             _panel.Append(title);
 
@@ -68,7 +69,7 @@ namespace TerraStorage.Content.UI
             closeBtn.Top.Set(-4, 0f);
             _panel.Append(closeBtn);
 
-            var recoverBtn = new UITextPanel<string>("Recover", 0.65f);
+            var recoverBtn = new UITextPanel<string>(Language.GetTextValue("Mods.TerraStorage.UI.DriveBay.Recover"), 0.65f);
             recoverBtn.Width.Set(80, 0f);
             recoverBtn.Height.Set(22, 0f);
             recoverBtn.Left.Set(0, 0f);

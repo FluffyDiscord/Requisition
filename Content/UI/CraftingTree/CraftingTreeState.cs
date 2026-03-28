@@ -7,6 +7,7 @@ using Terraria;
 using Terraria.GameContent;
 using Terraria.GameInput;
 using Terraria.ID;
+using Terraria.Localization;
 using Terraria.ModLoader;
 using Terraria.UI;
 using TerraStorage.Content.UI;
@@ -1034,7 +1035,9 @@ namespace TerraStorage.Content.UI.CraftingTree
             if (Main.MouseScreen.X >= amX && Main.MouseScreen.X <= amX + 24
                 && Main.MouseScreen.Y >= amY && Main.MouseScreen.Y <= amY + 24)
             {
-                string tip = _autoMinimize ? "Auto-minimize: ON" : "Auto-minimize: OFF";
+                string tip = _autoMinimize
+                    ? Language.GetTextValue("Mods.TerraStorage.UI.CraftingTree.AutoMinimizeOn")
+                    : Language.GetTextValue("Mods.TerraStorage.UI.CraftingTree.AutoMinimizeOff");
                 Main.instance.MouseText(tip);
             }
 
@@ -1294,7 +1297,7 @@ namespace TerraStorage.Content.UI.CraftingTree
             {
                 float cycleScale = _zoom * 0.25f;
                 var cyclePos = new Vector2(screenPos.X + 2 * _zoom, screenPos.Y + size - 12 * _zoom);
-                Utils.DrawBorderString(spriteBatch, "cycle", cyclePos, Color.Yellow, cycleScale);
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingTree.Cycle"), cyclePos, Color.Yellow, cycleScale);
             }
         }
 
@@ -1403,7 +1406,7 @@ namespace TerraStorage.Content.UI.CraftingTree
             // ── Dropped by ──
             if (drops != null && drops.Count > 0)
             {
-                Utils.DrawBorderString(spriteBatch, "Dropped by", new Vector2(panelX + 8, y + 2), new Color(255, 200, 100), labelScale);
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingTree.DroppedBy"), new Vector2(panelX + 8, y + 2), new Color(255, 200, 100), labelScale);
                 y += 22;
 
                 foreach (var drop in drops)
@@ -1436,7 +1439,7 @@ namespace TerraStorage.Content.UI.CraftingTree
             // ── Sold by ──
             if (shops != null && shops.Count > 0)
             {
-                Utils.DrawBorderString(spriteBatch, "Sold by", new Vector2(panelX + 8, y + 2), new Color(100, 200, 255), labelScale);
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingTree.SoldBy"), new Vector2(panelX + 8, y + 2), new Color(100, 200, 255), labelScale);
                 y += 22;
 
                 foreach (var shop in shops)
@@ -1463,7 +1466,7 @@ namespace TerraStorage.Content.UI.CraftingTree
             // ── Shimmered from ──
             if (shimmerFrom != null && shimmerFrom.Count > 0)
             {
-                Utils.DrawBorderString(spriteBatch, "Shimmered from", new Vector2(panelX + 8, y + 2), new Color(200, 100, 255), labelScale);
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingTree.ShimmeredFrom"), new Vector2(panelX + 8, y + 2), new Color(200, 100, 255), labelScale);
                 y += 22;
 
                 foreach (int srcType in shimmerFrom)
@@ -1490,7 +1493,7 @@ namespace TerraStorage.Content.UI.CraftingTree
             // ── Shimmers into ──
             if (shimmerTo > 0)
             {
-                Utils.DrawBorderString(spriteBatch, "Shimmers into", new Vector2(panelX + 8, y + 2), new Color(200, 100, 255), labelScale);
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingTree.ShimmersInto"), new Vector2(panelX + 8, y + 2), new Color(200, 100, 255), labelScale);
                 y += 22;
 
                 float rowX = panelX + 6;

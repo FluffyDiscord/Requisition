@@ -7,6 +7,7 @@ using Terraria;
 using Terraria.Audio;
 using Terraria.GameContent;
 using Terraria.ID;
+using Terraria.Localization;
 using Terraria.UI;
 using TerraStorage.Systems;
 
@@ -232,7 +233,7 @@ namespace TerraStorage.Content.UI
                 if (pinHov) Main.hoverItemName = IsPinned ? "Unpin (hide when inventory closes)" : "Pin (keep visible)";
             }
 
-            Utils.DrawBorderString(spriteBatch, "★ Favorited Recipes",
+            Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.FavoritedRecipes.Title"),
                 new Vector2(PanelLeft + 6, PanelTop + 5), Color.Gold * alpha, 0.75f);
 
             if (IsCollapsed) return;
@@ -282,7 +283,7 @@ namespace TerraStorage.Content.UI
 
             if (favorites.Count == 0)
             {
-                Utils.DrawBorderString(spriteBatch, "No favorited recipes.",
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.FavoritedRecipes.NoFavorites"),
                     new Vector2(PanelLeft + 8, PanelTop + HeaderHeight + 6), Color.Gray * alpha, 0.7f);
             }
 

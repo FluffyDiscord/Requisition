@@ -10,6 +10,7 @@ using Terraria.GameContent;
 using Terraria.GameContent.UI.Elements;
 using Terraria.GameInput;
 using Terraria.ID;
+using Terraria.Localization;
 using Terraria.ModLoader;
 using Terraria.UI;
 using TerraStorage.Content.Tiles;
@@ -456,7 +457,7 @@ namespace TerraStorage.Content.UI
             {
                 _cachedItems.Clear();
                 _itemGrid?.SetItems(new List<ConsolidatedItem>());
-                _statusText?.SetText("0 / 0 slots");
+                _statusText?.SetText(Language.GetText("Mods.TerraStorage.UI.DiskPanel.SlotCount").Format(0, 0));
                 return;
             }
 
@@ -502,7 +503,7 @@ namespace TerraStorage.Content.UI
             favorited.AddRange(regular);
             _itemGrid?.SetItems(favorited);
             var (used, max) = GetStorageCapacity();
-            _statusText?.SetText($"{used} / {max} slots");
+            _statusText?.SetText(Language.GetText("Mods.TerraStorage.UI.DiskPanel.SlotCount").Format(used, max));
         }
 
         /// <summary>
@@ -948,7 +949,7 @@ namespace TerraStorage.Content.UI
                         // Disk IDs are unchanged — let the crafting panel's own throttled
                         // refresh detect the version change and update at its next tick.
                         var (used, max) = GetStorageCapacity();
-                        _statusText?.SetText($"{used} / {max} slots");
+                        _statusText?.SetText(Language.GetText("Mods.TerraStorage.UI.DiskPanel.SlotCount").Format(used, max));
                         break;
                     case ActiveTab.Storage:
                         RefreshItems();

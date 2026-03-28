@@ -10,6 +10,7 @@ using Terraria.GameContent.UI.Elements;
 using Terraria.GameInput;
 using Terraria.ID;
 using Terraria.ModLoader;
+using Terraria.Localization;
 using Terraria.UI;
 using TerraStorage.Common;
 using TerraStorage.Content.Items;
@@ -60,7 +61,7 @@ namespace TerraStorage.Content.UI
             _panel.SetPadding(10);
             Append(_panel);
 
-            var title = new UIText("Disk Recovery");
+            var title = new UIText(Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.Title"));
             title.HAlign = 0.5f;
             _panel.Append(title);
 
@@ -74,7 +75,7 @@ namespace TerraStorage.Content.UI
             _panel.Append(closeBtn);
 
             // Restore button positioned in the bottom section
-            var restoreBtn = new UITextPanel<string>("Restore", 0.75f);
+            var restoreBtn = new UITextPanel<string>(Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.Restore"), 0.75f);
             restoreBtn.Width.Set(90, 0f);
             restoreBtn.Height.Set(30, 0f);
             restoreBtn.Left.Set(60, 0f);
@@ -148,18 +149,18 @@ namespace TerraStorage.Content.UI
         {
             if (_selectedDisk == null)
             {
-                _statusText.SetText("[c/FF8888:Select a disk from the list first.]");
+                _statusText.SetText($"[c/FF8888:{Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.SelectFirst")}]");
                 return;
             }
             if (_replacementDisk == null || _replacementDisk.IsAir ||
                 _replacementDisk.ModItem is not StorageDiskBase repDisk)
             {
-                _statusText.SetText("[c/FF8888:Place a blank replacement disk in the slot.]");
+                _statusText.SetText($"[c/FF8888:{Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.NeedReplacementDisk")}]");
                 return;
             }
             if (repDisk.Tier != _selectedDisk.Tier)
             {
-                _statusText.SetText($"[c/FF8888:Disk must be {_selectedDisk.Tier.GetName()} tier to match.]");
+                _statusText.SetText($"[c/FF8888:{Language.GetText("Mods.TerraStorage.UI.DiskRecovery.TierMismatch").Format(_selectedDisk.Tier.GetName())}]");
                 return;
             }
 
@@ -200,7 +201,7 @@ namespace TerraStorage.Content.UI
             _selectedDisk = null;
             _itemScrollOffset = 0;
             RefreshDiskList();
-            _statusText.SetText("[c/88FF88:Disk restored! Check your inventory.]");
+            _statusText.SetText($"[c/88FF88:{Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.DiskRestored")}]");
             SoundEngine.PlaySound(SoundID.Item37);
         }
 
@@ -227,7 +228,7 @@ namespace TerraStorage.Content.UI
         {
             var bgRect = new Rectangle((int)lx, (int)ly, ListWidth, MainAreaHeight);
             Utils.DrawInvBG(spriteBatch, bgRect, new Color(23, 33, 69) * 0.85f);
-            Utils.DrawBorderString(spriteBatch, "Known Disks", new Vector2(lx + 6, ly + 4), Color.White, 0.8f);
+            Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.KnownDisks"), new Vector2(lx + 6, ly + 4), Color.White, 0.8f);
 
             int entryAreaTop = (int)(ly + 22);
             int entryAreaH = MainAreaHeight - 22;
@@ -269,14 +270,14 @@ namespace TerraStorage.Content.UI
 
             if (_diskList.Count == 0)
             {
-                Utils.DrawBorderString(spriteBatch, "No disk data found.",
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.NoDiskData"),
                     new Vector2(lx + 6, ly + MainAreaHeight / 2f - 8), Color.Gray, 0.75f);
             }
             else if (_diskList.Count > maxVisible)
             {
                 int lo = _diskScrollOffset + 1;
                 int hi = Math.Min(_diskScrollOffset + maxVisible, _diskList.Count);
-                Utils.DrawBorderString(spriteBatch, $"{lo}-{hi} of {_diskList.Count}",
+                Utils.DrawBorderString(spriteBatch, Language.GetText("Mods.TerraStorage.UI.DiskRecovery.SlotRange").Format(lo, hi, _diskList.Count),
                     new Vector2(lx + 4, ly + MainAreaHeight - 14), Color.Gray, 0.6f);
             }
         }
@@ -288,7 +289,7 @@ namespace TerraStorage.Content.UI
 
             if (_selectedDisk == null)
             {
-                Utils.DrawBorderString(spriteBatch, "Select a disk from the list.",
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.SelectDisk"),
                     new Vector2(dx + 8, dy + 8), Color.Gray, 0.8f);
                 return;
             }
@@ -308,7 +309,7 @@ namespace TerraStorage.Content.UI
 
             if (_selectedDisk.Items.Count == 0)
             {
-                Utils.DrawBorderString(spriteBatch, "No items stored on this disk.",
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.NoItemsOnDisk"),
                     new Vector2(dx + 8, itemAreaTop + 6), Color.Gray, 0.75f);
                 return;
             }
@@ -353,7 +354,7 @@ namespace TerraStorage.Content.UI
                 int lo = _itemScrollOffset + 1;
                 int hi = Math.Min(_itemScrollOffset + maxVisible, _selectedDisk.Items.Count);
                 Utils.DrawBorderString(spriteBatch,
-                    $"{lo}-{hi} of {_selectedDisk.Items.Count} entries",
+                    Language.GetText("Mods.TerraStorage.UI.DiskRecovery.SlotRange").Format(lo, hi, _selectedDisk.Items.Count),
                     new Vector2(dx + 4, dy + MainAreaHeight - 14), Color.Gray, 0.6f);
             }
         }
@@ -361,7 +362,7 @@ namespace TerraStorage.Content.UI
         private void DrawBottomSection(SpriteBatch spriteBatch, float bx, float by)
         {
             Utils.DrawBorderString(spriteBatch,
-                "Place a blank disk of matching tier to restore it:",
+                Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.PlaceBlankDisk"),
                 new Vector2(bx, by), Color.White, 0.78f);
 
             var slotRect = GetSlotRect();

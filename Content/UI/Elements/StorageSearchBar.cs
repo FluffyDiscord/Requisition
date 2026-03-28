@@ -74,6 +74,7 @@ namespace TerraStorage.Content.UI.Elements
                 // Check for click outside
                 if (Main.mouseLeft && !ContainsPoint(Main.MouseScreen))
                 {
+                    _input.Deactivate();
                     _focused = false;
                     return;
                 }
@@ -94,6 +95,7 @@ namespace TerraStorage.Content.UI.Elements
                 // Escape to unfocus and clear
                 if (Keyboard.GetState().IsKeyDown(Keys.Escape))
                 {
+                    _input.Deactivate();
                     _focused = false;
                     SearchText = "";
                     OnTextChanged?.Invoke(SearchText);

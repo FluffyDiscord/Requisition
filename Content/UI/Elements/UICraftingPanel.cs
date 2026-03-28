@@ -9,6 +9,7 @@ using Terraria.GameContent;
 using Terraria.ID;
 using Terraria.GameContent.UI.Elements;
 using Terraria.GameInput;
+using Terraria.Localization;
 using Terraria.UI;
 using TerraStorage.Common;
 using TerraStorage.Content.UI;
@@ -554,6 +555,7 @@ namespace TerraStorage.Content.UI.Elements
             _craftAmount = 1;
             _amountFieldText = "1";
             _amountFieldFocused = false;
+            _amountInput.Deactivate();
 
             // Find all recipe variants for this item type
             _currentVariants = recipe != null
@@ -612,6 +614,7 @@ namespace TerraStorage.Content.UI.Elements
             _craftAmount = 1;
             _amountFieldText = "1";
             _amountFieldFocused = false;
+            _amountInput.Deactivate();
             _detailScrollOffset = 0f;
             _currentPlan = RecipeResolver.Resolve(recipe.createItem.type,
                 _craftAmount * recipe.createItem.stack, _diskIds, _availableStations, _availableConditions);
@@ -895,6 +898,7 @@ namespace TerraStorage.Content.UI.Elements
             if (_amountFieldFocused)
             {
                 _amountFieldFocused = false;
+                _amountInput.Deactivate();
                 ApplyAmountFieldText();
             }
         }
@@ -1067,13 +1071,15 @@ namespace TerraStorage.Content.UI.Elements
             var uncraftRect = new Rectangle((int)dims.X, (int)dims.Y, (int)halfW, 20);
             bool uncraftHover = uncraftRect.Contains(Main.MouseScreen.ToPoint());
             Color uncraftColor = uncraftHover ? Color.White : Color.LightGray;
-            Utils.DrawBorderString(spriteBatch, $"{uncraftBox} Show Uncraftable",
+            Utils.DrawBorderString(spriteBatch, $"{uncraftBox} {Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.ShowUncraftable")}",
                 new Vector2(dims.X + 4, dims.Y + 2), uncraftColor, checkScale);
             if (uncraftHover && !_recursionDragActive)
                 Main.hoverItemName = "Show recipes you can't currently craft";
 
             string recursiveBox = _recursiveCraft ? "[X]" : "[  ]";
-            string depthLabel = _recursiveCraft ? $"{recursiveBox} Recursive ({_recursionDepth})" : $"{recursiveBox} Recursive";
+            string depthLabel = _recursiveCraft
+                ? $"{recursiveBox} {Language.GetText("Mods.TerraStorage.UI.CraftingPanel.RecursiveWithDepth").Format(_recursionDepth)}"
+                : $"{recursiveBox} {Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.Recursive")}";
             var recursiveRect = new Rectangle((int)(dims.X + halfW), (int)dims.Y, (int)halfW, 20);
             _recursiveCheckRect = recursiveRect;
             bool recursiveHover = recursiveRect.Contains(Main.MouseScreen.ToPoint());
@@ -1102,8 +1108,8 @@ namespace TerraStorage.Content.UI.Elements
             if (_filteredRecipes.Count == 0)
             {
                 string msg = _availableStations.Count == 0
-                    ? "No Crafting Core connected!"
-                    : "No recipes match filters";
+                    ? Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.NoCraftingCore")
+                    : Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.NoRecipesMatch");
                 Utils.DrawBorderString(spriteBatch, msg,
                     new Vector2(dims.X + 5, gridStartY + 5), Color.Gray, 0.7f);
                 return;
@@ -1503,7 +1509,7 @@ namespace TerraStorage.Content.UI.Elements
                                 || _selectedRecipe.Conditions.Count > 0;
             if (hasRequirements)
             {
-                Utils.DrawBorderString(spriteBatch, "Requires:",
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.Requires"),
                     new Vector2(dims.X + 5, y), Color.LightGoldenrodYellow, 0.7f);
                 y += 18;
 
@@ -1598,7 +1604,7 @@ namespace TerraStorage.Content.UI.Elements
             }
 
             // Ingredients label + variant paginator on the same row
-            Utils.DrawBorderString(spriteBatch, "Ingredients:",
+            Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.Ingredients"),
                 new Vector2(dims.X + 5, y), Color.Yellow, 0.7f);
 
             if (_currentVariants.Count > 1)
@@ -1683,7 +1689,7 @@ namespace TerraStorage.Content.UI.Elements
             // Crafting chain steps
             if (_currentPlan != null && _currentPlan.Steps.Count > 1)
             {
-                Utils.DrawBorderString(spriteBatch, $"Crafting chain: {_currentPlan.Steps.Count} steps",
+                Utils.DrawBorderString(spriteBatch, Language.GetText("Mods.TerraStorage.UI.CraftingPanel.CraftingChain").Format(_currentPlan.Steps.Count),
                     new Vector2(dims.X + 5, y), Color.LightGray, 0.65f);
                 y += 16;
 
@@ -1704,13 +1710,13 @@ namespace TerraStorage.Content.UI.Elements
             var dims = _detailPanel.GetInnerDimensions();
             float y = dims.Y + 10;
 
-            Utils.DrawBorderString(spriteBatch, "Select a recipe",
+            Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.SelectRecipe"),
                 new Vector2(dims.X + 10, y), Color.Gray, 0.9f);
             y += 30;
 
             if (_availableStations.Count > 0)
             {
-                Utils.DrawBorderString(spriteBatch, "Available stations:",
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.AvailableStations"),
                     new Vector2(dims.X + 10, y), Color.LightGoldenrodYellow, 0.75f);
                 y += 20;
 
@@ -1747,13 +1753,13 @@ namespace TerraStorage.Content.UI.Elements
             }
             else
             {
-                Utils.DrawBorderString(spriteBatch, "No Crafting Core connected",
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.NoCraftingCore"),
                     new Vector2(dims.X + 10, y), Color.IndianRed, 0.75f);
                 y += 20;
-                Utils.DrawBorderString(spriteBatch, "Place a Crafting Core nearby",
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.PlaceCraftingCore"),
                     new Vector2(dims.X + 10, y), Color.Gray, 0.7f);
                 y += 18;
-                Utils.DrawBorderString(spriteBatch, "and insert crafting stations",
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.AndInsertStations"),
                     new Vector2(dims.X + 10, y), Color.Gray, 0.7f);
             }
         }
@@ -1792,7 +1798,7 @@ namespace TerraStorage.Content.UI.Elements
             }
 
             // Current value label at top
-            Utils.DrawBorderString(spriteBatch, $"Depth: {_recursionDepth}",
+            Utils.DrawBorderString(spriteBatch, Language.GetText("Mods.TerraStorage.UI.CraftingPanel.Depth").Format(_recursionDepth),
                 new Vector2(sliderX - 2, sliderY - 16), Color.Yellow, 0.55f);
         }
 
@@ -1939,6 +1945,7 @@ private void DrawItemIcon(SpriteBatch spriteBatch, int itemType, Vector2 center,
                 {
                     SetCraftAmount(1);
                     _amountFieldFocused = false;
+                    _amountInput.Deactivate();
                     _amountFieldMouseDown = false;
                     _amountDragActive = false;
                 }
@@ -1996,6 +2003,7 @@ private void DrawItemIcon(SpriteBatch spriteBatch, int itemType, Vector2 center,
                 if (_amountFieldFocused)
                 {
                     _amountFieldFocused = false;
+                    _amountInput.Deactivate();
                     ApplyAmountFieldText();
                 }
             }
@@ -2046,6 +2054,7 @@ private void DrawItemIcon(SpriteBatch spriteBatch, int itemType, Vector2 center,
                 if (Keyboard.GetState().IsKeyDown(Keys.Escape) || Keyboard.GetState().IsKeyDown(Keys.Enter))
                 {
                     _amountFieldFocused = false;
+                    _amountInput.Deactivate();
                     ApplyAmountFieldText();
                 }
             }

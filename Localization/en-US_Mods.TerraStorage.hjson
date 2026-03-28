@@ -160,3 +160,102 @@ Configs: {
 		}
 	}
 }
+
+UI: {
+	DiskRecovery: {
+		Title: Disk Recovery
+		Restore: Restore
+		KnownDisks: Known Disks
+		NoDiskData: No disk data found.
+		SelectDisk: Select a disk from the list.
+		NoItemsOnDisk: No items stored on this disk.
+		SlotRange: "{0}-{1} of {2}"
+		SelectFirst: Select a disk from the list.
+		PlaceBlankDisk: Place a blank disk of matching tier to restore it:
+		NeedReplacementDisk: Place a blank replacement disk in the slot.
+		TierMismatch: Disk must be {0} tier to match.
+		DiskRestored: Disk restored! Check your inventory.
+	}
+
+	Encyclopedia: {
+		Title: Item Encyclopedia
+		ClickToView: Click an item to view details.
+		NoSourceData: No source data available.
+		NoDropOrShop: No drop or shop data.
+		Back: < Back
+		Makes: Makes {0}
+		BoughtFrom: Bought from:
+		BuyLabel: "Buy: "
+		DroppedBy: Dropped by
+		SoldBy: Sold by
+		ShimmeredFrom: Shimmered from
+		ShimmersInto: Shimmers into
+		OpenBrowser: Open item browser
+		CloseBrowser: Close item browser
+	}
+
+	CraftingCore: {
+		Title: Crafting Core - Station Modules
+		HelpText: Insert crafting station items (workbenches, anvils, etc.)
+	}
+
+	DriveBay: {
+		Title: Drive Bay
+		Recover: Recover
+	}
+
+	CraftingPanel: {
+		ShowUncraftable: Show Uncraftable
+		Recursive: Recursive
+		RecursiveWithDepth: Recursive ({0})
+		Requires: Requires:
+		Ingredients: Ingredients:
+		SelectRecipe: Select a recipe
+		AvailableStations: Available stations:
+		NoCraftingCore: No Crafting Core connected
+		PlaceCraftingCore: Place a Crafting Core nearby
+		AndInsertStations: and insert crafting stations
+		Depth: Depth: {0}
+		CraftingChain: Crafting chain: {0} steps
+		NoRecipesMatch: No recipes match filters
+	}
+
+	DiskPanel: {
+		Defragment: Defragment
+		SelectDisk: Select a disk
+		NoDisksConnected: No disks connected
+		Contents: Contents:
+		MaxTier: Max Tier
+		Empty: Empty
+		UpgradeTo: Upgrade to: {0}
+		Upgrade: Upgrade
+		SlotCount: "{0} / {1} slots"
+		DiskUnavailable: Disk data unavailable
+	}
+
+	BackupRestore: {
+		Restore: Restore
+		NoWorldsFound: No worlds found
+		NoBackup: No backup in that slot.
+		QueuedRestore: Queued — load the world to apply.
+		QueueFailed: Failed to queue restore.
+		SlotRecent: Recent
+		SlotPrevious: Previous
+		SlotOldest: Oldest
+	}
+
+	FavoritedRecipes: {
+		Title: ★ Favorited Recipes
+		NoFavorites: No favorited recipes.
+	}
+
+	CraftingTree: {
+		Cycle: cycle
+		AutoMinimizeOn: Auto-minimize: ON
+		AutoMinimizeOff: Auto-minimize: OFF
+		DroppedBy: Dropped by
+		SoldBy: Sold by
+		ShimmeredFrom: Shimmered from
+		ShimmersInto: Shimmers into
+	}
+}

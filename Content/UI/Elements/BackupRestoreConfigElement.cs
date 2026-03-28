@@ -3,6 +3,7 @@ using System.IO;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.GameContent.UI.Elements;
+using Terraria.Localization;
 using Terraria.ModLoader.Config.UI;
 using Terraria.UI;
 using TerraStorage.Systems;
@@ -15,7 +16,11 @@ namespace TerraStorage.Content.UI.Elements
     /// </summary>
     public class BackupRestoreConfigElement : ConfigElement<object>
     {
-        private static readonly string[] SlotLabels = { "Recent", "Previous", "Oldest" };
+        private static string GetSlotLabel(int i) => Language.GetTextValue(i switch {
+            0 => "Mods.TerraStorage.UI.BackupRestore.SlotRecent",
+            1 => "Mods.TerraStorage.UI.BackupRestore.SlotPrevious",
+            _ => "Mods.TerraStorage.UI.BackupRestore.SlotOldest"
+        });
 
         private string[] _worldPaths = Array.Empty<string>();
         private int _selectedWorld = -1;
@@ -64,7 +69,7 @@ namespace TerraStorage.Content.UI.Elements
             {
                 int slot = i;
 
-                var restoreBtn = MakeButton("Restore", () => DoRestore(slot), BtnW);
+                var restoreBtn = MakeButton(Language.GetTextValue("Mods.TerraStorage.UI.BackupRestore.Restore"), () => DoRestore(slot), BtnW);
                 restoreBtn.Left.Set(Indent, 0f);
                 restoreBtn.Top.Set(y, 0f);
                 Append(restoreBtn);
@@ -127,7 +132,7 @@ namespace TerraStorage.Content.UI.Elements
         {
             if (_selectedWorld < 0 || _selectedWorld >= _worldPaths.Length)
             {
-                _worldNameText?.SetText("No worlds found");
+                _worldNameText?.SetText(Language.GetTextValue("Mods.TerraStorage.UI.BackupRestore.NoWorldsFound"));
                 for (int i = 0; i < BackupSystem.BackupCount; i++)
                     _slotTexts[i]?.SetText("—");
                 return;
@@ -146,13 +151,13 @@ namespace TerraStorage.Content.UI.Elements
             {
                 if (!BackupSystem.BackupExists(worldPath, i))
                 {
-                    _slotTexts[i]?.SetText($"{SlotLabels[i]}: —");
+                    _slotTexts[i]?.SetText($"{GetSlotLabel(i)}: —");
                 }
                 else
                 {
                     DateTime t = BackupSystem.GetBackupTime(worldPath, i);
                     string ts = t != default ? t.ToString("MM/dd HH:mm") : "?";
-                    _slotTexts[i]?.SetText($"{SlotLabels[i]}: {ts}");
+                    _slotTexts[i]?.SetText($"{GetSlotLabel(i)}: {ts}");
                 }
             }
         }
@@ -166,14 +171,14 @@ namespace TerraStorage.Content.UI.Elements
             string worldPath = _worldPaths[_selectedWorld];
             if (!BackupSystem.BackupExists(worldPath, slot))
             {
-                _statusText?.SetText("No backup in that slot.");
+                _statusText?.SetText(Language.GetTextValue("Mods.TerraStorage.UI.BackupRestore.NoBackup"));
                 return;
             }
 
             bool ok = BackupSystem.QueueRestore(worldPath, slot);
             _statusText?.SetText(ok
-                ? "Queued — load the world to apply."
-                : "Failed to queue restore.");
+                ? Language.GetTextValue("Mods.TerraStorage.UI.BackupRestore.QueuedRestore")
+                : Language.GetTextValue("Mods.TerraStorage.UI.BackupRestore.QueueFailed"));
 
             UpdateSlotDisplay(); // refresh the * indicator
         }
