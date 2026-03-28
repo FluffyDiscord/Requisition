@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Microsoft.Xna.Framework.Input;
+using SDL2;
 
 namespace TerraStorage.Content.UI.Elements
 {
@@ -68,6 +69,39 @@ namespace TerraStorage.Content.UI.Elements
             else
             {
                 _backspaceTimer = 0;
+            }
+
+            // Clipboard shortcuts (Ctrl+C/X/V)
+            bool ctrl = keyState.IsKeyDown(Keys.LeftControl) || keyState.IsKeyDown(Keys.RightControl);
+            if (ctrl)
+            {
+                if (keyState.IsKeyDown(Keys.V) && !_prevKeyState.IsKeyDown(Keys.V))
+                {
+                    try
+                    {
+                        string clip = SDL.SDL_GetClipboardText();
+                        if (!string.IsNullOrEmpty(clip))
+                        {
+                            foreach (char c in clip)
+                            {
+                                if (char.IsControl(c)) continue;
+                                if (digitsOnly && !char.IsDigit(c)) continue;
+                                if (maxLength > 0 && result.Length >= maxLength) break;
+                                result += c;
+                            }
+                        }
+                    }
+                    catch { }
+                }
+                else if (keyState.IsKeyDown(Keys.C) && !_prevKeyState.IsKeyDown(Keys.C))
+                {
+                    try { SDL.SDL_SetClipboardText(result); } catch { }
+                }
+                else if (keyState.IsKeyDown(Keys.X) && !_prevKeyState.IsKeyDown(Keys.X))
+                {
+                    try { SDL.SDL_SetClipboardText(result); } catch { }
+                    result = "";
+                }
             }
 
             // Drain OS-resolved characters (locale-aware, includes Cyrillic)
