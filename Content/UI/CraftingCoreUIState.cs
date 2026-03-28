@@ -59,11 +59,11 @@ namespace TerraStorage.Content.UI
             _panel.SetPadding(10);
             Append(_panel);
 
-            var title = new UIText(Language.GetTextValue("Mods.TerraStorage.UI.CraftingCore.Title"));
+            var title = new UIText(Language.GetText("Mods.TerraStorage.UI.CraftingCore.Title"));
             title.HAlign = 0.5f;
             _panel.Append(title);
 
-            var helpText = new UIText(Language.GetTextValue("Mods.TerraStorage.UI.CraftingCore.HelpText"), 0.7f);
+            var helpText = new UIText(Language.GetText("Mods.TerraStorage.UI.CraftingCore.HelpText"), 0.7f);
             helpText.HAlign = 0.5f;
             helpText.Top.Set(22, 0f);
             _panel.Append(helpText);

@@ -1447,7 +1447,7 @@ namespace TerraStorage.Content.UI.Elements
             }
 
             // Craft button + output slot row
-            int outSlotSize = 30;
+            int outSlotSize = 40;
 
             // Craft button (on the left)
             var craftRect = new Rectangle((int)dims.X + 5, (int)craftBtnY, (int)dims.Width - outSlotSize - 14, 30);
