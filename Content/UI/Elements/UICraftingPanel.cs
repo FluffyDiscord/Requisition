@@ -168,14 +168,14 @@ namespace TerraStorage.Content.UI.Elements
         public void SetSearchText(string text)
         {
             _searchText = text ?? "";
-            FilterRecipes();
+            FilterRecipes(resetScroll: true);
         }
 
         public void SetSortMode(SortMode sortMode, bool ascending)
         {
             _sortMode = sortMode;
             _sortAscending = ascending;
-            FilterRecipes();
+            FilterRecipes(resetScroll: true);
         }
 
         public void RefreshFilteredRecipes()
@@ -256,7 +256,7 @@ namespace TerraStorage.Content.UI.Elements
                 _stationsConditionsMet[i] = met;
             }
 
-            FilterRecipes();
+            FilterRecipes(resetScroll: true);
 
             // Refresh variant list for selected recipe in case craftability changed
             if (_selectedRecipe != null)
@@ -448,7 +448,7 @@ namespace TerraStorage.Content.UI.Elements
 
             if (anyChanged)
             {
-                FilterRecipes();
+                SyncFilteredRecipesIncremental();
                 if (_selectedRecipe != null)
                 {
                     var match = _allRecipes.FirstOrDefault(r => r.recipe == _selectedRecipe);
@@ -463,7 +463,7 @@ namespace TerraStorage.Content.UI.Elements
         /// <see cref="_allRecipes"/>, then sorts each partition (favorited/regular)
         /// so craftable entries appear before uncraftable ones within the same group.
         /// </summary>
-        private void FilterRecipes()
+        private void FilterRecipes(bool resetScroll = false)
         {
             var player = StoragePlayerSystem.Local;
             bool hasSearch = !string.IsNullOrEmpty(_searchText);
@@ -517,10 +517,57 @@ namespace TerraStorage.Content.UI.Elements
 
             _filteredRecipes.AddRange(regular);
 
-            UpdateRecipeScrollbar();
+            UpdateRecipeScrollbar(resetScroll);
         }
 
-        private void UpdateRecipeScrollbar()
+        /// <summary>
+        /// Updates <see cref="_filteredRecipes"/> incrementally: updates canCraft flags in-place,
+        /// removes recipes that no longer pass filters, and appends newly visible recipes.
+        /// Does not re-sort or reset scroll — preserves item positions and scroll offset.
+        /// Use this for craftability-only changes (after craft, deferred recursive pass).
+        /// </summary>
+        private void SyncFilteredRecipesIncremental()
+        {
+            var player = StoragePlayerSystem.Local;
+            bool hasSearch = !string.IsNullOrEmpty(_searchText);
+            bool hasCategory = _categoryFilter != null;
+
+            // Build a lookup of which recipes should be visible and their current canCraft state.
+            var desired = new Dictionary<Recipe, bool>(_allRecipes.Count);
+            foreach (var entry in _allRecipes)
+            {
+                int itemType = entry.recipe.createItem.type;
+                bool isFav = player.IsRecipeFavorited(entry.recipe);
+                if (!isFav && !_showUncraftable && !entry.canCraft) continue;
+                if (hasSearch && !ItemSearchHelper.Matches(itemType, _searchText)) continue;
+                if (hasCategory && !_categoryFilter.PassesFilter(itemType)) continue;
+                desired[entry.recipe] = entry.canCraft;
+            }
+
+            // Pass 1: walk existing list — update flags in-place, remove items that dropped out.
+            for (int i = _filteredRecipes.Count - 1; i >= 0; i--)
+            {
+                var entry = _filteredRecipes[i];
+                if (!desired.TryGetValue(entry.recipe, out bool cc))
+                {
+                    _filteredRecipes.RemoveAt(i);
+                }
+                else
+                {
+                    if (cc != entry.canCraft)
+                        _filteredRecipes[i] = (entry.recipe, cc);
+                    desired.Remove(entry.recipe); // already present — don't add again
+                }
+            }
+
+            // Pass 2: append recipes that became newly visible.
+            foreach (var (recipe, cc) in desired)
+                _filteredRecipes.Add((recipe, cc));
+
+            UpdateRecipeScrollbar(resetScroll: false);
+        }
+
+        private void UpdateRecipeScrollbar(bool resetScroll = false)
         {
             if (_recipeScrollbar == null || _recipeGridPanel == null)
                 return;
@@ -530,8 +577,23 @@ namespace TerraStorage.Content.UI.Elements
             int totalRows = (_filteredRecipes.Count + columns - 1) / columns;
             int visibleRows = Math.Max(1, (int)(dims.Height / CellSize));
             _recipeScrollbar.SetView(visibleRows, totalRows);
-            _recipeScrollPixels = 0;
-            _recipeScrollTarget = 0;
+
+            if (resetScroll)
+            {
+                _recipeScrollPixels = 0;
+                _recipeScrollTarget = 0;
+                // SetView already reset ViewPosition to 0
+            }
+            else
+            {
+                float maxScroll = Math.Max(0, (totalRows - visibleRows) * CellSize);
+                _recipeScrollPixels = Math.Clamp(_recipeScrollPixels, 0, maxScroll);
+                _recipeScrollTarget = Math.Clamp(_recipeScrollTarget, 0, maxScroll);
+                // SetView reset ViewPosition to 0 — restore it so the sync loop
+                // doesn't misread it as a user drag to the top.
+                _recipeScrollbar.ViewPosition = _recipeScrollPixels / CellSize;
+            }
+            _recipeScrollBarLastPos = _recipeScrollbar.ViewPosition * CellSize;
         }
 
         private int GetGridColumns(float width)
@@ -779,7 +841,7 @@ namespace TerraStorage.Content.UI.Elements
                     if (relX < halfW)
                     {
                         _showUncraftable = !_showUncraftable;
-                        FilterRecipes();
+                        FilterRecipes(resetScroll: true);
                     }
                     else if (relX < halfW * 2)
                     {
@@ -1042,7 +1104,9 @@ namespace TerraStorage.Content.UI.Elements
                 Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.Grab);
             }
 
-            RefreshRecipes();
+            // Update item counts and craftability without resetting scroll or resorting.
+            _cachedAvailable = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
+            UpdateCanCraftFlags();
             if (_selectedRecipe != null)
                 UpdatePlan();
         }
@@ -1421,7 +1485,7 @@ namespace TerraStorage.Content.UI.Elements
 
             string craftText;
             if (directExtract)
-                craftText = $"CRAFT x{_craftAmount} (use materials)";
+                craftText = $"CRAFT x{_craftAmount} ({totalOutput} items)";
             else if (_currentPlan != null && _currentPlan.MissingStations.Count > 0)
                 craftText = "Missing Stations";
             else if (feasible)
@@ -2127,14 +2191,12 @@ private void DrawItemIcon(SpriteBatch spriteBatch, int itemType, Vector2 center,
                 _deferredRecursiveIndex = RecipeResolver.ApplyRecursiveCraftabilityBatch(
                     _allRecipes, _deferredRecursiveIndex, RecursiveBatchSize,
                     _deferredReachable, _deferredAvailable, _availableStations,
-                    _availableConditions, _deferredIngCache, out bool anyFlipped);
-
-                if (anyFlipped)
-                    FilterRecipes();
+                    _availableConditions, _deferredIngCache, out _);
 
                 if (_deferredRecursiveIndex < 0)
                 {
-                    // Deferred pass complete — clean up
+                    // Deferred pass complete — sync incrementally to avoid resorting/jumping
+                    SyncFilteredRecipesIncremental();
                     _deferredRecursiveActive = false;
                     _deferredReachable = null;
                     _deferredAvailable = null;
