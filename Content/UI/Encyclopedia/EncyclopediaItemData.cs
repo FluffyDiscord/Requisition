@@ -21,6 +21,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
             public int ResultStack;
             public int RecipeIndex; // index into Main.recipe[]
             public (int type, int stack)[] Ingredients;
+            public int?[] IngredientGroupIds; // parallel to Ingredients; null = no group
             public int[] RequiredTiles;
             public string[] ConditionDescriptions;
         }
@@ -116,10 +117,19 @@ namespace TerraStorage.Content.UI.Encyclopedia
                     continue;
 
                 var ingredients = new List<(int type, int stack)>();
+                var groupIds = new List<int?>();
                 foreach (var req in recipe.requiredItem)
                 {
                     if (req.type > ItemID.None)
+                    {
                         ingredients.Add((req.type, req.stack));
+                        int? gid = null;
+                        foreach (int g in recipe.acceptedGroups)
+                        {
+                            if (RecipeGroup.recipeGroups[g].ContainsItem(req.type)) { gid = g; break; }
+                        }
+                        groupIds.Add(gid);
+                    }
                 }
 
                 var tiles = new List<int>();
@@ -141,6 +151,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
                     ResultStack           = recipe.createItem.stack,
                     RecipeIndex           = r,
                     Ingredients           = ingredients.ToArray(),
+                    IngredientGroupIds    = groupIds.ToArray(),
                     RequiredTiles         = tiles.ToArray(),
                     ConditionDescriptions = conditions.ToArray()
                 };
@@ -152,14 +163,31 @@ namespace TerraStorage.Content.UI.Encyclopedia
                 }
                 rList.Add(info);
 
-                foreach (var (type, _) in info.Ingredients)
+                for (int i = 0; i < info.Ingredients.Length; i++)
                 {
-                    if (!_usagesFor.TryGetValue(type, out var uList))
+                    var ingType = info.Ingredients[i].type;
+                    if (!_usagesFor.TryGetValue(ingType, out var uList))
                     {
                         uList = new List<RecipeInfo>();
-                        _usagesFor[type] = uList;
+                        _usagesFor[ingType] = uList;
                     }
                     uList.Add(info);
+
+                    // Also register all group substitutes so "Used In" fires for e.g. LeadBar
+                    if (info.IngredientGroupIds[i].HasValue)
+                    {
+                        var grp = RecipeGroup.recipeGroups[info.IngredientGroupIds[i].Value];
+                        foreach (int sub in grp.ValidItems)
+                        {
+                            if (sub == ingType) continue;
+                            if (!_usagesFor.TryGetValue(sub, out var subList))
+                            {
+                                subList = new List<RecipeInfo>();
+                                _usagesFor[sub] = subList;
+                            }
+                            subList.Add(info);
+                        }
+                    }
                 }
             }
         }

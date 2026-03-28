@@ -129,7 +129,7 @@ namespace TerraStorage.Content.UI.Elements
         private const int RecursiveBatchSize = 200;
 
         // Precomputed per-ingredient data for draw (avoids per-frame CountItem + Any calls)
-        private readonly Dictionary<int, (int totalHave, bool hasRecipe)> _ingredientCache = new();
+        private readonly Dictionary<int, (int totalHave, bool hasRecipe, bool isGroup)> _ingredientCache = new();
 
         // Cached output count — updated by UpdatePlan() and decremented optimistically in MP.
         // Used in draw instead of calling CountItem directly, so the display always reflects
@@ -671,21 +671,32 @@ namespace TerraStorage.Content.UI.Elements
                 if (ingredient.type <= ItemID.None) continue;
                 if (_ingredientCache.ContainsKey(ingredient.type)) continue;
 
-                int inStorage = StorageWorldSystem.Instance.CountItem(_diskIds, ingredient.type);
-                int directHave = inStorage;
+                int directHave = StorageWorldSystem.Instance.CountItem(_diskIds, ingredient.type);
                 bool hasRecipe = cache.GetRecipesFor(ingredient.type).Count > 0;
 
+                bool isGroup = false;
                 int totalHave = directHave;
-                int needed = ingredient.stack * _craftAmount;
-                if (hasRecipe && directHave < needed)
+                foreach (int gid in _selectedRecipe.acceptedGroups)
                 {
-                    int deficit = needed - directHave;
+                    var grp = RecipeGroup.recipeGroups[gid];
+                    if (!grp.ContainsItem(ingredient.type)) continue;
+                    isGroup = true;
+                    foreach (int v in grp.ValidItems)
+                        if (v != ingredient.type)
+                            totalHave += StorageWorldSystem.Instance.CountItem(_diskIds, v);
+                    break;
+                }
+
+                int needed = ingredient.stack * _craftAmount;
+                if (hasRecipe && totalHave < needed)
+                {
+                    int deficit = needed - totalHave;
                     var subPlan = RecipeResolver.Resolve(ingredient.type, deficit, _diskIds, _availableStations, _availableConditions);
                     if (subPlan != null && subPlan.IsFeasible)
                         totalHave = needed;
                 }
 
-                _ingredientCache[ingredient.type] = (totalHave, hasRecipe);
+                _ingredientCache[ingredient.type] = (totalHave, hasRecipe, isGroup);
             }
         }
 
@@ -1647,6 +1658,7 @@ namespace TerraStorage.Content.UI.Elements
                 _ingredientCache.TryGetValue(ingredient.type, out var cached);
                 int totalHave = cached.totalHave;
                 bool hasRecipe = cached.hasRecipe;
+                bool isGroup = cached.isGroup;
 
                 Color countColor;
                 if (totalHave >= needed)      countColor = Color.LightGreen;
@@ -1663,18 +1675,36 @@ namespace TerraStorage.Content.UI.Elements
                     new Vector2(ingRect.Right - 4, ingRect.Bottom - 4),
                     countColor, 0.6f, 1f, 1f);
 
-                // Small recipe indicator dot
-                if (hasRecipe)
+                // Recipe indicator (only when not a group ingredient)
+                if (!isGroup && hasRecipe)
                     Utils.DrawBorderString(spriteBatch, "»",
                         new Vector2(ingRect.X + 1, ingRect.Y + 1), Color.LightBlue, 0.5f);
 
                 if (ingRect.Contains(Main.MouseScreen.ToPoint()))
                 {
                     _scratchItem.SetDefaults(ingredient.type);
-                    Main.HoverItem = _scratchItem.Clone();
-                    Main.hoverItemName = hasRecipe
-                        ? $"{_scratchItem.Name} ({totalHave}/{needed})\nRight-click to view recipe"
-                        : $"{_scratchItem.Name} ({totalHave}/{needed})";
+
+                    int foundGid = -1;
+                    foreach (int gid in _selectedRecipe.acceptedGroups)
+                    {
+                        if (RecipeGroup.recipeGroups[gid].ContainsItem(ingredient.type)) { foundGid = gid; break; }
+                    }
+
+                    if (foundGid >= 0)
+                    {
+                        string groupName  = RecipeResolver.GetGroupName(foundGid);
+                        string groupItems = RecipeResolver.GetGroupItemNames(foundGid);
+                        _scratchItem.SetNameOverride($"{groupName} ({totalHave}/{needed})");
+                        Main.HoverItem    = _scratchItem.Clone();
+                        Main.hoverItemName = $"{groupItems}";
+                    }
+                    else
+                    {
+                        Main.HoverItem = _scratchItem.Clone();
+                        Main.hoverItemName = hasRecipe
+                            ? $"{_scratchItem.Name} ({totalHave}/{needed})\nRight-click to view recipe"
+                            : $"{_scratchItem.Name} ({totalHave}/{needed})";
+                    }
                 }
 
                 ingX += ingCellSize;

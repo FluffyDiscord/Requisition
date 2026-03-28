@@ -61,6 +61,12 @@ namespace TerraStorage.Content.UI.CraftingTree
         /// <summary>True if this node is being collapsed (animating back to parent then removed).</summary>
         public bool IsCollapsing { get; set; }
 
+        /// <summary>True if this ingredient node's parent recipe accepts group substitutes for it.</summary>
+        public bool IsGroupIngredient { get; set; }
+
+        /// <summary>The recipe group id when <see cref="IsGroupIngredient"/> is true.</summary>
+        public int GroupId { get; set; }
+
         /// <summary>Opacity multiplier for fade-out during collapse animation.</summary>
         public float Opacity { get; set; } = 1f;
 

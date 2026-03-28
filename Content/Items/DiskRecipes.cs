@@ -1,6 +1,7 @@
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
+using TerraStorage.Content.Tiles;
 
 namespace TerraStorage.Content.Items
 {
@@ -15,14 +16,7 @@ namespace TerraStorage.Content.Items
         {
             // Tier 1: Basic Storage Disk (64 stacks)
             Recipe.Create(ModContent.ItemType<StorageDiskTier1>())
-                .AddIngredient(ItemID.GoldBar, 10)
-                .AddIngredient(ItemID.Glass, 3)
-                .AddIngredient(ItemID.Lens, 1)
-                .AddTile(TileID.Anvils)
-                .Register();
-
-            Recipe.Create(ModContent.ItemType<StorageDiskTier1>())
-                .AddIngredient(ItemID.PlatinumBar, 10)
+                .AddRecipeGroup(TileRecipeSystem.GroupGoldBar, 10)
                 .AddIngredient(ItemID.Glass, 3)
                 .AddIngredient(ItemID.Lens, 1)
                 .AddTile(TileID.Anvils)

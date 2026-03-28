@@ -12,6 +12,7 @@ using Terraria.Localization;
 using Terraria.ModLoader;
 using Terraria.UI;
 using TerraStorage.Content.UI.Elements;
+using TerraStorage.Helpers;
 using TerraStorage.Systems;
 
 namespace TerraStorage.Content.UI.Encyclopedia
@@ -1420,7 +1421,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
         private struct RecipeDisplay
         {
             public List<int> StationItems;
-            public List<(int type, int stack)> Ingredients;
+            public List<(int type, int stack, int? groupId)> Ingredients;
             public int ResultStack;
             public string[] Conditions;
             public int RecipeIndex;
@@ -1440,7 +1441,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
             var display = new RecipeDisplay
             {
                 StationItems = new List<int>(),
-                Ingredients = new List<(int, int)>(),
+                Ingredients = new List<(int, int, int?)>(),
                 ResultStack = recipe.ResultStack,
                 Conditions = recipe.ConditionDescriptions,
                 RecipeIndex = recipe.RecipeIndex
@@ -1452,8 +1453,14 @@ namespace TerraStorage.Content.UI.Encyclopedia
                 if (itemType > 0) display.StationItems.Add(itemType);
             }
 
-            foreach (var (type, stack) in recipe.Ingredients)
-                display.Ingredients.Add((type, stack));
+            for (int i = 0; i < recipe.Ingredients.Length; i++)
+            {
+                var (type, stack) = recipe.Ingredients[i];
+                int? gid = recipe.IngredientGroupIds != null && i < recipe.IngredientGroupIds.Length
+                    ? recipe.IngredientGroupIds[i]
+                    : null;
+                display.Ingredients.Add((type, stack, gid));
+            }
 
             _recipes.Add(display);
             RecalcHeight();
@@ -1560,7 +1567,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
                     float iy = y + row * (_ingredientSize + Padding);
                     var cellRect = new Rectangle((int)ix, (int)iy, _ingredientSize, _ingredientSize);
 
-                    var (type, stack) = recipe.Ingredients[i];
+                    var (type, stack, groupId) = recipe.Ingredients[i];
                     Utils.DrawInvBG(spriteBatch, cellRect, new Color(63, 82, 151) * 0.4f);
                     UIDrawHelpers.DrawItemInCell(spriteBatch, type, stack, cellRect);
 
@@ -1570,7 +1577,24 @@ namespace TerraStorage.Content.UI.Encyclopedia
                         hoverItem.SetDefaults(type);
                         hoverItem.stack = stack;
                         Main.HoverItem = hoverItem;
-                        Main.hoverItemName = hoverItem.Name;
+
+                        int foundGid = -1;
+                        if (recipe.RecipeIndex >= 0 && recipe.RecipeIndex < Recipe.numRecipes)
+                        {
+                            foreach (int gid in Main.recipe[recipe.RecipeIndex].acceptedGroups)
+                            {
+                                if (RecipeGroup.recipeGroups[gid].ContainsItem(type)) { foundGid = gid; break; }
+                            }
+                        }
+                        if (foundGid >= 0)
+                        {
+                            hoverItem.SetNameOverride(RecipeResolver.GetGroupName(foundGid));
+                            Main.hoverItemName = RecipeResolver.GetGroupItemNames(foundGid);
+                        }
+                        else
+                        {
+                            Main.hoverItemName = hoverItem.Name;
+                        }
                     }
                 }
 
@@ -1693,7 +1717,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
                     float ix = dims.X + 2 + col * (_ingredientSize + Padding);
                     float iy = y + row * (_ingredientSize + Padding);
                     if (new Rectangle((int)ix, (int)iy, _ingredientSize, _ingredientSize).Contains(mouse.ToPoint()))
-                        return recipe.Ingredients[i].type;
+                        return recipe.Ingredients[i].type;  // 3-tuple: (type, stack, groupId)
                 }
             }
 

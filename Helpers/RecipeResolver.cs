@@ -1093,6 +1093,24 @@ namespace TerraStorage.Helpers
             return Guid.Empty;
         }
 
-        /// <summary>
+        public static string GetGroupName(int groupId)
+        {
+            if (RecipeGroup.recipeGroups.TryGetValue(groupId, out var grp))
+                return "Any " + Lang.GetItemNameValue(grp.IconicItemId);
+            return "?";
+        }
+
+        public static string GetGroupItemNames(int groupId)
+        {
+            if (!RecipeGroup.recipeGroups.TryGetValue(groupId, out var grp))
+                return "?";
+            var names = new System.Text.StringBuilder();
+            foreach (int v in grp.ValidItems)
+            {
+                if (names.Length > 0) names.Append(" / ");
+                names.Append(Lang.GetItemNameValue(v));
+            }
+            return names.ToString();
+        }
     }
 }

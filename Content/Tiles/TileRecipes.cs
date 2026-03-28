@@ -12,6 +12,20 @@ namespace TerraStorage.Content.Tiles
     /// </summary>
     public class TileRecipeSystem : ModSystem
     {
+        internal const string GroupCopperBar  = "TerraStorage:AnyCopperBar";
+        internal const string GroupGoldBar    = "TerraStorage:AnyGoldBar";
+        internal const string GroupIronHammer = "TerraStorage:AnyIronHammer";
+
+        public override void AddRecipeGroups()
+        {
+            RecipeGroup.RegisterGroup(GroupCopperBar,
+                new RecipeGroup(() => "Any Copper Bar", ItemID.CopperBar, ItemID.TinBar));
+            RecipeGroup.RegisterGroup(GroupGoldBar,
+                new RecipeGroup(() => "Any Gold Bar", ItemID.GoldBar, ItemID.PlatinumBar));
+            RecipeGroup.RegisterGroup(GroupIronHammer,
+                new RecipeGroup(() => "Any Iron Hammer", ItemID.IronHammer, ItemID.LeadHammer));
+        }
+
         public override void PostSetupContent()
         {
             RecipeResolver.RegisterTileDisplay(TileID.DemonAltar,   ModContent.ItemType<DemonAltarItem>());
@@ -24,68 +38,35 @@ namespace TerraStorage.Content.Tiles
             // Storage Block
             Recipe.Create(ModContent.ItemType<DriveBayItem>())
                 .AddIngredient(ItemID.Chest, 1)
-                .AddIngredient(ItemID.CopperBar, 5)
-                .AddIngredient(ItemID.Diamond, 1)
-                .AddTile(TileID.Anvils)
-                .Register();
-
-            Recipe.Create(ModContent.ItemType<DriveBayItem>())
-                .AddIngredient(ItemID.Chest, 1)
-                .AddIngredient(ItemID.TinBar, 5)
+                .AddRecipeGroup(GroupCopperBar, 5)
                 .AddIngredient(ItemID.Diamond, 1)
                 .AddTile(TileID.Anvils)
                 .Register();
 
             // Terminal
             Recipe.Create(ModContent.ItemType<TerminalItem>())
-                .AddIngredient(ItemID.IronBar, 6)
+                .AddRecipeGroup(RecipeGroupID.IronBar, 6)
                 .AddIngredient(ItemID.Glass, 10)
                 .AddIngredient(ItemID.MagicMirror, 1)
-                .AddIngredient(ItemID.CopperBar, 3)
+                .AddRecipeGroup(GroupCopperBar, 3)
                 .AddIngredient(ItemID.Diamond, 1)
                 .AddTile(TileID.WorkBenches)
                 .Register();
 
             Recipe.Create(ModContent.ItemType<TerminalItem>())
-                .AddIngredient(ItemID.LeadBar, 6)
-                .AddIngredient(ItemID.Glass, 10)
-                .AddIngredient(ItemID.MagicMirror, 1)
-                .AddIngredient(ItemID.TinBar, 3)
-                .AddIngredient(ItemID.Diamond, 1)
-                .AddTile(TileID.WorkBenches)
-                .Register();
-
-            Recipe.Create(ModContent.ItemType<TerminalItem>())
-                .AddIngredient(ItemID.IronBar, 6)
+                .AddRecipeGroup(RecipeGroupID.IronBar, 6)
                 .AddIngredient(ItemID.Glass, 10)
                 .AddIngredient(ItemID.IceMirror, 1)
-                .AddIngredient(ItemID.CopperBar, 3)
-                .AddIngredient(ItemID.Diamond, 1)
-                .AddTile(TileID.WorkBenches)
-                .Register();
-
-            Recipe.Create(ModContent.ItemType<TerminalItem>())
-                .AddIngredient(ItemID.LeadBar, 6)
-                .AddIngredient(ItemID.Glass, 10)
-                .AddIngredient(ItemID.IceMirror, 1)
-                .AddIngredient(ItemID.TinBar, 3)
+                .AddRecipeGroup(GroupCopperBar, 3)
                 .AddIngredient(ItemID.Diamond, 1)
                 .AddTile(TileID.WorkBenches)
                 .Register();
 
             // Crafting Core
             Recipe.Create(ModContent.ItemType<CraftingCoreItem>())
-                .AddIngredient(ItemID.GoldBar, 12)
+                .AddRecipeGroup(GroupGoldBar, 12)
                 .AddIngredient(ItemID.Glass, 8)
-                .AddIngredient(ItemID.IronHammer, 1)
-                .AddIngredient(ItemID.Ruby, 2)
-                .AddTile(TileID.WorkBenches)
-                .Register();
-
-            Recipe.Create(ModContent.ItemType<CraftingCoreItem>())
-                .AddIngredient(ItemID.PlatinumBar, 12)
-                .AddIngredient(ItemID.Glass, 8)
-                .AddIngredient(ItemID.LeadHammer, 1)
+                .AddRecipeGroup(GroupIronHammer, 1)
                 .AddIngredient(ItemID.Ruby, 2)
                 .AddTile(TileID.WorkBenches)
                 .Register();

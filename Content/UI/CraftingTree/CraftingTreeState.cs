@@ -12,6 +12,7 @@ using Terraria.ModLoader;
 using Terraria.UI;
 using TerraStorage.Content.UI;
 using TerraStorage.Content.UI.Elements;
+using TerraStorage.Helpers;
 using TerraStorage.Systems;
 
 namespace TerraStorage.Content.UI.CraftingTree
@@ -388,6 +389,13 @@ namespace TerraStorage.Content.UI.CraftingTree
                     var child = new CraftingTreeNode(ing.type, recipe);
                     child.Parent = node;
                     child.IsSourceSide = true;
+
+                    // Check if this ingredient is part of a recipe group
+                    foreach (int gid in recipe.acceptedGroups)
+                    {
+                        var grp = RecipeGroup.recipeGroups[gid];
+                        if (grp.ContainsItem(ing.type)) { child.IsGroupIngredient = true; child.GroupId = gid; break; }
+                    }
 
                     // Cycle detection
                     if (node.IsAncestor(ing.type) || ing.type == _rootItemType)
@@ -1140,6 +1148,12 @@ namespace TerraStorage.Content.UI.CraftingTree
                     hints.Add((expandHint, isNoAction ? new Color(150, 150, 150) : new Color(200, 255, 200)));
                 }
 
+                if (_hoveredNode.IsGroupIngredient)
+                {
+                    hints.Add((RecipeResolver.GetGroupItemNames(_hoveredNode.GroupId), new Color(80, 200, 220)));
+                    hints.Add((RecipeResolver.GetGroupName(_hoveredNode.GroupId), new Color(80, 200, 220)));
+                }
+
                 if (_hoveredNode.Recipe != null)
                 {
                     var terminalSystem = ModContent.GetInstance<TerminalUISystem>();
@@ -1249,6 +1263,8 @@ namespace TerraStorage.Content.UI.CraftingTree
                     screenPos.Y + (size - actualH) / 2f);
 
                 spriteBatch.Draw(tex, iconPos, frame, Color.White * opacity, 0f, Vector2.Zero, drawScale, SpriteEffects.None, 0f);
+
+
             }
 
             // Expand indicators
