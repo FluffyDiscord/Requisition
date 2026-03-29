@@ -1,10 +1,17 @@
 # TerraStorage Changelog
 ## [0.2.7]
 
+### Added
+- Cyrillic language support
+  - NOTE: I've verified that you can type cyrillic characters in the search bar. I've added Russian language support though machine translation, but it's likely terrible.  Not all of the UX elements are translated or have Localization entries however, but this is a good start.
+
 ### Fixed
 - Protect the floor/platform where a Crafting Core/Drive Bay contains items.
 - Added simulated vanilla crafting mode (experimental, there will be bugs at the moment)
   - Brings support for mods that add data to items on craft
+- Made the output slot size in the crafting tab larger
+- Recipes that allow groups of items now display that ingredient as a group
+- ItemGrid in crafting tab no longer jumps around when crafting
 
 ## [0.2.6] - Released
 
