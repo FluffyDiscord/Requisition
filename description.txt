@@ -110,6 +110,7 @@ Claude assisted with architecture design, feature implementation, bug diagnosis,
 [h1]Current Known Bugs[/h1]
 No known bugs at this time.
 
-[h1]Change Log[/h1]
+[h1]Changes[/h1]
 Please click [url=https://steamcommunity.com/sharedfiles/filedetails/changelog/3687137546]here[/url] to view the change log to ensure you don't run into issues when updating.
 Report bugs [url=https://steamcommunity.com/sharedfiles/filedetails/discussions/3687137546]here[/url]
+Please respond on the [url=https://docs.google.com/forms/d/e/1FAIpQLSdJOfgR8zuIduP-bBiLykIMJDc4uW_QsDpNUhRbtH5PAlK1gA/viewform?usp=header]UI Review Poll[/url]
