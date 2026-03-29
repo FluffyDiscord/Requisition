@@ -8,11 +8,9 @@ using Terraria.ObjectData;
 
 namespace TerraStorage.Content.Tiles
 {
-    /// <summary>
-    /// The Crafting Core tile (2x2). Accepts crafting station items and condition provider items
-    /// in its slots so connected Terminals can automatically satisfy recipe requirements.
-    /// Blocks destruction while any station slot is occupied.
-    /// </summary>
+    // The Crafting Core tile (2x2). Accepts crafting station items and condition provider items
+    // in its slots so connected Terminals can automatically satisfy recipe requirements.
+    // Blocks destruction while any station slot is occupied.
     public class CraftingCore : ModTile
     {
         public override void SetStaticDefaults()

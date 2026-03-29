@@ -17,11 +17,9 @@ using TerraStorage.Systems;
 
 namespace TerraStorage.Content.UI.CraftingTree
 {
-    /// <summary>
-    /// UIState for the Crafting Tree window. Displays a pannable, zoomable graph showing
-    /// all recipes an item is used in, expanding outward recursively. Nodes are colored
-    /// by item category. Right-click a node to select its recipe in the Terminal.
-    /// </summary>
+    // UIState for the Crafting Tree window. Displays a pannable, zoomable graph showing
+    // all recipes an item is used in, expanding outward recursively. Nodes are colored
+    // by item category. Right-click a node to select its recipe in the Terminal.
     public class CraftingTreeState : UIState
     {
         // Window constraints
@@ -128,10 +126,8 @@ namespace TerraStorage.Content.UI.CraftingTree
             { ItemCategory.Miscellaneous, new Color(140, 140, 140) },
         };
 
-        /// <summary>
-        /// Builds the global reverse ingredient index once per session.
-        /// Maps each item type to all recipes that require it as an ingredient.
-        /// </summary>
+        // Builds the global reverse ingredient index once per session.
+        // Maps each item type to all recipes that require it as an ingredient.
         public static void EnsureIndexBuilt()
         {
             if (_indexBuilt) return;
@@ -176,9 +172,7 @@ namespace TerraStorage.Content.UI.CraftingTree
             }
         }
 
-        /// <summary>
-        /// Opens the tree for the given item type, building the root node.
-        /// </summary>
+        // Opens the tree for the given item type, building the root node. 
         public void OpenForItem(int itemType)
         {
             EnsureIndexBuilt();
@@ -213,9 +207,7 @@ namespace TerraStorage.Content.UI.CraftingTree
             _autoMinimize = StoragePlayerSystem.Local.CraftingTreeAutoMinimize;
         }
 
-        /// <summary>
-        /// Expands a node by finding all recipes that use this item as an ingredient.
-        /// </summary>
+        // Expands a node by finding all recipes that use this item as an ingredient.
         private void ExpandNode(CraftingTreeNode node)
         {
             if (node.ChildrenLoaded || node.IsCycleNode) return;
@@ -251,9 +243,7 @@ namespace TerraStorage.Content.UI.CraftingTree
             }
         }
 
-        /// <summary>
-        /// Collapses a node, starting collapse animations for all descendants.
-        /// </summary>
+        // Collapses a node, starting collapse animations for all descendants.
         private void CollapseNode(CraftingTreeNode node)
         {
             StartCollapseAnimation(node, node.Children);
@@ -271,10 +261,8 @@ namespace TerraStorage.Content.UI.CraftingTree
             _allNodes.Remove(node);
         }
 
-        /// <summary>
-        /// Moves children (and their descendants) into _collapsingNodes for animated removal.
-        /// They animate back toward their parent's position and fade out.
-        /// </summary>
+        // Moves children (and their descendants) into _collapsingNodes for animated removal.
+        // They animate back toward their parent's position and fade out.
         private void StartCollapseAnimation(CraftingTreeNode parent, List<CraftingTreeNode> children)
         {
             foreach (var child in children)
@@ -300,7 +288,7 @@ namespace TerraStorage.Content.UI.CraftingTree
             _collapsingNodes.Add(node);
         }
 
-        /// <summary>Lerps all node positions and handles collapsing node removal.</summary>
+        //Lerps all node positions and handles collapsing node removal.
         private void UpdateAnimations(float dt)
         {
             float t = Math.Min(1f, AnimationSpeed * dt);
@@ -361,10 +349,8 @@ namespace TerraStorage.Content.UI.CraftingTree
                 || cache.GetShimmerResult(itemType) > 0;
         }
 
-        /// <summary>
-        /// Expands source nodes: finds recipes that CREATE this item and adds their
-        /// ingredients as child nodes on the left side.
-        /// </summary>
+        // Expands source nodes: finds recipes that CREATE this item and adds their
+        // ingredients as child nodes on the left side.
         private void ExpandSourceNode(CraftingTreeNode node)
         {
             if (node.SourceChildrenLoaded || node.IsCycleNode) return;
@@ -413,9 +399,7 @@ namespace TerraStorage.Content.UI.CraftingTree
             }
         }
 
-        /// <summary>
-        /// Collapses source nodes, starting collapse animations for all left-side descendants.
-        /// </summary>
+        // Collapses source nodes, starting collapse animations for all left-side descendants.
         private void CollapseSourceNode(CraftingTreeNode node)
         {
             StartCollapseAnimation(node, node.SourceChildren);
@@ -424,11 +408,9 @@ namespace TerraStorage.Content.UI.CraftingTree
             node.IsSourceExpanded = false;
         }
 
-        /// <summary>
-        /// Assigns positions to all visible nodes using a bidirectional tree layout.
-        /// Right side: items this item crafts into (positive X).
-        /// Left side: ingredients needed to create this item (negative X).
-        /// </summary>
+        // Assigns positions to all visible nodes using a bidirectional tree layout.
+        // Right side: items this item crafts into (positive X).
+        // Left side: ingredients needed to create this item (negative X).
         private void LayoutTree()
         {
             if (_root == null) return;
@@ -556,7 +538,7 @@ namespace TerraStorage.Content.UI.CraftingTree
 
         // ─── Coordinate Helpers ─────────────────────────────────────────
 
-        /// <summary>Converts graph-space position to screen-space position.</summary>
+        //Converts graph-space position to screen-space position.
         private Vector2 GraphToScreen(Vector2 graphPos)
         {
             float contentX = _panelX + 12;
@@ -567,7 +549,7 @@ namespace TerraStorage.Content.UI.CraftingTree
             );
         }
 
-        /// <summary>Converts screen-space position to graph-space position.</summary>
+        //Converts screen-space position to graph-space position.
         private Vector2 ScreenToGraph(Vector2 screenPos)
         {
             float contentX = _panelX + 12;
@@ -578,10 +560,8 @@ namespace TerraStorage.Content.UI.CraftingTree
             );
         }
 
-        /// <summary>
-        /// Converts a screen-space point on the minimap to graph-space,
-        /// then adjusts pan offset to center the viewport on that point.
-        /// </summary>
+        // Converts a screen-space point on the minimap to graph-space,
+        // then adjusts pan offset to center the viewport on that point.
         private void CenterViewOnMinimapPoint(Vector2 screenPos)
         {
             if (_minimapScale <= 0) return;
@@ -919,10 +899,8 @@ namespace TerraStorage.Content.UI.CraftingTree
             PendingRecipeSelection = recipe;
         }
 
-        /// <summary>
-        /// Set by the Crafting Tree when the user right-clicks a node.
-        /// The crafting panel checks this each frame and selects the recipe if set.
-        /// </summary>
+        // Set by the Crafting Tree when the user right-clicks a node.
+        // The crafting panel checks this each frame and selects the recipe if set.
         public static Recipe PendingRecipeSelection { get; set; }
 
         // ─── Hit Testing ────────────────────────────────────────────────
@@ -934,7 +912,7 @@ namespace TerraStorage.Content.UI.CraftingTree
                 && mouse.Y >= _panelY && mouse.Y <= _panelY + h;
         }
 
-        /// <summary>Public wrapper for interface layer input blocking.</summary>
+        //Public wrapper for interface layer input blocking.
         public bool IsMouseOverPanel() => IsMouseInPanel(Main.MouseScreen);
 
         private bool IsInTitleBar(Vector2 mouse)
@@ -1546,7 +1524,7 @@ namespace TerraStorage.Content.UI.CraftingTree
             }
         }
 
-        /// <summary>Draws an item icon inside a slot rectangle, matching the terminal's DrawItem pattern.</summary>
+        //Draws an item icon inside a slot rectangle, matching the terminal's DrawItem pattern.
         private void DrawItemInSlot(SpriteBatch spriteBatch, int itemType, Rectangle cellRect)
         {
             Main.instance.LoadItem(itemType);
@@ -1565,7 +1543,7 @@ namespace TerraStorage.Content.UI.CraftingTree
             spriteBatch.Draw(tex, center, frame, Color.White, 0f, origin, scale, SpriteEffects.None, 0f);
         }
 
-        /// <summary>Draws an NPC's first animation frame inside a slot rectangle.</summary>
+        //Draws an NPC's first animation frame inside a slot rectangle.
         private void DrawNpcInSlot(SpriteBatch spriteBatch, int npcType, Rectangle cellRect)
         {
             int absType = Math.Abs(npcType);
@@ -1585,11 +1563,9 @@ namespace TerraStorage.Content.UI.CraftingTree
             spriteBatch.Draw(tex, center, frame, Color.White, 0f, origin, scale, SpriteEffects.None, 0f);
         }
 
-        /// <summary>
-        /// Draws bracket-style connections from a parent to all its children.
-        /// Uses side (right): parent right edge → short stub → vertical trunk → stubs to each child left edge.
-        /// Source side (left): parent left edge → short stub → vertical trunk → stubs to each child right edge.
-        /// </summary>
+        // Draws bracket-style connections from a parent to all its children.
+        // Uses side (right): parent right edge → short stub → vertical trunk → stubs to each child left edge.
+        // Source side (left): parent left edge → short stub → vertical trunk → stubs to each child right edge.
         private void DrawBracketConnections(SpriteBatch spriteBatch, CraftingTreeNode parent, List<CraftingTreeNode> children, bool isSourceSide)
         {
             Vector2 parentScreen = GraphToScreen(parent.AnimatedPosition);
@@ -1834,7 +1810,7 @@ namespace TerraStorage.Content.UI.CraftingTree
 
         private static readonly Dictionary<int, Texture2D> _circles = new();
 
-        /// <summary>Gets or creates a filled circle texture at the exact pixel radius needed.</summary>
+        //Gets or creates a filled circle texture at the exact pixel radius needed.
         private static Texture2D GetCircle(SpriteBatch sb, int radius)
         {
             if (_circles.TryGetValue(radius, out var tex) && tex != null && !tex.IsDisposed)
@@ -1856,7 +1832,7 @@ namespace TerraStorage.Content.UI.CraftingTree
             return tex;
         }
 
-        /// <summary>Draws a filled rectangle with rounded corners. No scaling — circle textures are generated at exact size.</summary>
+        //Draws a filled rectangle with rounded corners. No scaling — circle textures are generated at exact size.
         private static void DrawRoundedRect(SpriteBatch sb, float x, float y, float w, float h, Color color, int r = 6)
         {
             // Snap to integer grid first to prevent gaps between components

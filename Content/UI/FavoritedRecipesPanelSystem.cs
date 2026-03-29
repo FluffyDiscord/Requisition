@@ -12,11 +12,9 @@ using TerraStorage.Systems;
 
 namespace TerraStorage.Content.UI
 {
-    /// <summary>
-    /// ModSystem that manages the Favorited Recipes floating panel and the inventory-area
-    /// toggle button. The button is movable via middle-click drag and its position is
-    /// persisted per client via UIPositionStore.
-    /// </summary>
+    // ModSystem that manages the Favorited Recipes floating panel and the inventory-area
+    // toggle button. The button is movable via middle-click drag and its position is
+    // persisted per client via UIPositionStore. 
     public class FavoritedRecipesPanelSystem : ModSystem
     {
         private UserInterface _ui;

@@ -10,9 +10,7 @@ using Terraria.UI;
 
 namespace TerraStorage.Content.UI
 {
-    /// <summary>
-    /// Shared drawing helpers for all TerraStorage UI panels.
-    /// </summary>
+    // Shared drawing helpers for all TerraStorage UI panels.
     internal static class UIDrawHelpers
     {
         private static Texture2D _pixel;
@@ -37,10 +35,8 @@ namespace TerraStorage.Content.UI
             }
         }
 
-        /// <summary>
-        /// Draws a dark underlay behind a UIPanel to reduce transparency bleed-through.
-        /// Call before base.Draw() or base.DrawSelf().
-        /// </summary>
+        // Draws a dark underlay behind a UIPanel to reduce transparency bleed-through.
+        // Call before base.Draw() or base.DrawSelf(). 
         public static void DrawPanelUnderlay(SpriteBatch sb, UIElement panel)
         {
             var dims = panel.GetDimensions();
@@ -49,17 +45,13 @@ namespace TerraStorage.Content.UI
                 UnderlayColor);
         }
 
-        /// <summary>
-        /// Draws a dark underlay at a specific rectangle.
-        /// </summary>
+        // Draws a dark underlay at a specific rectangle.
         public static void DrawUnderlay(SpriteBatch sb, Rectangle rect)
         {
             sb.Draw(GetPixel(sb), rect, UnderlayColor);
         }
 
-        /// <summary>
-        /// Draws a dark underlay at a specific position and size.
-        /// </summary>
+        // Draws a dark underlay at a specific position and size.
         public static void DrawUnderlay(SpriteBatch sb, float x, float y, float w, float h)
         {
             sb.Draw(GetPixel(sb),
@@ -67,19 +59,15 @@ namespace TerraStorage.Content.UI
                 UnderlayColor);
         }
 
-        /// <summary>
-        /// Draws a solid colored rectangle.
-        /// </summary>
+        // Draws a solid colored rectangle.
         public static void DrawSolidRect(SpriteBatch sb, Rectangle rect, Color color)
         {
             sb.Draw(GetPixel(sb), rect, color);
         }
 
-        /// <summary>
-        /// Draws a diagonal-stripe resize grip inside <paramref name="rect"/>.
-        /// Four parallel stripes run at 45° from the bottom-right corner outward,
-        /// matching the classic OS resize handle appearance.
-        /// </summary>
+        // Draws a diagonal-stripe resize grip inside <paramref name="rect"/>.
+        // Four parallel stripes run at 45° from the bottom-right corner outward,
+        // matching the classic OS resize handle appearance.
         public static void DrawResizeHandle(SpriteBatch sb, Rectangle rect, Color color)
         {
             var pixel = GetPixel(sb);
@@ -98,9 +86,7 @@ namespace TerraStorage.Content.UI
             }
         }
 
-        /// <summary>
-        /// Draws an NPC sprite scaled to fit inside a cell rectangle.
-        /// </summary>
+        // Draws an NPC sprite scaled to fit inside a cell rectangle. 
         public static void DrawNpcInSlot(SpriteBatch sb, int npcType, Rectangle cellRect)
         {
             int absType = Math.Abs(npcType);
@@ -122,9 +108,7 @@ namespace TerraStorage.Content.UI
 
         private static Dictionary<int, int> _tileToItemCache;
 
-        /// <summary>
-        /// Returns the item type that places a given tile, or 0 if none found.
-        /// </summary>
+        // Returns the item type that places a given tile, or 0 if none found. 
         public static int GetItemForTile(int tileId)
         {
             if (_tileToItemCache == null)
@@ -145,11 +129,9 @@ namespace TerraStorage.Content.UI
             return _tileToItemCache.TryGetValue(tileId, out int itemType) ? itemType : 0;
         }
 
-        /// <summary>
-        /// Calls UserInterface.Update while suppressing mouse clicks if UIClickBlocker
-        /// has already consumed the click this frame. Prevents click-through between
-        /// overlapping mod UIs.
-        /// </summary>
+        // Calls UserInterface.Update while suppressing mouse clicks if UIClickBlocker
+        // has already consumed the click this frame. Prevents click-through between
+        // overlapping mod UIs. 
         public static void SafeUpdate(UserInterface ui, GameTime gameTime)
         {
             if (!UIClickBlocker.IsConsumed)
@@ -174,7 +156,7 @@ namespace TerraStorage.Content.UI
             }
         }
 
-        /// <summary>Draws a 1px border rectangle.</summary>
+        //Draws a 1px border rectangle.
         public static void DrawRectBorder(SpriteBatch sb, Rectangle rect, Color color, int thickness = 1)
         {
             int t = Math.Max(1, thickness);
@@ -184,7 +166,7 @@ namespace TerraStorage.Content.UI
             DrawSolidRect(sb, new Rectangle(rect.Right - t,     rect.Y,              t,          rect.Height), color); // right
         }
 
-        /// <summary>Draws an item icon scaled to fit a cell rectangle, with optional stack count.</summary>
+        //Draws an item icon scaled to fit a cell rectangle, with optional stack count.
         public static void DrawItemInCell(SpriteBatch sb, int itemType, int stack, Rectangle cell)
         {
             Main.instance.LoadItem(itemType);

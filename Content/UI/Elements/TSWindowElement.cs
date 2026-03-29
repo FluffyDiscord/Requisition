@@ -11,23 +11,21 @@ using TerraStorage.Systems;
 
 namespace TerraStorage.Content.UI.Elements
 {
-    /// <summary>
-    /// Reusable window chrome for all TerraStorage floating panels.
-    /// Handles background, optional title bar, resize handle, drag-to-move,
-    /// and position/size persistence via UIPositionStore.
-    ///
-    /// Usage:
-    ///   var win = new TSWindowElement {
-    ///       StoreKey    = "terminal",
-    ///       HasTitleBar = false,
-    ///       Resizable   = true,
-    ///       WinMinWidth    = 650f, WinMaxWidth = 1200f,
-    ///       WinMinHeight   = 300f, WinMaxHeight = 900f,
-    ///   };
-    ///   win.GetDragZone = () => /* rectangle user can drag */;
-    ///   win.OnResized   += (w, h) => RecalculateLayout();
-    ///   win.LoadSavedBounds();   // call after Width/Height are set
-    /// </summary>
+    // Reusable window chrome for all TerraStorage floating panels.
+    // Handles background, optional title bar, resize handle, drag-to-move,
+    // and position/size persistence via UIPositionStore.
+    // Usage:
+    //   var win = new TSWindowElement {
+    //       StoreKey    = "terminal",
+    //       HasTitleBar = false,
+    //       Resizable   = true,
+    //       WinMinWidth    = 650f, WinMaxWidth = 1200f,
+    //       WinMinHeight   = 300f, WinMaxHeight = 900f,
+    //   };
+    //   win.GetDragZone = () => /* rectangle user can drag */;
+    //   win.OnResized   += (w, h) => RecalculateLayout();
+    //   win.LoadSavedBounds();   // call after Width/Height are set
+    // 
     public class TSWindowElement : UIPanel
     {
         // ── Shared visual constants ──────────────────────────────────────────
@@ -49,14 +47,12 @@ namespace TerraStorage.Content.UI.Elements
         public float  WinMinHeight { get; init; } = 200f;
         public float  WinMaxHeight { get; init; } = 1200f;
 
-        /// <summary>
-        /// Override the drag hit test. Return true if the given screen-space mouse position
-        /// is in a valid drag zone. If null and HasTitleBar is true, the title bar is used.
-        /// If null and HasTitleBar is false, dragging is disabled.
-        /// </summary>
+        // Override the drag hit test. Return true if the given screen-space mouse position
+        // is in a valid drag zone. If null and HasTitleBar is true, the title bar is used.
+        // If null and HasTitleBar is false, dragging is disabled.
         public Func<Vector2, bool> GetDragZone { get; set; }
 
-        /// <summary>Fired when a resize operation ends, passing the new width and height.</summary>
+        //Fired when a resize operation ends, passing the new width and height.
         public event Action<float, float> OnResized;
 
         // ── Internal state ────────────────────────────────────────────────────
@@ -70,9 +66,7 @@ namespace TerraStorage.Content.UI.Elements
 
         // ── Init ──────────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Call after Width/Height are set on this element to restore saved position/size.
-        /// </summary>
+        // Call after Width/Height are set on this element to restore saved position/size.
         public void LoadSavedBounds()
         {
             if (StoreKey == null) return;

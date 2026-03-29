@@ -10,10 +10,8 @@ using TerraStorage.Systems;
 
 namespace TerraStorage.Content.UI.Elements
 {
-    /// <summary>
-    /// Config UI element that shows a world dropdown and per-slot restore buttons
-    /// for TerraStorage's rolling disk backups.
-    /// </summary>
+    // Config UI element that shows a world dropdown and per-slot restore buttons
+    // for TerraStorage's rolling disk backups.
     public class BackupRestoreConfigElement : ConfigElement<object>
     {
         private static string GetSlotLabel(int i) => Language.GetTextValue(i switch {

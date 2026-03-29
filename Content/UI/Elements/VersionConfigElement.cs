@@ -4,10 +4,8 @@ using Terraria.ModLoader.Config.UI;
 
 namespace TerraStorage.Content.UI.Elements
 {
-    /// <summary>
-    /// Read-only config element that displays a string value as plain text.
-    /// Used to show the mod version in the config UI without an editable field.
-    /// </summary>
+    // Read-only config element that displays a string value as plain text.
+    // Used to show the mod version in the config UI without an editable field. 
     public class VersionConfigElement : ConfigElement<string>
     {
         public override void OnBind()

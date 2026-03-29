@@ -1,8 +1,7 @@
 namespace TerraStorage.Common
 {
-    /// <summary>
-    /// Represents special environmental conditions required for crafting.
-    /// </summary>
+    // Represents special environmental conditions required for crafting.
+
     public enum CraftingCondition
     {
         None,

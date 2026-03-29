@@ -5,41 +5,32 @@ using Terraria.ModLoader.IO;
 
 namespace TerraStorage.Common
 {
-    /// <summary>
-    /// Represents a single stack of items on a Storage Disk.
-    /// Tracks item type, stack size, prefix (modifier), and the global insertion
-    /// order counter used to support "recently added" sorting in the Terminal UI.
-    /// </summary>
+    // Represents a single stack of items on a Storage Disk.
+    // Tracks item type, stack size, prefix (modifier), and the global insertion
+    // order counter used to support "recently added" sorting in the Terminal UI.
+    // 
     public class StoredItemStack
     {
         public int ItemType { get; set; }
         public int Stack { get; set; }
         public int PrefixId { get; set; }
-        /// <summary>
-        /// Monotonically increasing counter value assigned at insertion time.
-        /// Higher values mean more recently inserted; used for <c>RecentlyAdded</c> sort.
-        /// </summary>
+        // Monotonically increasing counter value assigned at insertion time.
+        // Higher values mean more recently inserted; used for <c>RecentlyAdded</c> sort.
         public long InsertionOrder { get; set; }
-        /// <summary>
-        /// Optional NBT data saved from the item's <see cref="Terraria.ModLoader.ModItem.SaveData"/>
-        /// at insertion time. Used to restore mod-specific state (e.g. a disk's GUID) when the
-        /// item is extracted. Null for vanilla items and mod items with no custom data.
-        /// </summary>
+        // Optional NBT data saved from the item's <see cref="Terraria.ModLoader.ModItem.SaveData"/>
+        // at insertion time. Used to restore mod-specific state (e.g. a disk's GUID) when the
+        // item is extracted. Null for vanilla items and mod items with no custom data.
         public TagCompound ModData { get; set; }
 
-        /// <summary>
-        /// Full ItemIO-serialized tag capturing ALL per-instance data, including GlobalItem data
-        /// from other mods (e.g. enchantment mods that modify vanilla items). When non-null this
-        /// is used for world-save and extraction instead of reconstructing from scratch.
-        /// </summary>
+        // Full ItemIO-serialized tag capturing ALL per-instance data, including GlobalItem data
+        // from other mods (e.g. enchantment mods that modify vanilla items). When non-null this
+        // is used for world-save and extraction instead of reconstructing from scratch.
         public TagCompound FullItemTag { get; set; }
 
         public StoredItemStack() { }
 
-        /// <summary>
-        /// Creates a <see cref="StoredItemStack"/> from a live <see cref="Item"/>,
-        /// capturing its type, stack count, and prefix.
-        /// </summary>
+        // Creates a <see cref="StoredItemStack"/> from a live <see cref="Item"/>,
+        // capturing its type, stack count, and prefix.
         public StoredItemStack(Item item)
         {
             ItemType = item.type;
@@ -47,10 +38,8 @@ namespace TerraStorage.Common
             PrefixId = item.prefix;
         }
 
-        /// <summary>
-        /// Reconstructs a Terraria <see cref="Item"/> from this stored stack,
-        /// applying the prefix so tooltips and stats are correct.
-        /// </summary>
+        // Reconstructs a Terraria <see cref="Item"/> from this stored stack,
+        // applying the prefix so tooltips and stats are correct.
         public Item ToItem()
         {
             var item = new Item();
@@ -60,7 +49,7 @@ namespace TerraStorage.Common
             return item;
         }
 
-        /// <summary>Serializes this stack to a <see cref="TagCompound"/> for world-save persistence.</summary>
+        //Serializes this stack to a <see cref="TagCompound"/> for world-save persistence.
         public TagCompound Save()
         {
             TagCompound tag;
@@ -86,7 +75,7 @@ namespace TerraStorage.Common
             return tag;
         }
 
-        /// <summary>Deserializes a <see cref="StoredItemStack"/> from a saved <see cref="TagCompound"/>.</summary>
+        //Deserializes a <see cref="StoredItemStack"/> from a saved <see cref="TagCompound"/>.
         public static StoredItemStack Load(TagCompound tag)
         {
             // Legacy format (pre-ItemIO migration): only has a "type" int key, no "mod" key.
@@ -154,11 +143,9 @@ namespace TerraStorage.Common
             return stored;
         }
 
-        /// <summary>
-        /// Compact binary serialization for network packets. Uses integer IDs instead of
-        /// mod name + item name strings, keeping each stack at ~18 bytes vs ~373 bytes with TagCompound.
-        /// Both sides have the same mods loaded so integer IDs are safe over the wire.
-        /// </summary>
+        // Compact binary serialization for network packets. Uses integer IDs instead of
+        // mod name + item name strings, keeping each stack at ~18 bytes vs ~373 bytes with TagCompound.
+        // Both sides have the same mods loaded so integer IDs are safe over the wire.
         public void WriteNet(BinaryWriter writer)
         {
             writer.Write(ItemType);
@@ -182,7 +169,7 @@ namespace TerraStorage.Common
             }
         }
 
-        /// <summary>Deserializes a compact network-format stack written by <see cref="WriteNet"/>.</summary>
+        //Deserializes a compact network-format stack written by <see cref="WriteNet"/>.
         public static StoredItemStack ReadNet(BinaryReader reader)
         {
             var stack = new StoredItemStack
@@ -213,17 +200,13 @@ namespace TerraStorage.Common
             return stack;
         }
 
-        /// <summary>
-        /// Returns true if this stack can merge with another (same type and prefix).
-        /// </summary>
+        // Returns true if this stack can merge with another (same type and prefix).
         public bool CanMergeWith(StoredItemStack other)
         {
             return ItemType == other.ItemType && PrefixId == other.PrefixId;
         }
 
-        /// <summary>
-        /// Returns true if this stack matches the given item type and prefix.
-        /// </summary>
+        // Returns true if this stack matches the given item type and prefix.
         public bool Matches(int itemType, int prefixId = -1)
         {
             return ItemType == itemType && (prefixId == -1 || PrefixId == prefixId);

@@ -4,10 +4,8 @@ using SDL2;
 
 namespace TerraStorage.Content.UI.Elements
 {
-    /// <summary>
-    /// Locale-aware text input using FNA's TextInputEXT (fires OS-resolved Unicode chars,
-    /// including Cyrillic and IME input). Backspace repeat uses raw keyboard state.
-    /// </summary>
+    // Locale-aware text input using FNA's TextInputEXT (fires OS-resolved Unicode chars,
+    // including Cyrillic and IME input). Backspace repeat uses raw keyboard state.
     public class TextInputHelper
     {
         private readonly Queue<char> _pendingChars = new();
@@ -15,10 +13,8 @@ namespace TerraStorage.Content.UI.Elements
         private KeyboardState _prevKeyState;
         private int _backspaceTimer;
 
-        /// <summary>
-        /// Subscribe to TextInputEXT and start OS text input mode.
-        /// Safe to call repeatedly — guarded against double-subscription.
-        /// </summary>
+        // Subscribe to TextInputEXT and start OS text input mode.
+        // Safe to call repeatedly — guarded against double-subscription. 
         public void Activate()
         {
             if (_subscribed) return;
@@ -27,9 +23,7 @@ namespace TerraStorage.Content.UI.Elements
             TextInputEXT.StartTextInput();
         }
 
-        /// <summary>
-        /// Unsubscribe from TextInputEXT and stop OS text input mode.
-        /// </summary>
+        // Unsubscribe from TextInputEXT and stop OS text input mode.
         public void Deactivate()
         {
             if (!_subscribed) return;
@@ -41,10 +35,8 @@ namespace TerraStorage.Content.UI.Elements
 
         private void OnTextInput(char c) => _pendingChars.Enqueue(c);
 
-        /// <summary>
-        /// Reads buffered text input this frame and returns the updated string.
-        /// Must be called every game tick while the field is focused.
-        /// </summary>
+        // Reads buffered text input this frame and returns the updated string.
+        // Must be called every game tick while the field is focused.
         public string ProcessInput(string currentText, int maxLength = 0, bool digitsOnly = false)
         {
             var keyState = Keyboard.GetState();
@@ -118,9 +110,7 @@ namespace TerraStorage.Content.UI.Elements
             return result;
         }
 
-        /// <summary>
-        /// Snapshots keyboard state and activates text input. Call when the field gains focus.
-        /// </summary>
+        // Snapshots keyboard state and activates text input. Call when the field gains focus.
         public void Reset()
         {
             _prevKeyState = Keyboard.GetState();

@@ -18,13 +18,11 @@ using TerraStorage.Systems;
 
 namespace TerraStorage.Content.UI
 {
-    /// <summary>
-    /// UIState for the Disk Recovery sub-panel opened from the Drive Bay UI.
-    /// Displays all known <see cref="DiskData"/> entries from <see cref="StorageWorldSystem"/>,
-    /// lets the player select a lost disk, insert a blank replacement disk of matching tier,
-    /// and restore the lost disk's GUID onto the replacement item so its stored items are
-    /// accessible again.
-    /// </summary>
+    // UIState for the Disk Recovery sub-panel opened from the Drive Bay UI.
+    // Displays all known <see cref="DiskData"/> entries from <see cref="StorageWorldSystem"/>,
+    // lets the player select a lost disk, insert a blank replacement disk of matching tier,
+    // and restore the lost disk's GUID onto the replacement item so its stored items are
+    // accessible again.
     public class DiskRecoveryUIState : UIState
     {
         // Layout constants (relative to panel inner area)
@@ -89,7 +87,7 @@ namespace TerraStorage.Content.UI
             _panel.Append(_statusText);
         }
 
-        /// <summary>Called when the recovery UI is opened. Resets all state.</summary>
+        //Called when the recovery UI is opened. Resets all state.
         public bool IsMouseOverPanel() => _panel?.ContainsPoint(Main.MouseScreen) == true;
 
         public void Open()
@@ -103,7 +101,7 @@ namespace TerraStorage.Content.UI
             _statusText?.SetText("");
         }
 
-        /// <summary>Returns the replacement disk to the player if they close without restoring.</summary>
+        //Returns the replacement disk to the player if they close without restoring.
         public void ReturnDisk()
         {
             if (_replacementDisk == null || _replacementDisk.IsAir)
@@ -126,10 +124,8 @@ namespace TerraStorage.Content.UI
             _replacementDisk.TurnToAir();
         }
 
-        /// <summary>
-        /// Reloads the disk list from <see cref="StorageWorldSystem"/>, sorted by fullest
-        /// first so the most likely candidates for recovery appear at the top.
-        /// </summary>
+        // Reloads the disk list from <see cref="StorageWorldSystem"/>, sorted by fullest
+        // first so the most likely candidates for recovery appear at the top. 
         private void RefreshDiskList()
         {
             var sys = StorageWorldSystem.Instance;

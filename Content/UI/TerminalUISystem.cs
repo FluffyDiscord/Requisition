@@ -9,12 +9,10 @@ using TerraStorage.Content.Tiles;
 
 namespace TerraStorage.Content.UI
 {
-    /// <summary>
-    /// ModSystem that manages the Terminal UI lifecycle: opening/closing the Terminal panel,
-    /// auto-closing when the player moves too far or closes their inventory, blocking vanilla
-    /// shift+click while the panel is open, and injecting the draw layer into Terraria's
-    /// interface stack.
-    /// </summary>
+    // ModSystem that manages the Terminal UI lifecycle: opening/closing the Terminal panel,
+    // auto-closing when the player moves too far or closes their inventory, blocking vanilla
+    // shift+click while the panel is open, and injecting the draw layer into Terraria's
+    // interface stack.
     public class TerminalUISystem : ModSystem
     {
         private const float MaxInteractDistance = 15f; // tiles
@@ -50,9 +48,7 @@ namespace TerraStorage.Content.UI
             Main.playerInventory = true;
         }
 
-        /// <summary>
-        /// Opens the terminal UI without a proximity requirement (used by the Remote Terminal item).
-        /// </summary>
+        // Opens the terminal UI without a proximity requirement (used by the Remote Terminal item).
         public void OpenTerminalRemote(TerminalEntity entity)
         {
             OpenTerminal(entity);

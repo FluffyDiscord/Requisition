@@ -9,10 +9,8 @@ using TerraStorage.Content.UI;
 
 namespace TerraStorage.Content.UI.Elements
 {
-    /// <summary>
-    /// Flat, modern tab button. Active state shown with a brighter background
-    /// and a 2 px accent line at the bottom edge.
-    /// </summary>
+    // Flat, modern tab button. Active state shown with a brighter background
+    // and a 2 px accent line at the bottom edge.
     public class TSTab : UIElement
     {
         private readonly string _text;

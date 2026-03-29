@@ -5,10 +5,8 @@ using TerraStorage.Content.Tiles;
 
 namespace TerraStorage.Content.Items
 {
-    /// <summary>
-    /// Placeable item that creates a <see cref="TerraStorage.Content.Tiles.Terminal"/> tile.
-    /// The Terminal is the primary interface for browsing and withdrawing from connected storage.
-    /// </summary>
+    // Placeable item that creates a Terminal tile.
+    // The Terminal is the primary interface for browsing and withdrawing from connected storage.
     public class TerminalItem : ModItem
     {
         public override void SetDefaults()

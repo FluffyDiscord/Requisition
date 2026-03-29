@@ -10,11 +10,9 @@ using TerraStorage.Helpers;
 
 namespace TerraStorage.Content.Tiles
 {
-    /// <summary>
-    /// Tile entity attached to each placed Terminal. Provides the bridge between the UI and
-    /// <see cref="Helpers.StorageNetwork"/>, which discovers all connected Drive Bays
-    /// and Crafting Cores within the search radius.
-    /// </summary>
+    // Tile entity attached to each placed Terminal. Provides the bridge between the UI and
+    // <see cref="Helpers.StorageNetwork"/>, which discovers all connected Drive Bays
+    // and Crafting Cores within the search radius.
     public class TerminalEntity : ModTileEntity
     {
         public override bool IsTileValidForEntity(int x, int y)
@@ -37,50 +35,38 @@ namespace TerraStorage.Content.Tiles
             return Place(i, j);
         }
 
-        /// <summary>
-        /// Get all disk IDs from all storage blocks connected to this terminal.
-        /// </summary>
+        // Get all disk IDs from all storage blocks connected to this terminal.
         public List<Guid> GetConnectedDiskIds()
         {
             return StorageNetwork.GetAllConnectedDiskIds(Position);
         }
 
-        /// <summary>
-        /// Get all crafting station tile types available from connected Crafting Cores.
-        /// </summary>
+        // Get all crafting station tile types available from connected Crafting Cores.
         public HashSet<int> GetAvailableStations()
         {
             return StorageNetwork.GetAllAvailableStations(Position);
         }
 
-        /// <summary>
-        /// Get all crafting conditions available from connected Crafting Cores.
-        /// </summary>
+        // Get all crafting conditions available from connected Crafting Cores.
         public HashSet<CraftingCondition> GetAvailableConditions()
         {
             return StorageNetwork.GetAllAvailableConditions(Position);
         }
 
-        /// <summary>
-        /// Get both stations and conditions in a single tile-entity scan.
-        /// </summary>
+        // Get both stations and conditions in a single tile-entity scan.
         public (HashSet<int> stations, HashSet<CraftingCondition> conditions) GetStationsAndConditions()
         {
             return StorageNetwork.GetAllStationsAndConditions(Position);
         }
 
-        /// <summary>
-        /// Open the terminal UI for the player.
-        /// </summary>
+        // Open the terminal UI for the player.
         public void OpenTerminalUI(Player player)
         {
             var uiSystem = ModContent.GetInstance<TerminalUISystem>();
             uiSystem?.OpenTerminal(this);
         }
 
-        /// <summary>
-        /// Find the TerminalEntity at a given tile position (accounts for multi-tile).
-        /// </summary>
+        // Find the TerminalEntity at a given tile position (accounts for multi-tile).
         public static TerminalEntity FindEntity(int i, int j)
         {
             var tile = Main.tile[i, j];

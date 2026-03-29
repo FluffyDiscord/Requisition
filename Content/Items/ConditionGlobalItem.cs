@@ -6,10 +6,8 @@ using Terraria.ModLoader;
 
 namespace TerraStorage.Content.Items
 {
-    /// <summary>
-    /// Adds Crafting Core condition tooltips to vanilla items that can be placed
-    /// in the Crafting Core to provide crafting conditions.
-    /// </summary>
+    // Adds Crafting Core condition tooltips to vanilla items that can be placed
+    // in the Crafting Core to provide crafting conditions.
     public class ConditionGlobalItem : GlobalItem
     {
         private static Dictionary<int, LocalizedText> _conditionTooltips;

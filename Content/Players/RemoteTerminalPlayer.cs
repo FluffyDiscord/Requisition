@@ -8,9 +8,7 @@ using TerraStorage.Content.UI;
 
 namespace TerraStorage.Content.Players
 {
-    /// <summary>
-    /// Handles middle-click activation of the Remote Terminal from the player inventory.
-    /// </summary>
+    // Handles middle-click activation of the Remote Terminal from the player inventory.
     public class RemoteTerminalPlayer : ModPlayer
     {
         private bool _prevMiddle;

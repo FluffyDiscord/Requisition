@@ -8,11 +8,9 @@ using TerraStorage.Systems;
 
 namespace TerraStorage.Content.Players
 {
-    /// <summary>
-    /// Handles middle-click archiving and unarchiving of Storage Disks in the player inventory.
-    /// Archive embeds items into the disk's NBT and removes their world entry (cross-world transport).
-    /// Unarchive clears the archived flag; items are restored to world storage on next Drive Bay insertion.
-    /// </summary>
+    // Handles middle-click archiving and unarchiving of Storage Disks in the player inventory.
+    // Archive embeds items into the disk's NBT and removes their world entry (cross-world transport).
+    // Unarchive clears the archived flag; items are restored to world storage on next Drive Bay insertion.
     public class DiskArchivePlayer : ModPlayer
     {
         private bool _prevMiddle;
@@ -88,7 +86,7 @@ namespace TerraStorage.Content.Players
             PerformUnarchive(disk);
         }
 
-        /// <summary>Performs the archive operation directly (singleplayer or server-side).</summary>
+        //Performs the archive operation directly (singleplayer or server-side).
         public static void PerformArchive(StorageDiskBase disk)
         {
             DBG($"PerformArchive: diskId={disk.DiskId.ToString()[..8]}");
@@ -112,7 +110,7 @@ namespace TerraStorage.Content.Players
             catch { }
         }
 
-        /// <summary>Performs the unarchive operation directly.</summary>
+        //Performs the unarchive operation directly.
         public static void PerformUnarchive(StorageDiskBase disk)
         {
             disk.IsArchived = false;

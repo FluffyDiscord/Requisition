@@ -16,10 +16,8 @@ using TerraStorage.Systems;
 
 namespace TerraStorage.Content.UI.Elements
 {
-    /// <summary>
-    /// Disks tab panel for the Terminal UI. Shows all disks in connected Drive Bays,
-    /// their contents, and an in-place upgrade UI that consumes materials from storage.
-    /// </summary>
+    // Disks tab panel for the Terminal UI. Shows all disks in connected Drive Bays,
+    // their contents, and an in-place upgrade UI that consumes materials from storage.
     public class UIDiskPanel : UIElement
     {
         private const int ListPaneWidth = 220;
@@ -64,11 +62,11 @@ namespace TerraStorage.Content.UI.Elements
         private Rectangle _upgradeButtonRect = Rectangle.Empty;
         private Rectangle _defragButtonRect  = Rectangle.Empty;
 
-// Ingredient cache — rebuilt only when selection or storage version changes.
+        // Ingredient cache — rebuilt only when selection or storage version changes.
         private struct IngredientState
         {
             public int ItemType, Need, Have;
-            /// <summary>True if the deficit can be crafted from materials in storage.</summary>
+            //True if the deficit can be crafted from materials in storage.
             public bool Craftable;
         }
         private readonly List<IngredientState> _ingredientStates = new();
@@ -93,7 +91,7 @@ namespace TerraStorage.Content.UI.Elements
             _conditions = conditions ?? new HashSet<CraftingCondition>();
         }
 
-        /// <summary>Re-enumerates all disks from connected Drive Bays.</summary>
+        //Re-enumerates all disks from connected Drive Bays.
         public void Refresh()
         {
             _disks.Clear();
@@ -212,11 +210,9 @@ namespace TerraStorage.Content.UI.Elements
 
         // ---- Upgrade logic -------------------------------------------------
 
-        /// <summary>
-        /// Rebuilds the ingredient cache if the selection or storage contents have changed.
-        /// Chooses the first option whose ingredients are fully achievable (directly or via
-        /// recursive crafting). Falls back to option 0 when nothing is achievable.
-        /// </summary>
+        // Rebuilds the ingredient cache if the selection or storage contents have changed.
+        // Chooses the first option whose ingredients are fully achievable (directly or via
+        // recursive crafting). Falls back to option 0 when nothing is achievable.
         private void EnsureIngredientCache()
         {
             long ver = StorageWorldSystem.Instance.StorageVersion;

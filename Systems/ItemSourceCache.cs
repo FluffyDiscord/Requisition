@@ -35,10 +35,8 @@ namespace TerraStorage.Systems
         }
     }
 
-    /// <summary>
-    /// Builds reverse indices for non-crafting item sources: NPC drops, NPC shops, shimmer.
-    /// Built once after recipes are set up and cached for the session.
-    /// </summary>
+    // Builds reverse indices for non-crafting item sources: NPC drops, NPC shops, shimmer.
+    // Built once after recipes are set up and cached for the session.
     public class ItemSourceCache : ModSystem
     {
         private Dictionary<int, List<DropSource>> _dropSources = new();
@@ -58,7 +56,7 @@ namespace TerraStorage.Systems
         public List<int> GetShimmerSources(int itemType)
             => _shimmerFrom.TryGetValue(itemType, out var list) ? list : null;
 
-        /// <summary>What this item shimmers into (direct lookup).</summary>
+        //What this item shimmers into (direct lookup).
         public int GetShimmerResult(int itemType)
         {
             if (itemType > 0 && itemType < ItemID.Sets.ShimmerTransformToItem.Length)

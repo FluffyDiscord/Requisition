@@ -6,12 +6,10 @@ using Terraria.ModLoader;
 
 namespace TerraStorage.Helpers
 {
-    /// <summary>
-    /// Resolves Terraria's adjTile chains so that higher-tier crafting stations
-    /// (e.g. Mythril Anvil) are recognized as valid substitutes for lower-tier
-    /// ones (e.g. Anvil) when checking recipe station requirements.
-    /// Results are lazily computed and cached per tile type.
-    /// </summary>
+    // Resolves Terraria's adjTile chains so that higher-tier crafting stations
+    // (e.g. Mythril Anvil) are recognized as valid substitutes for lower-tier
+    // ones (e.g. Anvil) when checking recipe station requirements.
+    // Results are lazily computed and cached per tile type.
     public static class AdjTileHelper
     {
         private static readonly Dictionary<int, int[]> _cache = new();
@@ -31,11 +29,9 @@ namespace TerraStorage.Helpers
             [TileID.AlchemyTable]    = new int[] { TileID.Bottles },
         };
 
-        /// <summary>
-        /// Returns all tile types that <paramref name="tileType"/> also counts as
-        /// via the adjTile system. For example, Mythril Anvil returns [Anvil].
-        /// The result does NOT include <paramref name="tileType"/> itself.
-        /// </summary>
+        // Returns all tile types that <paramref name="tileType"/> also counts as
+        // via the adjTile system. For example, Mythril Anvil returns [Anvil].
+        // The result does NOT include <paramref name="tileType"/> itself.
         public static int[] GetAdjTiles(int tileType)
         {
             if (_cache.TryGetValue(tileType, out var cached))
@@ -46,10 +42,8 @@ namespace TerraStorage.Helpers
             return result;
         }
 
-        /// <summary>
-        /// Expands a set of primary tile types to include all adjTile equivalents.
-        /// Modifies <paramref name="tileTypes"/> in place.
-        /// </summary>
+        // Expands a set of primary tile types to include all adjTile equivalents.
+        // Modifies <paramref name="tileTypes"/> in place. 
         public static void ExpandAll(HashSet<int> tileTypes)
         {
             var primary = new List<int>(tileTypes);
@@ -90,10 +84,8 @@ namespace TerraStorage.Helpers
             return Array.Empty<int>();
         }
 
-        /// <summary>
-        /// Clears the cache. Call on world unload to handle mod reloads
-        /// that may change adjTile registrations.
-        /// </summary>
+        // Clears the cache. Call on world unload to handle mod reloads
+        // that may change adjTile registrations.
         public static void ClearCache() => _cache.Clear();
     }
 }

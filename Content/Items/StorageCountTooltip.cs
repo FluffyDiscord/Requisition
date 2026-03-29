@@ -9,11 +9,9 @@ using TerraStorage.Systems;
 
 namespace TerraStorage.Content.Items
 {
-    /// <summary>
-    /// Appends "In Storage: X" to item tooltips when the player has recently
-    /// opened a Terminal. Uses the last-opened terminal's disk IDs.
-    /// Hold Alt to show debug classification info.
-    /// </summary>
+    // Appends "In Storage: X" to item tooltips when the player has recently
+    // opened a Terminal. Uses the last-opened terminal's disk IDs.
+    // Hold Alt to show debug classification info.
     public class StorageCountTooltip : GlobalItem
     {
         public override void ModifyTooltips(Item item, List<TooltipLine> tooltips)

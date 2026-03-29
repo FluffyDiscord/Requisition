@@ -14,13 +14,11 @@ using TerraStorage.Systems;
 
 namespace TerraStorage.Content.Tiles
 {
-    /// <summary>
-    /// Tile entity attached to each placed Drive Bay. Manages the array of inserted Storage Disks,
-    /// handles multiplayer synchronization, and persists disk items across save/load cycles.
-    /// </summary>
+    // Tile entity attached to each placed Drive Bay. Manages the array of inserted Storage Disks,
+    // handles multiplayer synchronization, and persists disk items across save/load cycles.
     public class DriveBayEntity : ModTileEntity
     {
-        /// <summary>Maximum number of Storage Disk slots in a single Drive Bay.</summary>
+        //Maximum number of Storage Disk slots in a single Drive Bay.
         public const int DiskSlotCount = 40;
 
         public Item[] DiskSlots { get; private set; } = new Item[DiskSlotCount];
@@ -58,7 +56,7 @@ namespace TerraStorage.Content.Tiles
 
         public void EnsureSlotsInitialized() => InitializeSlots();
 
-        /// <summary>Returns true if at least one disk slot is occupied.</summary>
+        //Returns true if at least one disk slot is occupied.
         public bool HasDisks()
         {
             for (int i = 0; i < DiskSlotCount; i++)
@@ -67,10 +65,8 @@ namespace TerraStorage.Content.Tiles
             return false;
         }
 
-        /// <summary>
-        /// Ensures every slot contains a non-null, air Item rather than a null reference.
-        /// Called defensively before any slot access to guard against partial deserialization.
-        /// </summary>
+        // Ensures every slot contains a non-null, air Item rather than a null reference.
+        // Called defensively before any slot access to guard against partial deserialization.
         private void InitializeSlots()
         {
             for (int i = 0; i < DiskSlotCount; i++)
@@ -83,9 +79,7 @@ namespace TerraStorage.Content.Tiles
             }
         }
 
-        /// <summary>
-        /// Get all disk IDs from inserted disks.
-        /// </summary>
+        // Get all disk IDs from inserted disks.
         public List<Guid> GetInsertedDiskIds()
         {
             var seen = new HashSet<Guid>();
@@ -120,10 +114,8 @@ namespace TerraStorage.Content.Tiles
             return ids;
         }
 
-        /// <summary>
-        /// Try to insert a disk into the first available slot.
-        /// Returns true if successful.
-        /// </summary>
+        // Try to insert a disk into the first available slot.
+        // Returns true if successful.
         public bool InsertDisk(Item diskItem, int slot = -1)
         {
             if (diskItem == null || diskItem.IsAir || diskItem.ModItem is not StorageDiskBase disk)
@@ -195,9 +187,7 @@ namespace TerraStorage.Content.Tiles
             return false;
         }
 
-        /// <summary>
-        /// Remove a disk from a specific slot. Returns the removed disk item.
-        /// </summary>
+        // Remove a disk from a specific slot. Returns the removed disk item.
         public Item RemoveDisk(int slot)
         {
             InitializeSlots();
@@ -210,9 +200,7 @@ namespace TerraStorage.Content.Tiles
             return removed;
         }
 
-        /// <summary>
-        /// Drop all disks when the block is destroyed.
-        /// </summary>
+        // Drop all disks when the block is destroyed. 
         public void DropDisks(int x, int y)
         {
             InitializeSlots();
@@ -228,9 +216,7 @@ namespace TerraStorage.Content.Tiles
             }
         }
 
-        /// <summary>
-        /// Open the disk insertion UI for this storage block.
-        /// </summary>
+        // Open the disk insertion UI for this storage block. 
         public void OpenDiskUI(Player player)
         {
             var uiSystem = ModContent.GetInstance<DriveBayUISystem>();
@@ -261,7 +247,7 @@ namespace TerraStorage.Content.Tiles
             }
         }
 
-        /// <summary>Serializes all disk slots over the network (server → clients).</summary>
+        //Serializes all disk slots over the network (server → clients).
         public override void NetSend(BinaryWriter writer)
         {
             InitializeSlots();
@@ -288,7 +274,7 @@ namespace TerraStorage.Content.Tiles
             }
         }
 
-        /// <summary>Deserializes all disk slots received from the network.</summary>
+        //Deserializes all disk slots received from the network.
         public override void NetReceive(BinaryReader reader)
         {
             InitializeSlots();
@@ -298,9 +284,7 @@ namespace TerraStorage.Content.Tiles
             }
         }
 
-        /// <summary>
-        /// Find the DriveBayEntity at a given tile position (accounts for multi-tile).
-        /// </summary>
+        // Find the DriveBayEntity at a given tile position (accounts for multi-tile).
         public static DriveBayEntity FindEntity(int i, int j)
         {
             var tile = Main.tile[i, j];

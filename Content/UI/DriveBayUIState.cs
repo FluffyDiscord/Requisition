@@ -16,11 +16,9 @@ using TerraStorage.Systems;
 
 namespace TerraStorage.Content.UI
 {
-    /// <summary>
-    /// UIState for the Drive Bay (Storage Block) disk-management panel.
-    /// Renders a grid of disk slots and handles left-click insertion/extraction
-    /// and shift+click quick-transfer from the player's inventory.
-    /// </summary>
+    // UIState for the Drive Bay (Storage Block) disk-management panel.
+    // Renders a grid of disk slots and handles left-click insertion/extraction
+    // and shift+click quick-transfer from the player's inventory.
     public class DriveBayUIState : UIState
     {
         private const int Columns = 10;
@@ -295,11 +293,9 @@ namespace TerraStorage.Content.UI
             }
         }
 
-        /// <summary>
-        /// Returns true if the mouse is over the given vanilla inventory slot index (0–49).
-        /// Replicates the slot positions that Terraria uses internally so we can detect
-        /// shift+clicks on inventory items before Terraria's own inventory handler fires.
-        /// </summary>
+        // Returns true if the mouse is over the given vanilla inventory slot index (0–49).
+        // Replicates the slot positions that Terraria uses internally so we can detect
+        // shift+clicks on inventory items before Terraria's own inventory handler fires.
         public static bool IsMouseOverInventorySlot(int slot)
         {
             // Vanilla uses 0.85f scale for all 50 inventory slots (10 cols x 5 rows)

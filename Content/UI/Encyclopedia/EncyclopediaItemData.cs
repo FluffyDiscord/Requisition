@@ -9,10 +9,9 @@ using TerraStorage.Systems;
 
 namespace TerraStorage.Content.UI.Encyclopedia
 {
-    /// <summary>
-    /// ModSystem that pre-builds all encyclopedia data during PostSetupRecipes
-    /// so there is no lazy-init stall during gameplay.
-    /// </summary>
+        // ModSystem that pre-builds all encyclopedia data during PostSetupRecipes
+    // so there is no lazy-init stall during gameplay.
+    // 
     public class EncyclopediaItemData : ModSystem
     {
         public struct RecipeInfo
@@ -26,7 +25,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
             public string[] ConditionDescriptions;
         }
 
-        /// <summary>Pre-built list of all valid items, ready to use on first open.</summary>
+        //Pre-built list of all valid items, ready to use on first open.
         public static List<ConsolidatedItem> AllItems { get; private set; }
 
         private static Dictionary<int, List<RecipeInfo>> _recipesFor;
@@ -52,11 +51,10 @@ namespace TerraStorage.Content.UI.Encyclopedia
             WarmClientCaches();
         }
 
-        /// <summary>
-        /// Pre-populates the lazy per-item caches (category classification, name lookup)
-        /// so the first Encyclopedia open is instant. Runs during world load; cache hits
-        /// on every subsequent entry are O(1).
-        /// </summary>
+                // Pre-populates the lazy per-item caches (category classification, name lookup)
+        // so the first Encyclopedia open is instant. Runs during world load; cache hits
+        // on every subsequent entry are O(1).
+        // 
         private static void WarmClientCaches()
         {
             foreach (var ci in AllItems)
@@ -73,10 +71,9 @@ namespace TerraStorage.Content.UI.Encyclopedia
             _usagesFor = null;
         }
 
-        /// <summary>
-        /// Sends the first recipe for itemType to the crafting terminal.
-        /// No-op if the item has no recipes or the index is invalid.
-        /// </summary>
+                // Sends the first recipe for itemType to the crafting terminal.
+        // No-op if the item has no recipes or the index is invalid.
+        // 
         public static void TrySendRecipeToTerminal(int itemType)
         {
             var recipes = GetRecipesFor(itemType);

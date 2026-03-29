@@ -9,12 +9,10 @@ using TerraStorage.Content.UI;
 
 namespace TerraStorage.Content.UI.Elements
 {
-    /// <summary>
-    /// A row of seven icon buttons corresponding to each <see cref="SortMode"/>.
-    /// Left-click selects a sort mode; right-click on the active button toggles
-    /// ascending/descending order, right-click on a different button selects it.
-    /// Raises <see cref="OnSortChanged"/> on every state change.
-    /// </summary>
+    // A row of seven icon buttons corresponding to each <see cref="SortMode"/>.
+    // Left-click selects a sort mode; right-click on the active button toggles
+    // ascending/descending order, right-click on a different button selects it.
+    // Raises <see cref="OnSortChanged"/> on every state change.
     public class UISortBar : UIElement
     {
         // Item icons chosen to be visually intuitive for each sort mode.

@@ -6,10 +6,8 @@ using TerraStorage.Content.Tiles;
 
 namespace TerraStorage.Content.Tiles
 {
-    /// <summary>
-    /// Prevents breaking the floor block directly underneath an occupied multi-tile
-    /// (2x2) so the device above doesn't lose support and destroy its contents.
-    /// </summary>
+    // Prevents breaking the floor block directly underneath an occupied multi-tile
+    // (2x2) so the device above doesn't lose support and destroy its contents.
     public class SupportProtectionGlobalTile : GlobalTile
     {
         // Both DriveBay and CraftingCore are 2x2 with the entity stored at top-left.

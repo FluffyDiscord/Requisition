@@ -19,14 +19,12 @@ using TerraStorage.Systems;
 
 namespace TerraStorage.Content.UI.Elements
 {
-    /// <summary>
-    /// Split-panel crafting UI: a scrollable recipe grid on the left and a detail view
-    /// on the right. Supports recipe variant cycling, ingredient right-click navigation
-    /// with a history stack, a craft-amount input field, and a craft/extract button row.
-    /// Recipe lists are filtered by search text, category, and craftability; favorited
-    /// recipes are pinned to the top. Storage-version polling keeps the craftability
-    /// flags live without explicit callbacks.
-    /// </summary>
+    // Split-panel crafting UI: a scrollable recipe grid on the left and a detail view
+    // on the right. Supports recipe variant cycling, ingredient right-click navigation
+    // with a history stack, a craft-amount input field, and a craft/extract button row.
+    // Recipe lists are filtered by search text, category, and craftability; favorited
+    // recipes are pinned to the top. Storage-version polling keeps the craftability
+    // flags live without explicit callbacks.
     public class UICraftingPanel : UIElement
     {
         private const int CellSize = 44;
@@ -284,10 +282,8 @@ namespace TerraStorage.Content.UI.Elements
             }
         }
 
-        /// <summary>
-        /// Reverts all recipes to direct-craftability only (strips recursive canCraft flags).
-        /// Used when the Recursive checkbox is toggled off.
-        /// </summary>
+        // Reverts all recipes to direct-craftability only (strips recursive canCraft flags).
+        // Used when the Recursive checkbox is toggled off.
         private void StripRecursiveCraftFlags()
         {
             var available = _cachedAvailable;
@@ -325,11 +321,9 @@ namespace TerraStorage.Content.UI.Elements
             }
         }
 
-        /// <summary>
-        /// Builds the reverse index: itemType → list of indices into _allRecipes
-        /// that use that item as an ingredient. Built once after RefreshRecipes,
-        /// used for targeted canCraft updates when specific items change.
-        /// </summary>
+        // Builds the reverse index: itemType → list of indices into _allRecipes
+        // that use that item as an ingredient. Built once after RefreshRecipes,
+        // used for targeted canCraft updates when specific items change.
         private void RebuildIngredientIndex()
         {
             _ingredientToRecipeIndex.Clear();
@@ -366,11 +360,9 @@ namespace TerraStorage.Content.UI.Elements
             }
         }
 
-        /// <summary>
-        /// Targeted update: diffs cached item counts against current state, finds which
-        /// items actually changed, and only re-checks the specific recipes that use those
-        /// items as ingredients. No full disk scan, no iteration of all recipes.
-        /// </summary>
+        // Targeted update: diffs cached item counts against current state, finds which
+        // items actually changed, and only re-checks the specific recipes that use those
+        // items as ingredients. No full disk scan, no iteration of all recipes.
         private void UpdateCanCraftFlags()
         {
             if (_diskIds.Count == 0 || _allRecipes.Count == 0) return;
@@ -458,11 +450,9 @@ namespace TerraStorage.Content.UI.Elements
             }
         }
 
-        /// <summary>
-        /// Applies search text, category filter, and the show-uncraftable toggle to
-        /// <see cref="_allRecipes"/>, then sorts each partition (favorited/regular)
-        /// so craftable entries appear before uncraftable ones within the same group.
-        /// </summary>
+        // Applies search text, category filter, and the show-uncraftable toggle to
+        // <see cref="_allRecipes"/>, then sorts each partition (favorited/regular)
+        // so craftable entries appear before uncraftable ones within the same group.
         private void FilterRecipes(bool resetScroll = false)
         {
             var player = StoragePlayerSystem.Local;
@@ -520,12 +510,10 @@ namespace TerraStorage.Content.UI.Elements
             UpdateRecipeScrollbar(resetScroll);
         }
 
-        /// <summary>
-        /// Updates <see cref="_filteredRecipes"/> incrementally: updates canCraft flags in-place,
-        /// removes recipes that no longer pass filters, and appends newly visible recipes.
-        /// Does not re-sort or reset scroll — preserves item positions and scroll offset.
-        /// Use this for craftability-only changes (after craft, deferred recursive pass).
-        /// </summary>
+        // Updates <see cref="_filteredRecipes"/> incrementally: updates canCraft flags in-place,
+        // removes recipes that no longer pass filters, and appends newly visible recipes.
+        // Does not re-sort or reset scroll — preserves item positions and scroll offset.
+        // Use this for craftability-only changes (after craft, deferred recursive pass). 
         private void SyncFilteredRecipesIncremental()
         {
             var player = StoragePlayerSystem.Local;
@@ -601,7 +589,7 @@ namespace TerraStorage.Content.UI.Elements
             return Math.Max(1, (int)((width - 25) / CellSize));
         }
 
-        /// <summary>Select from the recipe grid — clears navigation history.</summary>
+        //Select from the recipe grid — clears navigation history.
         private void SelectRecipe(Recipe recipe, bool canCraft)
         {
             _recipeHistory.Clear();
@@ -609,7 +597,7 @@ namespace TerraStorage.Content.UI.Elements
             SelectRecipeCore(recipe, canCraft);
         }
 
-        /// <summary>Core selection logic shared by all navigation paths.</summary>
+        //Core selection logic shared by all navigation paths.
         private void SelectRecipeCore(Recipe recipe, bool canCraft)
         {
             _selectedRecipe = recipe;
@@ -639,7 +627,7 @@ namespace TerraStorage.Content.UI.Elements
             }
         }
 
-        /// <summary>Right-click ingredient navigation — navigate to the recipe that produces itemType.</summary>
+        //Right-click ingredient navigation — navigate to the recipe that produces itemType.
         private void NavigateToItem(int itemType)
         {
             var variants = _allRecipes.Where(r => r.recipe.createItem.type == itemType).ToList();
@@ -717,11 +705,9 @@ namespace TerraStorage.Content.UI.Elements
             }
         }
 
-        /// <summary>
-        /// Precomputes per-ingredient storage counts and recipe-existence flags so
-        /// that <see cref="DrawScrollableDetailContent"/> can read them without
-        /// calling CountItem or scanning _allRecipes every frame.
-        /// </summary>
+        // Precomputes per-ingredient storage counts and recipe-existence flags so
+        // that <see cref="DrawScrollableDetailContent"/> can read them without
+        // calling CountItem or scanning _allRecipes every frame.
         private void RebuildIngredientCache()
         {
             _ingredientCache.Clear();
@@ -1047,12 +1033,10 @@ namespace TerraStorage.Content.UI.Elements
                 UpdatePlan();
         }
 
-        /// <summary>
-        /// Executes the current crafting plan. If the plan resolved as a direct
-        /// extract (item already in storage), forces a proper craft so materials are
-        /// consumed and the recipe chain runs as intended. The crafted result is
-        /// inserted back into storage.
-        /// </summary>
+        // Executes the current crafting plan. If the plan resolved as a direct
+        // extract (item already in storage), forces a proper craft so materials are
+        // consumed and the recipe chain runs as intended. The crafted result is
+        // inserted back into storage.
         private void ExecuteCraft()
         {
             if (_currentPlan == null || !_currentPlan.IsFeasible) return;
@@ -1499,7 +1483,7 @@ namespace TerraStorage.Content.UI.Elements
                 new Vector2(craftTextX, craftBtnY + 6), Color.White, 0.75f);
         }
 
-        /// <summary>Calculates total height of the scrollable detail content without drawing it.</summary>
+        //Calculates total height of the scrollable detail content without drawing it.
         private float MeasureDetailContent()
         {
             if (_selectedRecipe == null) return 0;
@@ -1896,11 +1880,9 @@ namespace TerraStorage.Content.UI.Elements
                 new Vector2(sliderX - 2, sliderY - 16), Color.Yellow, 0.55f);
         }
 
-        /// <summary>
-        /// Returns true if <paramref name="condition"/> is satisfied by one of the
-        /// environmental emitter tiles connected to the network (e.g. WaterSource,
-        /// LavaSource) rather than the player's physical position.
-        /// </summary>
+        // Returns true if condition is satisfied by one of the
+        // environmental emitter tiles connected to the network (e.g. WaterSource,
+        // LavaSource) rather than the player's physical position.
         private bool ConditionMetByNetwork(Condition condition)
         {
             if (condition == Condition.NearWater   && _availableConditions.Contains(CraftingCondition.NearWater))   return true;
@@ -1911,10 +1893,8 @@ namespace TerraStorage.Content.UI.Elements
             return false;
         }
 
-        /// <summary>
-        /// Returns the item type to display as an icon for a recipe condition, or -1 if
-        /// the condition has no item representation (falls back to text tag rendering).
-        /// </summary>
+        // Returns the item type to display as an icon for a recipe condition, or -1 if
+        // the condition has no item representation (falls back to text tag rendering).
         private static int GetConditionItemType(Condition cond)
         {
             if (cond == Condition.NearWater)    return ItemID.BottomlessBucket;
@@ -1968,9 +1948,7 @@ private void DrawItemIcon(SpriteBatch spriteBatch, int itemType, Vector2 center,
                 new Vector2(sourceRect.Width / 2, sourceRect.Height / 2), scale, SpriteEffects.None, 0f);
         }
 
-        /// <summary>
-        /// Externally selects a recipe (used by the Crafting Tree right-click).
-        /// </summary>
+        // Externally selects a recipe (used by the Crafting Tree right-click).
         public void SelectRecipeExternal(Recipe recipe)
         {
             // Find the recipe in _allRecipes to get its canCraft status

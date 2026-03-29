@@ -5,11 +5,9 @@ using TerraStorage.Content.Tiles;
 
 namespace TerraStorage.Content.Items
 {
-    /// <summary>
-    /// Placeable item that creates a <see cref="TerraStorage.Content.Tiles.CraftingCore"/> tile.
-    /// The Crafting Core holds virtual crafting station items and condition providers,
-    /// making them available to any connected Terminal for auto-crafting.
-    /// </summary>
+    // Placeable item that creates a CraftingCore tile.
+    // The Crafting Core holds virtual crafting station items and condition providers,
+    // making them available to any connected Terminal for auto-crafting.
     public class CraftingCoreItem : ModItem
     {
         public override void SetDefaults()

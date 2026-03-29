@@ -11,11 +11,9 @@ using TerraStorage.Content.UI;
 
 namespace TerraStorage.Content.UI.Elements
 {
-    /// <summary>
-    /// Item categories used by <see cref="UICategoryFilterBar"/> to classify items.
-    /// The integer value of each member is used as an index into the filter-enabled
-    /// array, so the order must not be changed.
-    /// </summary>
+    // Item categories used by <see cref="UICategoryFilterBar"/> to classify items.
+    // The integer value of each member is used as an index into the filter-enabled
+    // array, so the order must not be changed.
     public enum ItemCategory
     {
         MeleeWeapons,
@@ -36,13 +34,11 @@ namespace TerraStorage.Content.UI.Elements
         Miscellaneous
     }
 
-    /// <summary>
-    /// A bar of 16 toggle buttons, one per <see cref="ItemCategory"/>. Left-click toggles
-    /// an individual category; right-click on the only active category re-enables all,
-    /// right-click on any other category isolates it. Raises <see cref="OnFilterChanged"/>
-    /// on every state change. Classification results are cached to avoid repeated
-    /// <c>SetDefaults</c> calls during filtering.
-    /// </summary>
+    // A bar of 16 toggle buttons, one per <see cref="ItemCategory"/>. Left-click toggles
+    // an individual category; right-click on the only active category re-enables all,
+    // right-click on any other category isolates it. Raises <see cref="OnFilterChanged"/>
+    // on every state change. Classification results are cached to avoid repeated
+    // <c>SetDefaults</c> calls during filtering.
     public class UICategoryFilterBar : UIElement
     {
         // Representative item IDs for each category icon
@@ -144,10 +140,8 @@ namespace TerraStorage.Content.UI.Elements
             return index < 16 ? index : -1;
         }
 
-        /// <summary>
-        /// Returns true if the item passes the current filter state. When all categories
-        /// are enabled the classification is skipped entirely for performance.
-        /// </summary>
+        // Returns true if the item passes the current filter state. When all categories
+        // are enabled the classification is skipped entirely for performance.
         public bool PassesFilter(int itemType)
         {
             // Short-circuit: if all categories are on, nothing is filtered out.
@@ -195,11 +189,9 @@ namespace TerraStorage.Content.UI.Elements
                 _crossModBossSummoners.Add(modItem.Type);
         }
 
-        /// <summary>
-        /// Classifies a fully initialized <see cref="Item"/> instance into an
-        /// <see cref="ItemCategory"/>. Boss summoners are checked first because they
-        /// are consumable and would otherwise match the Potions branch.
-        /// </summary>
+        // Classifies a fully initialized <see cref="Item"/> instance into an
+        // <see cref="ItemCategory"/>. Boss summoners are checked first because they
+        // are consumable and would otherwise match the Potions branch.
         private static ItemCategory ClassifyItemInstance(Item item)
         {
             // Boss summoners are checked before consumables/potions to avoid misclassification.

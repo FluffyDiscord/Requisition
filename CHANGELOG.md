@@ -1,5 +1,7 @@
 # TerraStorage Changelog
-## [0.2.7]
+## [0.2.8]
+
+## [0.2.7] - Released
 
 ### Added
 - Cyrillic language support

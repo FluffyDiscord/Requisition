@@ -8,12 +8,10 @@ using Terraria.ModLoader.IO;
 
 namespace TerraStorage.Systems
 {
-    /// <summary>
-    /// Manages rolling backups of StorageWorldSystem disk data per world.
-    /// Keeps up to 3 backup slots; slot 0 is continuously updated during a play session,
-    /// and slots are rotated on each new world load (0→1→2, oldest dropped).
-    /// Supports queuing a wholesale restore that takes effect on next world load.
-    /// </summary>
+    // Manages rolling backups of StorageWorldSystem disk data per world.
+    // Keeps up to 3 backup slots; slot 0 is continuously updated during a play session,
+    // and slots are rotated on each new world load (0→1→2, oldest dropped).
+    // Supports queuing a wholesale restore that takes effect on next world load.
     public class BackupSystem : ModSystem
     {
         public const int BackupCount = 3;
@@ -107,10 +105,8 @@ namespace TerraStorage.Systems
 
         // ─── Restore ────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Called from StorageWorldSystem.LoadWorldData. If a restore file is present,
-        /// consumes it and returns the tag to load from instead of the world file.
-        /// </summary>
+        // Called from StorageWorldSystem.LoadWorldData. If a restore file is present,
+        // consumes it and returns the tag to load from instead of the world file.
         public static TagCompound TryConsumeRestoreOverride()
         {
             if (Main.netMode == NetmodeID.MultiplayerClient) return null;
@@ -133,9 +129,7 @@ namespace TerraStorage.Systems
             }
         }
 
-        /// <summary>
-        /// Queues a restore for the given world and slot. Takes effect on next world load.
-        /// </summary>
+        // Queues a restore for the given world and slot. Takes effect on next world load.
         public static bool QueueRestore(string worldPath, int slot)
         {
             try

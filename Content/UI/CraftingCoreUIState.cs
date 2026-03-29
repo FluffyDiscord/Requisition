@@ -15,11 +15,9 @@ using TerraStorage.Systems;
 
 namespace TerraStorage.Content.UI
 {
-    /// <summary>
-    /// UIState for the Crafting Core station-module panel. Renders a grid of station slots
-    /// and handles left-click insertion/extraction and shift+click quick-transfer of valid
-    /// crafting station items from the player's inventory.
-    /// </summary>
+    // UIState for the Crafting Core station-module panel. Renders a grid of station slots
+    // and handles left-click insertion/extraction and shift+click quick-transfer of valid
+    // crafting station items from the player's inventory.
     public class CraftingCoreUIState : UIState
     {
         private const int Columns = 10;
@@ -298,10 +296,8 @@ namespace TerraStorage.Content.UI
             }
         }
 
-        /// <summary>
-        /// Draws a single item centered inside <paramref name="rect"/>, respecting animation
-        /// frames and scaling oversized sprites down to fit within 36 px.
-        /// </summary>
+        // Draws a single item centered inside <paramref name="rect"/>, respecting animation
+        // frames and scaling oversized sprites down to fit within 36 px.
         private void DrawItemInSlot(SpriteBatch spriteBatch, Item item, Rectangle rect)
         {
             Main.instance.LoadItem(item.type);

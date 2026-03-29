@@ -3,17 +3,13 @@ using Terraria.ModLoader.IO;
 
 namespace TerraStorage.Helpers
 {
-    /// <summary>
-    /// Lightweight NBT serializer for vanilla Item references (type, stack, prefix only).
-    /// Used when full mod-data round-tripping via <see cref="Terraria.ModLoader.IO.ItemIO"/>
-    /// is not required, such as for simple slot arrays that don't hold modded items.
-    /// </summary>
+    // Lightweight NBT serializer for vanilla Item references (type, stack, prefix only).
+    // Used when full mod-data round-tripping via <see cref="Terraria.ModLoader.IO.ItemIO"/>
+    // is not required, such as for simple slot arrays that don't hold modded items.
     public static class ItemSerializer
     {
-        /// <summary>
-        /// Saves an item to a <see cref="TagCompound"/>. Air or null items are saved
-        /// with <c>isAir = true</c> so they deserialize back to an empty slot.
-        /// </summary>
+        // Saves an item to a <see cref="TagCompound"/>. Air or null items are saved
+        // with <c>isAir = true</c> so they deserialize back to an empty slot. 
         public static TagCompound SaveItem(Item item)
         {
             if (item == null || item.IsAir)
@@ -28,7 +24,7 @@ namespace TerraStorage.Helpers
             };
         }
 
-        /// <summary>Loads an item from a <see cref="TagCompound"/>, returning a new air Item if absent.</summary>
+        //Loads an item from a <see cref="TagCompound"/>, returning a new air Item if absent.
         public static Item LoadItem(TagCompound tag)
         {
             if (tag == null || tag.GetBool("isAir"))
@@ -49,11 +45,9 @@ namespace TerraStorage.Helpers
             return tags;
         }
 
-        /// <summary>
-        /// Loads an item array from a <see cref="TagCompound"/> array, padding with air items
-        /// if the saved array is shorter than the requested <paramref name="length"/>
-        /// (handles format upgrades that add more slots).
-        /// </summary>
+        // Loads an item array from a <see cref="TagCompound"/> array, padding with air items
+        // if the saved array is shorter than the requested <paramref name="length"/>
+        // (handles format upgrades that add more slots).
         public static Item[] LoadItemArray(TagCompound[] tags, int length)
         {
             var items = new Item[length];

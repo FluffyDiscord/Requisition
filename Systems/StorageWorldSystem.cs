@@ -8,12 +8,10 @@ using TerraStorage.Common;
 
 namespace TerraStorage.Systems
 {
-    /// <summary>
-    /// World-level system that owns the authoritative storage of all disk data.
-    /// Provides insert, extract, and query operations across one or more disks,
-    /// manages the world-save lifecycle, and exposes a <see cref="StorageVersion"/>
-    /// counter so UI components can poll for changes without per-frame full refreshes.
-    /// </summary>
+    // World-level system that owns the authoritative storage of all disk data.
+    // Provides insert, extract, and query operations across one or more disks,
+    // manages the world-save lifecycle, and exposes a <see cref="StorageVersion"/>
+    // counter so UI components can poll for changes without per-frame full refreshes.
     public class StorageWorldSystem : ModSystem
     {
         // Keyed by DiskId GUID for O(1) disk lookups
@@ -33,23 +31,21 @@ namespace TerraStorage.Systems
         // Used to compute item-level deltas (what actually changed) in EndModificationTrackingWithDeltas.
         private Dictionary<Guid, List<StoredItemStack>> _preModificationSnapshot;
 
-        /// <summary>
-        /// Incremented on every insert or extract. UI can poll this to detect changes.
-        /// </summary>
+        // Incremented on every insert or extract. UI can poll this to detect changes.
         public long StorageVersion { get; private set; }
 
         public static StorageWorldSystem Instance => ModContent.GetInstance<StorageWorldSystem>();
 
         public long InsertionCounter => _insertionCounter;
 
-        /// <summary>Increment StorageVersion to trigger UI refresh (used by delta sync on client).</summary>
+        //Increment StorageVersion to trigger UI refresh (used by delta sync on client).
         public void BumpStorageVersion() => StorageVersion++;
 
-        /// <summary>Get the current sequence number for a disk (0 if untracked).</summary>
+        //Get the current sequence number for a disk (0 if untracked).
         public int GetDiskSeqNum(Guid diskId) =>
             _diskSeqNums.TryGetValue(diskId, out int seq) ? seq : 0;
 
-        /// <summary>Increment and return the new sequence number for a disk.</summary>
+        //Increment and return the new sequence number for a disk.
         public int IncrementDiskSeqNum(Guid diskId)
         {
             _diskSeqNums.TryGetValue(diskId, out int seq);
@@ -58,10 +54,10 @@ namespace TerraStorage.Systems
             return seq;
         }
 
-        /// <summary>Set the client-side sequence number baseline for a disk (used after full sync).</summary>
+        //Set the client-side sequence number baseline for a disk (used after full sync).
         public void SetDiskSeqNum(Guid diskId, int seq) => _diskSeqNums[diskId] = seq;
 
-        /// <summary>Remove sequence tracking for a disk (used when disk is removed).</summary>
+        //Remove sequence tracking for a disk (used when disk is removed).
         public void RemoveDiskSeqNum(Guid diskId) => _diskSeqNums.Remove(diskId);
 
         public void BeginModificationTracking()
@@ -87,11 +83,9 @@ namespace TerraStorage.Systems
             return result;
         }
 
-        /// <summary>
-        /// Ends modification tracking and computes item-level deltas for each modified disk.
-        /// Returns (modifiedDiskIds, deltas) where deltas maps diskGuid → list of changed items.
-        /// Each delta entry is the NEW state of that item stack on the disk (or stack=0 if removed).
-        /// </summary>
+        // Ends modification tracking and computes item-level deltas for each modified disk.
+        // Returns (modifiedDiskIds, deltas) where deltas maps diskGuid → list of changed items.
+        // Each delta entry is the NEW state of that item stack on the disk (or stack=0 if removed). 
         public (List<Guid> modified, Dictionary<Guid, DiskDelta> deltas) EndModificationTrackingWithDeltas()
         {
             var modifiedIds = _modifiedTracker?.ToList() ?? new List<Guid>();
@@ -117,7 +111,7 @@ namespace TerraStorage.Systems
             return (modifiedIds, deltas);
         }
 
-        /// <summary>Shallow-clone item list for snapshotting (clones each StoredItemStack's mutable fields).</summary>
+        //Shallow-clone item list for snapshotting (clones each StoredItemStack's mutable fields).
         private static List<StoredItemStack> SnapshotItems(List<StoredItemStack> items)
         {
             var snapshot = new List<StoredItemStack>(items.Count);
@@ -135,9 +129,7 @@ namespace TerraStorage.Systems
             return snapshot;
         }
 
-        /// <summary>
-        /// Computes the item-level differences between a before and after snapshot of a disk.
-        /// </summary>
+        // Computes the item-level differences between a before and after snapshot of a disk. 
         private static DiskDelta ComputeDelta(List<StoredItemStack> before, List<StoredItemStack> after)
         {
             var delta = new DiskDelta();
@@ -189,9 +181,7 @@ namespace TerraStorage.Systems
             return delta;
         }
 
-        /// <summary>
-        /// Get or create disk data for a given ID and tier.
-        /// </summary>
+        // Get or create disk data for a given ID and tier.
         public DiskData GetOrCreateDiskData(Guid diskId, DiskTier tier)
         {
             if (!_allDiskData.TryGetValue(diskId, out var data))
@@ -207,24 +197,18 @@ namespace TerraStorage.Systems
             return data;
         }
 
-        /// <summary>
-        /// Get disk data by ID. Returns null if not found.
-        /// </summary>
+        // Get disk data by ID. Returns null if not found.
         public DiskData GetDiskData(Guid diskId)
         {
             return _allDiskData.TryGetValue(diskId, out var data) ? data : null;
         }
 
-        /// <summary>
-        /// Check if a disk ID exists in world data.
-        /// </summary>
+        // Check if a disk ID exists in world data.
         public bool HasDiskData(Guid diskId) => _allDiskData.ContainsKey(diskId);
 
-        /// <summary>
-        /// Fast item count lookup: returns itemType → total count across all given disks.
-        /// No object allocation beyond the dictionary. Use this instead of GetConsolidatedItems
-        /// when you only need counts (e.g. canCraft checks).
-        /// </summary>
+        // Fast item count lookup: returns itemType → total count across all given disks.
+        // No object allocation beyond the dictionary. Use this instead of GetConsolidatedItems
+        // when you only need counts (e.g. canCraft checks).
         public Dictionary<int, int> GetItemCounts(IEnumerable<Guid> diskIds)
         {
             var counts = new Dictionary<int, int>();
@@ -241,9 +225,7 @@ namespace TerraStorage.Systems
             return counts;
         }
 
-        /// <summary>
-        /// Get all items across multiple disks, consolidated by type+prefix.
-        /// </summary>
+        // Get all items across multiple disks, consolidated by type+prefix.
         public List<ConsolidatedItem> GetConsolidatedItems(IEnumerable<Guid> diskIds)
         {
             var consolidated = new Dictionary<(int type, int prefix), ConsolidatedItem>();
@@ -296,10 +278,8 @@ namespace TerraStorage.Systems
             return consolidated.Values.Concat(uniqueEntries).ToList();
         }
 
-        /// <summary>
-        /// Insert an item across the given disks (tries each until inserted).
-        /// Returns leftover count.
-        /// </summary>
+        // Insert an item across the given disks (tries each until inserted).
+        // Returns leftover count.
         public int InsertItem(IEnumerable<Guid> diskIds, Item item)
         {
             if (item == null || item.IsAir)
@@ -340,10 +320,8 @@ namespace TerraStorage.Systems
             return remaining;
         }
 
-        /// <summary>
-        /// Returns true if the given item can be fully inserted across the given disks
-        /// without actually modifying them. Used to pre-check capacity before crafting.
-        /// </summary>
+        // Returns true if the given item can be fully inserted across the given disks
+        // without actually modifying them. Used to pre-check capacity before crafting.
         public bool HasRoomFor(IEnumerable<Guid> diskIds, Item item)
         {
             if (item == null || item.IsAir) return true;
@@ -384,9 +362,7 @@ namespace TerraStorage.Systems
             return remaining <= 0;
         }
 
-        /// <summary>
-        /// Extract an item from across multiple disks.
-        /// </summary>
+        // Extract an item from across multiple disks.
         public Item ExtractItem(IEnumerable<Guid> diskIds, int itemType, int count, int prefixId = -1)
         {
             // Use the item returned by DiskData.ExtractItem directly so that mod data
@@ -422,10 +398,8 @@ namespace TerraStorage.Systems
             return result;
         }
 
-        /// <summary>
-        /// Extract a specific per-instance item (e.g. UnloadedItem) identified by its exact
-        /// ModData. Searches disks in order and returns the first matching stack.
-        /// </summary>
+        // Extract a specific per-instance item (e.g. UnloadedItem) identified by its exact
+        // ModData. Searches disks in order and returns the first matching stack.
         public Item ExtractItemWithModData(IEnumerable<Guid> diskIds, TagCompound modData)
         {
             foreach (var diskId in diskIds)
@@ -445,10 +419,8 @@ namespace TerraStorage.Systems
             return new Item();
         }
 
-        /// <summary>
-        /// Extract a specific per-instance item identified by its exact FullItemTag.
-        /// Used for GlobalItem-backed items (e.g. Entropy enchantments) that have no ModData.
-        /// </summary>
+        // Extract a specific per-instance item identified by its exact FullItemTag.
+        // Used for GlobalItem-backed items (e.g. Entropy enchantments) that have no ModData.
         public Item ExtractItemWithFullItemTag(IEnumerable<Guid> diskIds, TagCompound fullItemTag)
         {
             foreach (var diskId in diskIds)
@@ -468,9 +440,7 @@ namespace TerraStorage.Systems
             return new Item();
         }
 
-        /// <summary>
-        /// Count total of a given item across multiple disks.
-        /// </summary>
+        // Count total of a given item across multiple disks.
         public int CountItem(IEnumerable<Guid> diskIds, int itemType, int prefixId = -1)
         {
             int total = 0;
@@ -482,33 +452,25 @@ namespace TerraStorage.Systems
             return total;
         }
 
-        /// <summary>
-        /// Register a disk ID with a given tier (ensures data exists).
-        /// </summary>
+        // Register a disk ID with a given tier (ensures data exists).
         public void RegisterDisk(Guid diskId, DiskTier tier)
         {
             GetOrCreateDiskData(diskId, tier);
         }
 
-        /// <summary>
-        /// Get all disk data in the world.
-        /// </summary>
+        // Get all disk data in the world.
         public IReadOnlyCollection<DiskData> GetAllDiskData() => _allDiskData.Values;
 
-        /// <summary>
-        /// Remove a disk's data entry (used when reassigning a blank disk's GUID during recovery).
-        /// </summary>
+        // Remove a disk's data entry (used when reassigning a blank disk's GUID during recovery).
         public void RemoveDiskData(Guid diskId)
         {
             if (_allDiskData.Remove(diskId))
                 StorageVersion++;
         }
 
-        /// <summary>
-        /// Move a disk's data from <paramref name="oldId"/> to <paramref name="newId"/>,
-        /// then delete the old entry.  Used by Disk Recovery so the original physical disk
-        /// (if it still exists) is left pointing at nothing and becomes empty.
-        /// </summary>
+        // Move a disk's data from <paramref name="oldId"/> to <paramref name="newId"/>,
+        // then delete the old entry.  Used by Disk Recovery so the original physical disk
+        // (if it still exists) is left pointing at nothing and becomes empty.
         public void RemapDiskData(Guid oldId, Guid newId)
         {
             if (!_allDiskData.TryGetValue(oldId, out var data)) return;
@@ -519,11 +481,9 @@ namespace TerraStorage.Systems
             BackupSystem.MarkDirty();
         }
 
-        /// <summary>
-        /// Archive a disk: removes its data from the world system and returns the stored items
-        /// so they can be embedded in the disk item's own NBT for cross-world transport.
-        /// After this call, the disk's GUID no longer exists in world storage.
-        /// </summary>
+        // Archive a disk: removes its data from the world system and returns the stored items
+        // so they can be embedded in the disk item's own NBT for cross-world transport.
+        // After this call, the disk's GUID no longer exists in world storage.
         public List<StoredItemStack> ArchiveDisk(Guid diskId)
         {
             DBG($"ArchiveDisk: diskId={diskId.ToString()[..8]} found={_allDiskData.ContainsKey(diskId)} allDiskData=[{string.Join(", ", _allDiskData.Keys.Select(g => g.ToString()[..8]))}]");
@@ -538,13 +498,11 @@ namespace TerraStorage.Systems
             return items;
         }
 
-        /// <summary>
-        /// Defragments the given disks (in the order provided) by moving item stacks from
-        /// later disks into free space on earlier disks.  Respects item identity:
-        ///   • Stacks without ModData are merged up to maxStack with matching type+prefix stacks.
-        ///   • Stacks with ModData (unique items) are moved whole to an empty slot only.
-        /// Returns the GUIDs of every disk whose Items list was modified.
-        /// </summary>
+        // Defragments the given disks (in the order provided) by moving item stacks from
+        // later disks into free space on earlier disks.  Respects item identity:
+        //   • Stacks without ModData are merged up to maxStack with matching type+prefix stacks.
+        //   • Stacks with ModData (unique items) are moved whole to an empty slot only.
+        // Returns the GUIDs of every disk whose Items list was modified.
         public List<Guid> Defragment(List<Guid> orderedDiskIds)
         {
             var disks = orderedDiskIds
@@ -649,10 +607,8 @@ namespace TerraStorage.Systems
             catch { }
         }
 
-        /// <summary>
-        /// Register a disk with a pre-existing item list (used when an unarchived disk is
-        /// first inserted into a Drive Bay to restore its items into this world).
-        /// </summary>
+        // Register a disk with a pre-existing item list (used when an unarchived disk is
+        // first inserted into a Drive Bay to restore its items into this world).
         public void RegisterDiskWithItems(Guid diskId, DiskTier tier, List<StoredItemStack> items)
         {
             var data = new DiskData
@@ -666,10 +622,8 @@ namespace TerraStorage.Systems
             BackupSystem.MarkDirty();
         }
 
-        /// <summary>
-        /// Applies a DiskData received from the server, replacing any local copy.
-        /// Used by clients in multiplayer to stay in sync with the authoritative server state.
-        /// </summary>
+        // Applies a DiskData received from the server, replacing any local copy.
+        // Used by clients in multiplayer to stay in sync with the authoritative server state.
         public void ApplyDiskDataFromNetwork(DiskData data)
         {
             if (data == null)
@@ -679,18 +633,14 @@ namespace TerraStorage.Systems
             StorageVersion++;
         }
 
-        /// <summary>
-        /// Upgrade an existing disk's tier in-place, preserving all stored items.
-        /// </summary>
+        // Upgrade an existing disk's tier in-place, preserving all stored items.
         public void UpgradeDisk(Guid diskId, DiskTier newTier)
         {
             if (_allDiskData.TryGetValue(diskId, out var data))
                 data.Tier = newTier;
         }
 
-        /// <summary>
-        /// Assign an existing disk's data to a new Guid (for disk restoration).
-        /// </summary>
+        // Assign an existing disk's data to a new Guid (for disk restoration).
         public bool RestoreDisk(Guid targetDiskId, Guid sourceDiskId)
         {
             if (!_allDiskData.TryGetValue(sourceDiskId, out var data))
@@ -703,10 +653,8 @@ namespace TerraStorage.Systems
             return true;
         }
 
-        /// <summary>
-        /// Replaces all disk data in-place from a backup tag. Used by the server restore command
-        /// for immediate restore without a world reload.
-        /// </summary>
+        // Replaces all disk data in-place from a backup tag. Used by the server restore command
+        // for immediate restore without a world reload.
         public void RestoreFromTag(TagCompound tag)
         {
             _allDiskData.Clear();
@@ -817,34 +765,26 @@ namespace TerraStorage.Systems
         }
     }
 
-    /// <summary>
-    /// Represents the combined totals of a single item type+prefix pair aggregated
-    /// across all queried disks. Used by the Terminal UI to show one row per unique item.
-    /// </summary>
+    // Represents the combined totals of a single item type+prefix pair aggregated
+    // across all queried disks. Used by the Terminal UI to show one row per unique item.
     public class ConsolidatedItem
     {
         public int ItemType { get; set; }
         public int PrefixId { get; set; }
-        /// <summary>Sum of all stack counts for this item across every source disk.</summary>
+        //Sum of all stack counts for this item across every source disk.
         public int TotalCount { get; set; }
-        /// <summary>
-        /// The highest InsertionOrder among all individual stacks of this item.
-        /// Used for "recently added" sort — a higher value means more recently inserted.
-        /// </summary>
+        // The highest InsertionOrder among all individual stacks of this item.
+        // Used for "recently added" sort — a higher value means more recently inserted.
         public long LatestInsertionOrder { get; set; }
-        /// <summary>GUIDs of the disks that contributed to this consolidated entry.</summary>
+        //GUIDs of the disks that contributed to this consolidated entry.
         public HashSet<Guid> SourceDisks { get; set; } = new();
-        /// <summary>
-        /// For per-instance items (UnloadedItems, items with unique NBT), the exact ModData
-        /// of the specific stack this entry represents. Used to extract the right instance.
-        /// Null for regular stackable items.
-        /// </summary>
+        // For per-instance items (UnloadedItems, items with unique NBT), the exact ModData
+        // of the specific stack this entry represents. Used to extract the right instance.
+        // Null for regular stackable items.
         public TagCompound ModData { get; set; }
-        /// <summary>
-        /// Full ItemIO-serialized tag for items whose per-instance data comes from GlobalItem
-        /// (e.g. enchantment mods). Non-null means this item must be extracted and restored
-        /// via ItemIO.Load rather than reconstructed from type/prefix alone.
-        /// </summary>
+        // Full ItemIO-serialized tag for items whose per-instance data comes from GlobalItem
+        // (e.g. enchantment mods). Non-null means this item must be extracted and restored
+        // via ItemIO.Load rather than reconstructed from type/prefix alone.
         public TagCompound FullItemTag { get; set; }
     }
 }

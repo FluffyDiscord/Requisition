@@ -5,11 +5,9 @@ using TerraStorage.Content.Tiles;
 
 namespace TerraStorage.Content.Items
 {
-    /// <summary>
-    /// Registers Storage Disk crafting recipes. Only the initial Tier 1 recipe is registered
-    /// here. Tier 2–6 disks are obtained exclusively by upgrading through the Terminal's
-    /// Disks tab, which preserves the disk's GUID and stored items.
-    /// </summary>
+    // Registers Storage Disk crafting recipes. Only the initial Tier 1 recipe is registered
+    // here. Tier 2–6 disks are obtained exclusively by upgrading through the Terminal's
+    // Disks tab, which preserves the disk's GUID and stored items.
     public class DiskRecipeSystem : ModSystem
     {
         public override void AddRecipes()

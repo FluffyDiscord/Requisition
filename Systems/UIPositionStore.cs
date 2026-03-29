@@ -7,10 +7,8 @@ using Terraria.ModLoader.IO;
 
 namespace TerraStorage.Systems
 {
-    /// <summary>
-    /// Persists UI window positions and sizes across sessions. Saved to a client-side file
-    /// in the tModLoader save directory; never sent to the server.
-    /// </summary>
+    // Persists UI window positions and sizes across sessions. Saved to a client-side file
+    // in the tModLoader save directory; never sent to the server.
     public class UIPositionStore : ModSystem
     {
         private static readonly Dictionary<string, (float x, float y)> _positions = new();

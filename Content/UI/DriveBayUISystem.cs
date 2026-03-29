@@ -9,11 +9,9 @@ using TerraStorage.Content.Tiles;
 
 namespace TerraStorage.Content.UI
 {
-    /// <summary>
-    /// ModSystem that manages the Drive Bay UI lifecycle: opening/closing the disk-management
-    /// panel and the Disk Recovery sub-panel, auto-closing when the player moves too far,
-    /// and injecting the UI draw/update layers into Terraria's interface layer stack.
-    /// </summary>
+    // ModSystem that manages the Drive Bay UI lifecycle: opening/closing the disk-management
+    // panel and the Disk Recovery sub-panel, auto-closing when the player moves too far,
+    // and injecting the UI draw/update layers into Terraria's interface layer stack.
     public class DriveBayUISystem : ModSystem
     {
         private const float MaxInteractDistance = 15f; // tiles

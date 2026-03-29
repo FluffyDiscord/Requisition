@@ -4,10 +4,8 @@ using Terraria.ModLoader;
 
 namespace TerraStorage
 {
-    /// <summary>
-    /// Mod entry point for TerraStorage. Handles all incoming network packets
-    /// by delegating to the centralized <see cref="Systems.NetworkHandler"/>.
-    /// </summary>
+    // Mod entry point for TerraStorage. Handles all incoming network packets
+    // by delegating to the centralized <see cref="Systems.NetworkHandler"/>.
     public class TerraStorage : Mod
     {
         public static string DebugLogPath { get; private set; }

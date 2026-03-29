@@ -13,50 +13,44 @@ using TerraStorage.Systems;
 
 namespace TerraStorage.Helpers
 {
-    /// <summary>
-    /// Represents a single intermediate crafting operation within a <see cref="CraftingPlan"/>.
-    /// Each step records what recipe is used, how many times it must be crafted, which items are
-    /// consumed and produced, and what stations that step requires.
-    /// </summary>
+    // Represents a single intermediate crafting operation within a <see cref="CraftingPlan"/>.
+    // Each step records what recipe is used, how many times it must be crafted, which items are
+    // consumed and produced, and what stations that step requires.
     public class CraftingStep
     {
         public Recipe Recipe { get; set; }
-        /// <summary>Number of times the recipe must be executed to satisfy demand.</summary>
+        //Number of times the recipe must be executed to satisfy demand.
         public int CraftCount { get; set; }
-        /// <summary>Maps item type → total quantity consumed across all <see cref="CraftCount"/> executions.</summary>
+        //Maps item type → total quantity consumed across all <see cref="CraftCount"/> executions.
         public Dictionary<int, int> Consumed { get; set; } = new();
         public int ProducedType { get; set; }
         public int ProducedCount { get; set; }
         public List<int> RequiredStations { get; set; } = new();
     }
 
-    /// <summary>
-    /// The full resolved crafting plan for producing a target item. Contains all intermediate
-    /// <see cref="CraftingStep"/>s in bottom-up order, aggregate material requirements, and
-    /// feasibility information including missing stations or materials.
-    /// </summary>
+    // The full resolved crafting plan for producing a target item. Contains all intermediate
+    // <see cref="CraftingStep"/>s in bottom-up order, aggregate material requirements, and
+    // feasibility information including missing stations or materials. 
     public class CraftingPlan
     {
-        /// <summary>Ordered list of intermediate crafting steps (dependencies first, target last).</summary>
+        //Ordered list of intermediate crafting steps (dependencies first, target last).
         public List<CraftingStep> Steps { get; set; } = new();
-        /// <summary>Total raw materials needed across all steps (not counting intermediate products).</summary>
+        //Total raw materials needed across all steps (not counting intermediate products).
         public Dictionary<int, int> BaseMaterialsRequired { get; set; } = new();
-        /// <summary>Subset of <see cref="BaseMaterialsRequired"/> items that are not fully available.</summary>
+        //Subset of <see cref="BaseMaterialsRequired"/> items that are not fully available.
         public Dictionary<int, int> BaseMaterialsMissing { get; set; } = new();
         public HashSet<int> RequiredStations { get; set; } = new();
         public HashSet<int> MissingStations { get; set; } = new();
         public bool IsFeasible { get; set; }
         public int FinalItemType { get; set; }
         public int FinalItemCount { get; set; }
-        /// <summary>Item was already in storage/inventory - no crafting steps needed.</summary>
+        //Item was already in storage/inventory - no crafting steps needed.
         public bool IsDirectExtract => IsFeasible && Steps.Count == 0;
     }
 
-    /// <summary>
-    /// Resolves multi-step crafting plans by recursively traversing the recipe tree,
-    /// checking material availability across storage and the player's inventory,
-    /// and verifying station/condition requirements against the connected network.
-    /// </summary>
+    // Resolves multi-step crafting plans by recursively traversing the recipe tree,
+    // checking material availability across storage and the player's inventory,
+    // and verifying station/condition requirements against the connected network. 
     public static class RecipeResolver
     {
         // Limits recursive ingredient expansion to prevent infinite loops in circular recipe graphs
@@ -65,10 +59,8 @@ namespace TerraStorage.Helpers
         // Cache for tile name lookups (populated lazily, or pre-warmed via WarmTileCaches)
         private static readonly Dictionary<int, string> _tileNameCache = new();
 
-        /// <summary>
-        /// Checks if a required tile type is satisfied by any station in the set,
-        /// accounting for adjTile equivalences (e.g. Mythril Anvil satisfies Anvil).
-        /// </summary>
+        // Checks if a required tile type is satisfied by any station in the set,
+        // accounting for adjTile equivalences (e.g. Mythril Anvil satisfies Anvil).
         public static bool IsStationSatisfied(int requiredTile, HashSet<int> availableStations)
         {
             if (availableStations.Contains(requiredTile))
@@ -87,11 +79,9 @@ namespace TerraStorage.Helpers
             return false;
         }
 
-        /// <summary>
-        /// Resolve a recipe recursively, determining what base materials are needed
-        /// and what intermediate crafting steps must be performed.
-        /// Checks crafting station requirements against available stations.
-        /// </summary>
+        // Resolve a recipe recursively, determining what base materials are needed
+        // and what intermediate crafting steps must be performed.
+        // Checks crafting station requirements against available stations.
         public static CraftingPlan Resolve(int targetItemType, int quantity, IEnumerable<Guid> diskIds, HashSet<int> availableStations, HashSet<CraftingCondition> availableConditions = null)
         {
             var available = GetAvailableItems(diskIds);
@@ -127,10 +117,8 @@ namespace TerraStorage.Helpers
             return plan;
         }
 
-        /// <summary>
-        /// Get the display name for a tile type (for UI display of station requirements).
-        /// Caches results for performance.
-        /// </summary>
+        // Get the display name for a tile type (for UI display of station requirements).
+        // Caches results for performance. 
         public static string GetTileName(int tileType)
         {
             if (_tileNameCache.TryGetValue(tileType, out string cached))
@@ -159,10 +147,8 @@ namespace TerraStorage.Helpers
             return fallback;
         }
 
-        /// <summary>
-        /// Get all available recipes that can be crafted with items in storage.
-        /// Filters by available crafting stations.
-        /// </summary>
+        // Get all available recipes that can be crafted with items in storage.
+        // Filters by available crafting stations.
         public static List<Recipe> GetAvailableRecipes(IEnumerable<Guid> diskIds, HashSet<int> availableStations, HashSet<CraftingCondition> availableConditions = null)
         {
             var available = GetAvailableItems(diskIds);
@@ -240,10 +226,8 @@ namespace TerraStorage.Helpers
             return results;
         }
 
-        /// <summary>
-        /// Checks if the player or the network meets the special conditions for a recipe.
-        /// </summary>
-        /// <summary>Public accessor for lightweight canCraft updates.</summary>
+        // Checks if the player or the network meets the special conditions for a recipe. 
+        //Public accessor for lightweight canCraft updates.
         public static bool CheckRecipeConditionsPublic(Recipe recipe, HashSet<CraftingCondition> conditions)
             => CheckRecipeConditions(recipe, conditions);
 
@@ -274,12 +258,10 @@ namespace TerraStorage.Helpers
             return true;
         }
 
-        /// <summary>
-        /// Get all recipes. Returns (recipe, canCraft) where canCraft is true only if
-        /// both station requirements AND ingredient requirements are met.
-        /// Includes recursive craftability (expensive). Use <see cref="GetAllRecipesDirect"/>
-        /// for just the direct-check pass.
-        /// </summary>
+        // Get all recipes. Returns (recipe, canCraft) where canCraft is true only if
+        // both station requirements AND ingredient requirements are met.
+        // Includes recursive craftability (expensive). Use <see cref="GetAllRecipesDirect"/>
+        // for just the direct-check pass.
         public static List<(Recipe recipe, bool canCraft)> GetAllRecipesWithStations(
             IEnumerable<Guid> diskIds, HashSet<int> availableStations, HashSet<CraftingCondition> availableConditions = null)
         {
@@ -292,10 +274,8 @@ namespace TerraStorage.Helpers
             return results;
         }
 
-        /// <summary>
-        /// Fast first pass: returns all valid recipes with direct ingredient availability only.
-        /// No BFS reachability or recursive feasibility checks — O(n) single pass.
-        /// </summary>
+        // Fast first pass: returns all valid recipes with direct ingredient availability only.
+        // No BFS reachability or recursive feasibility checks — O(n) single pass.
         public static List<(Recipe recipe, bool canCraft)> GetAllRecipesDirect(
             IEnumerable<Guid> diskIds, HashSet<int> availableStations, HashSet<CraftingCondition> availableConditions = null)
         {
@@ -376,12 +356,10 @@ namespace TerraStorage.Helpers
             return results;
         }
 
-        /// <summary>
-        /// Second pass: upgrades non-craftable recipes to craftable if their output is
-        /// transitively reachable via BFS and all ingredients are recursively feasible.
-        /// Call this after <see cref="GetAllRecipesDirect"/> to add recursive craftability.
-        /// Can be called incrementally via <see cref="ApplyRecursiveCraftabilityBatch"/>.
-        /// </summary>
+        // Second pass: upgrades non-craftable recipes to craftable if their output is
+        // transitively reachable via BFS and all ingredients are recursively feasible.
+        // Call this after <see cref="GetAllRecipesDirect"/> to add recursive craftability.
+        // Can be called incrementally via <see cref="ApplyRecursiveCraftabilityBatch"/>.
         public static void ApplyRecursiveCraftability(
             List<(Recipe recipe, bool canCraft)> results,
             Dictionary<int, int> available,
@@ -394,14 +372,12 @@ namespace TerraStorage.Helpers
                 CheckRecursiveAt(results, i, reachable, available, availableStations, availableConditions, ingCache);
         }
 
-        /// <summary>
-        /// Processes a batch of the recursive craftability pass. Returns the index to resume from
-        /// next frame, or -1 if complete. Caller should pass startIndex=0 on first call, then
-        /// feed the returned value back on subsequent frames.
-        /// </summary>
-        /// <param name="reachable">Pre-computed reachable set from <see cref="ComputeReachableTypes"/>.</param>
-        /// <param name="ingCache">Shared ingredient cache — pass the same instance across batches.</param>
-        /// <param name="anyFlipped">Set to true if any recipe's canCraft changed in this batch.</param>
+        // Processes a batch of the recursive craftability pass. Returns the index to resume from
+        // next frame, or -1 if complete. Caller should pass startIndex=0 on first call, then
+        // feed the returned value back on subsequent frames.
+        // <param name="reachable">Pre-computed reachable set from <see cref="ComputeReachableTypes"/>.</param>
+        // <param name="ingCache">Shared ingredient cache — pass the same instance across batches.</param>
+        // <param name="anyFlipped">Set to true if any recipe's canCraft changed in this batch.</param>
         public static int ApplyRecursiveCraftabilityBatch(
             List<(Recipe recipe, bool canCraft)> results,
             int startIndex, int batchSize,
@@ -424,7 +400,7 @@ namespace TerraStorage.Helpers
             return end >= results.Count ? -1 : end;
         }
 
-        /// <summary>Expose BFS reachability computation for deferred use.</summary>
+        //Expose BFS reachability computation for deferred use.
         public static HashSet<int> ComputeReachableTypesPublic(
             Dictionary<int, int> available, HashSet<int> availableStations, HashSet<CraftingCondition> availableConditions)
             => ComputeReachableTypes(available, availableStations, availableConditions);
@@ -479,11 +455,9 @@ namespace TerraStorage.Helpers
                 results[i] = (recipe, true);
         }
 
-        /// <summary>
-        /// Computes the set of item types that are transitively producible given the items
-        /// currently in storage, by running a BFS fixpoint over the recipe graph.
-        /// Ignores exact quantities — suitable for recipe-list visibility only.
-        /// </summary>
+        // Computes the set of item types that are transitively producible given the items
+        // currently in storage, by running a BFS fixpoint over the recipe graph.
+        // Ignores exact quantities — suitable for recipe-list visibility only.
         private static HashSet<int> ComputeReachableTypes(
             Dictionary<int, int> available,
             HashSet<int> availableStations,
@@ -549,29 +523,23 @@ namespace TerraStorage.Helpers
             return reachable;
         }
 
-        /// <summary>
-        /// Get the item type that places a given tile type. Returns -1 if not found.
-        /// Cached for performance. Use <see cref="RegisterTileDisplay"/> to map vanilla
-        /// non-placeable tile types (e.g. Demon Altar) to a representative item.
-        /// </summary>
+        // Get the item type that places a given tile type. Returns -1 if not found.
+        // Cached for performance. Use <see cref="RegisterTileDisplay"/> to map vanilla
+        // non-placeable tile types (e.g. Demon Altar) to a representative item.
         private static readonly Dictionary<int, int> _tileToItemCache = new();
         private static readonly Dictionary<int, int> _tileDisplayOverrides = new();
 
-        /// <summary>
-        /// Registers an explicit item to display for a tile type that has no directly
-        /// placeable item (e.g. TileID.DemonAltar → DemonAltarItem).
-        /// Call from PostSetupContent after ModContent types are resolved.
-        /// </summary>
+        // Registers an explicit item to display for a tile type that has no directly
+        // placeable item (e.g. TileID.DemonAltar → DemonAltarItem).
+        // Call from PostSetupContent after ModContent types are resolved. 
         public static void RegisterTileDisplay(int tileType, int itemType)
         {
             _tileDisplayOverrides[tileType] = itemType;
         }
 
-        /// <summary>
-        /// Builds the full tile→item mapping in a single pass over all items.
-        /// Call once after PostSetupContent (e.g. on world load) to avoid per-tile
-        /// linear scans that cause hitching on first hover.
-        /// </summary>
+        // Builds the full tile→item mapping in a single pass over all items.
+        // Call once after PostSetupContent (e.g. on world load) to avoid per-tile
+        // linear scans that cause hitching on first hover.
         public static void WarmTileCaches()
         {
             if (_tileToItemCache.Count > 0) return; // already warmed
@@ -629,10 +597,8 @@ namespace TerraStorage.Helpers
             return -1;
         }
 
-        /// <summary>
-        /// Like Resolve but ignores existing stock of the target item, forcing actual crafting.
-        /// Returns null if the item cannot be crafted with available ingredients.
-        /// </summary>
+        // Like Resolve but ignores existing stock of the target item, forcing actual crafting.
+        // Returns null if the item cannot be crafted with available ingredients.
         public static CraftingPlan ResolveForceCraft(int targetItemType, int quantity, IEnumerable<Guid> diskIds, HashSet<int> availableStations, HashSet<CraftingCondition> availableConditions = null)
         {
             var available = GetAvailableItems(diskIds);
@@ -668,11 +634,9 @@ namespace TerraStorage.Helpers
             return plan.IsFeasible ? plan : null;
         }
 
-        /// <summary>
-        /// Given an ingredient type and the recipe's accepted groups, returns the best item type
-        /// to actually consume — preferring the ingredient's own type, falling back to any recipe
-        /// group substitute that is already in <paramref name="available"/>.
-        /// </summary>
+        // Given an ingredient type and the recipe's accepted groups, returns the best item type
+        // to actually consume — preferring the ingredient's own type, falling back to any recipe
+        // group substitute that is already in <paramref name="available"/>. 
         private static int ResolveIngredientType(Recipe recipe, int ingredientType, Dictionary<int, int> available)
         {
             // If we already have enough of the exact type, use it
@@ -697,13 +661,11 @@ namespace TerraStorage.Helpers
             return ingredientType;
         }
 
-        /// <summary>
-        /// Recursively attempts to satisfy a demand for <paramref name="needed"/> units of
-        /// <paramref name="itemType"/> using the mutable <paramref name="available"/> dictionary.
-        /// On success the required quantities are deducted from <paramref name="available"/> and
-        /// the necessary <see cref="CraftingStep"/>s are appended to <paramref name="steps"/>.
-        /// Returns false if the demand cannot be met with the current stock or recipes.
-        /// </summary>
+        // Recursively attempts to satisfy a demand for <paramref name="needed"/> units of
+        // <paramref name="itemType"/> using the mutable <paramref name="available"/> dictionary.
+        // On success the required quantities are deducted from <paramref name="available"/> and
+        // the necessary <see cref="CraftingStep"/>s are appended to <paramref name="steps"/>.
+        // Returns false if the demand cannot be met with the current stock or recipes.
         private static bool ResolveRecursive(int itemType, int needed, Dictionary<int, int> available,
             List<CraftingStep> steps, HashSet<int> resolving, int depth,
             HashSet<int> availableStations, HashSet<CraftingCondition> availableConditions)
@@ -814,12 +776,10 @@ namespace TerraStorage.Helpers
             return false;
         }
 
-        /// <summary>
-        /// Checks feasibility using an already-computed item snapshot rather than re-scanning
-        /// disk data. The snapshot is cloned before use so the original is not consumed.
-        /// Used by <see cref="GetAllRecipesWithStations"/> to avoid redundant disk scans in
-        /// the second pass.
-        /// </summary>
+        // Checks feasibility using an already-computed item snapshot rather than re-scanning
+        // disk data. The snapshot is cloned before use so the original is not consumed.
+        // Used by <see cref="GetAllRecipesWithStations"/> to avoid redundant disk scans in
+        // the second pass.
         private static bool IsFeasibleFromSnapshot(int targetItemType, int quantity,
             Dictionary<int, int> availableSnapshot, HashSet<int> availableStations,
             HashSet<CraftingCondition> availableConditions)
@@ -837,14 +797,10 @@ namespace TerraStorage.Helpers
             return true;
         }
 
-        /// <summary>
-        /// Builds a mutable snapshot of all items available for crafting from the given disks.
-        /// This snapshot is modified in-place by <see cref="ResolveRecursive"/> to simulate consumption.
-        /// </summary>
-        /// <summary>
-        /// Builds a dictionary of itemType → total count across all given disks.
-        /// Public so the crafting panel can use it for lightweight canCraft updates.
-        /// </summary>
+        // Builds a mutable snapshot of all items available for crafting from the given disks.
+        // This snapshot is modified in-place by <see cref="ResolveRecursive"/> to simulate consumption. 
+        // Builds a dictionary of itemType → total count across all given disks.
+        // Public so the crafting panel can use it for lightweight canCraft updates. 
         public static Dictionary<int, int> GetAvailableItemsPublic(IEnumerable<Guid> diskIds)
             => GetAvailableItems(diskIds);
 
@@ -863,11 +819,9 @@ namespace TerraStorage.Helpers
             return items;
         }
 
-        /// <summary>
-        /// Populates <see cref="CraftingPlan.BaseMaterialsRequired"/> and
-        /// <see cref="CraftingPlan.BaseMaterialsMissing"/> by computing the net material demand
-        /// after subtracting intermediate products produced by earlier steps.
-        /// </summary>
+        // Populates <see cref="CraftingPlan.BaseMaterialsRequired"/> and
+        // <see cref="CraftingPlan.BaseMaterialsMissing"/> by computing the net material demand
+        // after subtracting intermediate products produced by earlier steps.
         private static void CalculateBaseMaterials(CraftingPlan plan, IEnumerable<Guid> diskIds)
         {
             var produced = new Dictionary<int, int>();
@@ -908,10 +862,8 @@ namespace TerraStorage.Helpers
             StorageWorldSystem.Instance.ExtractItem(diskList, itemType, amount);
         }
 
-        /// <summary>
-        /// Execute a crafting plan, consuming items from storage and player inventory,
-        /// producing the result back into storage.
-        /// </summary>
+        // Execute a crafting plan, consuming items from storage and player inventory,
+        // producing the result back into storage. 
         public static Item ExecutePlan(CraftingPlan plan, IEnumerable<Guid> diskIds, bool cleanCraft = true)
         {
             if (!plan.IsFeasible)
@@ -958,7 +910,6 @@ namespace TerraStorage.Helpers
                     // storage was full: the insert would fail, the subsequent extract would
                     // return nothing, and the caller would receive an air item even though
                     // ingredients had already been consumed.
-                    //
                     // If the recipe produced more items than requested (batch rounding),
                     // store the excess. Losing excess on a full store is acceptable.
                     int excess = step.ProducedCount - plan.FinalItemCount;
@@ -1032,11 +983,10 @@ namespace TerraStorage.Helpers
             return finalResult;
         }
 
-        /// <summary>
-        /// Returns true if <paramref name="step"/> produces a Storage Disk by consuming a
-        /// lower-tier disk as an ingredient. Sets <paramref name="sourceDiskItemType"/> to
-        /// the consumed disk's item type so the caller can look up its GUID.
-        /// </summary>
+        // Returns true if <paramref name="step"/> produces a Storage Disk by consuming a
+        // lower-tier disk as an ingredient. Sets <paramref name="sourceDiskItemType"/> to
+        // the consumed disk's item type so the caller can look up its GUID.
+        // 
         private static bool IsDiskUpgradeStep(CraftingStep step, out int sourceDiskItemType)
         {
             sourceDiskItemType = -1;
@@ -1062,11 +1012,9 @@ namespace TerraStorage.Helpers
             return false;
         }
 
-        /// <summary>
-        /// Scans the storage network for a stored disk item of <paramref name="diskItemType"/>
-        /// and returns its <see cref="StorageDiskBase.DiskId"/>.
-        /// Returns <see cref="Guid.Empty"/> if none is found.
-        /// </summary>
+        // Scans the storage network for a stored disk item of <paramref name="diskItemType"/>
+        // and returns its <see cref="StorageDiskBase.DiskId"/>.
+        // Returns <see cref="Guid.Empty"/> if none is found.
         private static Guid FindDiskGuidInStorage(List<Guid> diskList, int diskItemType)
         {
             var sys = StorageWorldSystem.Instance;

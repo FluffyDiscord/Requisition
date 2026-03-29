@@ -7,33 +7,29 @@ using Terraria.ModLoader.IO;
 
 namespace TerraStorage.Common
 {
-    /// <summary>
-    /// Holds all persistent data for a single Storage Disk: its unique identity,
-    /// capacity tier, and the list of item stacks currently stored on it.
-    /// </summary>
+    // Holds all persistent data for a single Storage Disk: its unique identity,
+    // capacity tier, and the list of item stacks currently stored on it.
+    // 
     public class DiskData
     {
-        /// <summary>Unique identifier used to look up this disk in <see cref="TerraStorage.Systems.StorageWorldSystem"/>.</summary>
+        //Unique identifier used to look up this disk in <see cref="TerraStorage.Systems.StorageWorldSystem"/>.
         public Guid DiskId { get; set; }
         public DiskTier Tier { get; set; }
         public List<StoredItemStack> Items { get; set; } = new();
 
-        /// <summary>Maximum number of distinct item stacks this disk can hold, determined by its tier.</summary>
+        //Maximum number of distinct item stacks this disk can hold, determined by its tier.
         public int MaxStacks => Tier.GetCapacity();
-        /// <summary>Number of item stacks currently occupying slots on this disk.</summary>
+        //Number of item stacks currently occupying slots on this disk.
         public int UsedStacks => Items.Count;
         public bool IsFull => UsedStacks >= MaxStacks;
 
-        /// <summary>
-        /// Try to insert an item into this disk. Returns the leftover count (0 if fully inserted).
-        /// </summary>
-        /// <param name="preSerializedTag">
-        /// Optional full ItemIO tag captured from the <em>original</em> item (before any
-        /// <c>Clone()</c> call) by the caller. Supplying it ensures that GlobalItem data from
-        /// other mods (e.g. enchantment mods using <c>GlobalItem.SaveData</c>) is preserved,
-        /// because <c>Item.Clone()</c> may not deep-copy per-instance GlobalItem state.
-        /// </param>
-        public int InsertItem(Item item, long insertionOrder = 0, TagCompound preSerializedTag = null)
+        // Try to insert an item into this disk. Returns the leftover count (0 if fully inserted).
+        // 
+        // Optional full ItemIO tag captured from the original item (before any
+        // Clone() call) by the caller. Supplying it ensures that GlobalItem data from
+        // other mods (e.g. enchantment mods using GlobalItem.SaveData) is preserved,
+        // because Item.Clone() may not deep-copy per-instance GlobalItem state.
+                public int InsertItem(Item item, long insertionOrder = 0, TagCompound preSerializedTag = null)
         {
             if (item == null || item.IsAir)
                 return 0;
@@ -96,9 +92,7 @@ namespace TerraStorage.Common
             return remaining;
         }
 
-        /// <summary>
-        /// Extract up to 'count' of the given item type. Returns the items extracted.
-        /// </summary>
+        // Extract up to 'count' of the given item type. Returns the items extracted.
         public Item ExtractItem(int itemType, int count, int prefixId = -1)
         {
             int extracted = 0;
@@ -160,10 +154,8 @@ namespace TerraStorage.Common
             return result;
         }
 
-        /// <summary>
-        /// Extract the specific per-instance stack whose ModData matches <paramref name="targetModData"/>
-        /// byte-for-byte. Used to pull the exact UnloadedItem (or other unique item) the user clicked.
-        /// </summary>
+        // Extract the specific per-instance stack whose ModData matches <paramref name="targetModData"/>
+        // byte-for-byte. Used to pull the exact UnloadedItem (or other unique item) the user clicked.
         public Item ExtractItemWithModData(TagCompound targetModData)
         {
             StoredItemStack match = null;
@@ -191,10 +183,9 @@ namespace TerraStorage.Common
             return result;
         }
 
-        /// <summary>
-        /// Extract the specific per-instance stack whose FullItemTag matches <paramref name="targetFullTag"/>
-        /// byte-for-byte. Used for items with GlobalItem data (e.g. Entropy enchantments) that have no ModData.
-        /// </summary>
+        // Extract the specific per-instance stack whose FullItemTag matches <paramref name="targetFullTag"/>
+        // byte-for-byte. Used for items with GlobalItem data (e.g. Entropy enchantments) that have no ModData.
+        // 
         public Item ExtractItemWithFullItemTag(TagCompound targetFullTag)
         {
             StoredItemStack match = null;
@@ -225,12 +216,11 @@ namespace TerraStorage.Common
             return msA.ToArray().SequenceEqual(msB.ToArray());
         }
 
-        /// <summary>
-        /// Returns true if two items have compatible per-instance data for merging.
-        /// Compares globalData and modData independently so that items with identical
-        /// mod-attached state (e.g. two unenchanted items both carrying default CalamityGlobalItem)
-        /// are still allowed to merge, while items with differing enchantments are not.
-        /// </summary>
+        // Returns true if two items have compatible per-instance data for merging.
+        // Compares globalData and modData independently so that items with identical
+        // mod-attached state (e.g. two unenchanted items both carrying default CalamityGlobalItem)
+        // are still allowed to merge, while items with differing enchantments are not.
+        // 
         private static bool PerInstanceDataMatches(
             TagCompound storedFullTag, TagCompound incomingFullTag,
             TagCompound storedModData, TagCompound incomingModData)
@@ -257,9 +247,7 @@ namespace TerraStorage.Common
             }
         }
 
-        /// <summary>
-        /// Count how many of a given item type are stored.
-        /// </summary>
+        // Count how many of a given item type are stored.
         public int CountItem(int itemType, int prefixId = -1)
         {
             int total = 0;
@@ -271,10 +259,8 @@ namespace TerraStorage.Common
             return total;
         }
 
-        /// <summary>
-        /// Compact binary serialization for network packets. ~18 bytes/stack vs ~373 bytes
-        /// with the TagCompound world-save format.
-        /// </summary>
+        // Compact binary serialization for network packets. ~18 bytes/stack vs ~373 bytes
+        // with the TagCompound world-save format.
         public void WriteNet(BinaryWriter writer)
         {
             writer.Write(DiskId.ToByteArray());
@@ -284,7 +270,7 @@ namespace TerraStorage.Common
                 item.WriteNet(writer);
         }
 
-        /// <summary>Deserializes a compact network-format disk written by <see cref="WriteNet"/>.</summary>
+        //Deserializes a compact network-format disk written by <see cref="WriteNet"/>.
         public static DiskData ReadNet(BinaryReader reader)
         {
             var data = new DiskData
@@ -299,10 +285,8 @@ namespace TerraStorage.Common
             return data;
         }
 
-        /// <summary>
-        /// Serializes this disk's GUID, tier, and all stored item stacks to a
-        /// <see cref="TagCompound"/> for world-save persistence.
-        /// </summary>
+        // Serializes this disk's GUID, tier, and all stored item stacks to a
+        // see "TagCompound" for world-save persistence.
         public TagCompound Save()
         {
             return new TagCompound
@@ -313,10 +297,8 @@ namespace TerraStorage.Common
             };
         }
 
-        /// <summary>
-        /// Deserializes a <see cref="DiskData"/> from a <see cref="TagCompound"/>,
-        /// reconstructing the GUID, tier, and item stacks.
-        /// </summary>
+        // Deserializes a DiskData from a TagCompound,
+        // reconstructing the GUID, tier, and item stacks.
         public static DiskData Load(TagCompound tag)
         {
             var data = new DiskData

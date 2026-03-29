@@ -4,11 +4,9 @@ using Terraria.ModLoader;
 
 namespace TerraStorage.Content.Items
 {
-    /// <summary>
-    /// Station item for the Crafting Core. Provides TileID.DemonAltar so recipes
-    /// that require a Crimson Altar can be crafted via the Terminal.
-    /// (Crimson and Demon altars share TileID.DemonAltar = 26 in vanilla.)
-    /// </summary>
+    // Station item for the Crafting Core. Provides TileID.DemonAltar so recipes
+    // that require a Crimson Altar can be crafted via the Terminal.
+    // (Crimson and Demon altars share TileID.DemonAltar = 26 in vanilla.)
     public class CrimsonAltarItem : ModItem
     {
         public override void SetDefaults()

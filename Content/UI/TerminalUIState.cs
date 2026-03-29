@@ -21,9 +21,7 @@ using TerraStorage.Helpers;
 
 namespace TerraStorage.Content.UI
 {
-    /// <summary>
-    /// Controls the order in which consolidated items are displayed in the Terminal's Storage tab.
-    /// </summary>
+    // Controls the order in which consolidated items are displayed in the Terminal's Storage tab.
     public enum SortMode
     {
         ID,
@@ -36,12 +34,10 @@ namespace TerraStorage.Content.UI
         Rarity
     }
 
-    /// <summary>
-    /// UIState for the Terminal storage interface. Provides Storage and Crafting tabs,
-    /// a search bar, category filter, sort bar, item grid, and deposit controls.
-    /// Handles drag-to-move, corner resize, shift+click deposit, and change-detection
-    /// via <see cref="StorageWorldSystem.StorageVersion"/> polling.
-    /// </summary>
+    // UIState for the Terminal storage interface. Provides Storage and Crafting tabs,
+    // a search bar, category filter, sort bar, item grid, and deposit controls.
+    // Handles drag-to-move, corner resize, shift+click deposit, and change-detection
+    // via <see cref="StorageWorldSystem.StorageVersion"/> polling.
     public class TerminalUIState : UIState
     {
         private const float PanelMinWidth = 650f;
@@ -108,10 +104,8 @@ namespace TerraStorage.Content.UI
         private static readonly Dictionary<int, int> _maxStackCache = new();
         private static readonly Dictionary<int, int> _rarityCache = new();
 
-        /// <summary>
-        /// Binds the UI to a specific <see cref="TerminalEntity"/> and immediately
-        /// refreshes disk connections and the displayed item list.
-        /// </summary>
+        // Binds the UI to a specific <see cref="TerminalEntity"/> and immediately
+        // refreshes disk connections and the displayed item list.
         public void ClearSearch() => _searchBar?.Clear();
 
         public bool IsMouseOverPanel() => _mainPanel?.ContainsPoint(Main.MouseScreen) == true;
@@ -322,10 +316,8 @@ namespace TerraStorage.Content.UI
             RecalculateColumns();
         }
 
-        /// <summary>
-        /// Switches between the Storage and Crafting tabs, swapping the content-area
-        /// child elements and refreshing data for the newly active tab.
-        /// </summary>
+        // Switches between the Storage and Crafting tabs, swapping the content-area
+        // child elements and refreshing data for the newly active tab.
         private void SwitchTab(ActiveTab tab)
         {
             // Remove content for the current tab.
@@ -465,12 +457,10 @@ namespace TerraStorage.Content.UI
             FilterAndDisplayItems();
         }
 
-        /// <summary>
-        /// Applies the current search text, category filter, and sort mode to
-        /// <see cref="_cachedItems"/>, then pushes the result to <see cref="_itemGrid"/>.
-        /// Favorited items are partitioned into a separate list that is sorted
-        /// independently and always prepended before filtered results.
-        /// </summary>
+        // Applies the current search text, category filter, and sort mode to
+        // <see cref="_cachedItems"/>, then pushes the result to <see cref="_itemGrid"/>.
+        // Favorited items are partitioned into a separate list that is sorted
+        // independently and always prepended before filtered results.
         private void FilterAndDisplayItems()
         {
             var player = StoragePlayerSystem.Local;
@@ -506,11 +496,9 @@ namespace TerraStorage.Content.UI
             _statusText?.SetText(Language.GetText("Mods.TerraStorage.UI.DiskPanel.SlotCount").Format(used, max));
         }
 
-        /// <summary>
-        /// Sorts <paramref name="items"/> in-place according to <see cref="_currentSort"/>
-        /// and <see cref="_sortAscending"/>. Item property lookups are cached to avoid
-        /// repeated <c>SetDefaults</c> allocations during multi-item comparisons.
-        /// </summary>
+        // Sorts <paramref name="items"/> in-place according to <see cref="_currentSort"/>
+        // and <see cref="_sortAscending"/>. Item property lookups are cached to avoid
+        // repeated <c>SetDefaults</c> allocations during multi-item comparisons. 
         private void SortItems(List<ConsolidatedItem> items)
         {
             // Flip the comparison result for descending order instead of reversing afterwards.
@@ -609,12 +597,10 @@ namespace TerraStorage.Content.UI
             FilterAndDisplayItems();
         }
 
-        /// <summary>
-        /// Handles a left-click on a storage item. If the player is already holding an item
-        /// the cursor item is deposited instead. Otherwise extracts up to one max-stack worth
-        /// of the clicked item; shift+click sends it directly to the player's inventory.
-        /// Any overflow that doesn't fit in the inventory is re-inserted into storage.
-        /// </summary>
+        // Handles a left-click on a storage item. If the player is already holding an item
+        // the cursor item is deposited instead. Otherwise extracts up to one max-stack worth
+        // of the clicked item; shift+click sends it directly to the player's inventory.
+        // Any overflow that doesn't fit in the inventory is re-inserted into storage. 
         private void OnItemClicked(ConsolidatedItem item)
         {
             if (item == null || _connectedDiskIds.Count == 0)
@@ -724,11 +710,9 @@ namespace TerraStorage.Content.UI
             RefreshItems();
         }
 
-        /// <summary>
-        /// Handles a right-click on a storage item, extracting exactly one unit.
-        /// If the cursor already holds a matching item and has room the extracted unit
-        /// is merged; otherwise it is re-inserted so nothing is lost.
-        /// </summary>
+        // Handles a right-click on a storage item, extracting exactly one unit.
+        // If the cursor already holds a matching item and has room the extracted unit
+        // is merged; otherwise it is re-inserted so nothing is lost.
         private void OnItemRightClicked(ConsolidatedItem item)
         {
             if (item == null || _connectedDiskIds.Count == 0)
@@ -815,10 +799,8 @@ namespace TerraStorage.Content.UI
             RefreshItems();
         }
 
-        /// <summary>
-        /// Deposits the non-favorited main inventory items (slots 10–49) into storage.
-        /// Hotbar slots (0–9) and favorited items are intentionally skipped.
-        /// </summary>
+        // Deposits the non-favorited main inventory items (slots 10–49) into storage.
+        // Hotbar slots (0–9) and favorited items are intentionally skipped.
         private void OnDepositAll(UIMouseEvent evt, UIElement element)
         {
             if (_connectedDiskIds.Count == 0)
@@ -977,10 +959,8 @@ namespace TerraStorage.Content.UI
             RecalculateColumns();
         }
 
-        /// <summary>
-        /// Recomputes the number of item-grid columns that fit in the current panel width.
-        /// Each slot is 48 px wide; 66 px is reserved for panel padding, scrollbar, and margins.
-        /// </summary>
+        // Recomputes the number of item-grid columns that fit in the current panel width.
+        // Each slot is 48 px wide; 66 px is reserved for panel padding, scrollbar, and margins.
         private void RecalculateColumns()
         {
             float gridWidth = _panelWidth - 66; // padding + scrollbar + margins

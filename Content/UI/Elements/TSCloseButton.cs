@@ -9,10 +9,8 @@ using Terraria.UI;
 
 namespace TerraStorage.Content.UI.Elements
 {
-    /// <summary>
-    /// Unified close button matching the CraftingTree button style:
-    /// dark blue background, centered "X" glyph, red tint on hover.
-    /// </summary>
+    // Unified close button matching the CraftingTree button style:
+    // dark blue background, centered "X" glyph, red tint on hover.
     public class TSCloseButton : UIElement
     {
         private readonly Action _onClose;

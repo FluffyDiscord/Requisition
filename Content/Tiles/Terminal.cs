@@ -8,10 +8,8 @@ using Terraria.ObjectData;
 
 namespace TerraStorage.Content.Tiles
 {
-    /// <summary>
-    /// The Terminal tile (3x3). Players right-click it to browse storage contents, search, sort,
-    /// and craft items from connected Drive Bays and Crafting Cores within range.
-    /// </summary>
+    // The Terminal tile (3x3). Players right-click it to browse storage contents, search, sort,
+    // and craft items from connected Drive Bays and Crafting Cores within range.
     public class Terminal : ModTile
     {
         public override void SetStaticDefaults()

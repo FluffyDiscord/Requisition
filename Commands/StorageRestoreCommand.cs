@@ -9,12 +9,10 @@ using TerraStorage.Systems;
 
 namespace TerraStorage.Commands
 {
-    /// <summary>
-    /// Server console command for listing and immediately restoring TerraStorage disk backups.
-    /// Usage:
-    ///   tsrestore list        — show available backups for the current world
-    ///   tsrestore &lt;0|1|2&gt;    — restore from that slot immediately (no world reload needed)
-    /// </summary>
+    // Server console command for listing and immediately restoring TerraStorage disk backups.
+    // Usage:
+    //   tsrestore list        — show available backups for the current world
+    //   tsrestore &lt;0|1|2&gt;    — restore from that slot immediately (no world reload needed)
     public class StorageRestoreCommand : ModCommand
     {
         public override string Command => "tsrestore";

@@ -9,12 +9,10 @@ using TerraStorage.Content.Tiles;
 
 namespace TerraStorage.Content.UI
 {
-    /// <summary>
-    /// ModSystem that manages the Crafting Core UI lifecycle: opening/closing the
-    /// station-module panel, auto-closing when the player moves too far or closes
-    /// their inventory, blocking vanilla shift+click, and injecting the draw layer
-    /// into Terraria's interface stack.
-    /// </summary>
+    // ModSystem that manages the Crafting Core UI lifecycle: opening/closing the
+    // station-module panel, auto-closing when the player moves too far or closes
+    // their inventory, blocking vanilla shift+click, and injecting the draw layer
+    // into Terraria's interface stack. 
     public class CraftingCoreUISystem : ModSystem
     {
         private const float MaxInteractDistance = 15f; // tiles

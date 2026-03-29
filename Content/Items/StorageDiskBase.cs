@@ -12,33 +12,25 @@ using TerraStorage.Systems;
 
 namespace TerraStorage.Content.Items
 {
-    /// <summary>
-    /// Base class for all Storage Disk items. Manages the disk's unique GUID,
-    /// NBT persistence, tooltip generation, and world-system registration.
-    /// Concrete tier subclasses only need to override <see cref="Tier"/>.
-    /// </summary>
+    // Base class for all Storage Disk items. Manages the disk's unique GUID,
+    // NBT persistence, tooltip generation, and world-system registration.
+    // Concrete tier subclasses only need to override <see cref="Tier"/>.
     public abstract class StorageDiskBase : ModItem
     {
-        /// <summary>The capacity tier of this disk, determining its max stack count.</summary>
+        //The capacity tier of this disk, determining its max stack count.
         public abstract DiskTier Tier { get; }
 
-        /// <summary>
-        /// Globally unique identifier linking this item to its <see cref="Common.DiskData"/>
-        /// in <see cref="StorageWorldSystem"/>. <see cref="Guid.Empty"/> means uninitialized or archived.
-        /// </summary>
+        // Globally unique identifier linking this item to its <see cref="Common.DiskData"/>
+        // in <see cref="StorageWorldSystem"/>. <see cref="Guid.Empty"/> means uninitialized or archived.
         public Guid DiskId { get; set; } = Guid.Empty;
 
-        /// <summary>
-        /// True when this disk has been archived. Archived disks carry their items in
-        /// <see cref="ArchivedItems"/> rather than in <see cref="StorageWorldSystem"/>,
-        /// allowing them to be moved between worlds. Cannot be inserted into a Drive Bay.
-        /// </summary>
+        // True when this disk has been archived. Archived disks carry their items in
+        // <see cref="ArchivedItems"/> rather than in <see cref="StorageWorldSystem"/>,
+        // allowing them to be moved between worlds. Cannot be inserted into a Drive Bay.
         public bool IsArchived { get; set; } = false;
 
-        /// <summary>
-        /// Item stacks embedded directly in this disk's NBT while archived.
-        /// Populated on archive, consumed on the first Drive Bay insertion after unarchiving.
-        /// </summary>
+        // Item stacks embedded directly in this disk's NBT while archived.
+        // Populated on archive, consumed on the first Drive Bay insertion after unarchiving.
         public List<StoredItemStack> ArchivedItems { get; set; } = new();
 
         public override void SetDefaults()
@@ -124,10 +116,8 @@ namespace TerraStorage.Content.Items
                 ArchivedItems.Add(StoredItemStack.ReadNet(reader));
         }
 
-        /// <summary>
-        /// Appends tier name, stack usage, and a short disk ID to the item tooltip.
-        /// The tier name is colored using the tier's accent color via Terraria's inline color tag syntax.
-        /// </summary>
+        // Appends tier name, stack usage, and a short disk ID to the item tooltip.
+        // The tier name is colored using the tier's accent color via Terraria's inline color tag syntax.
         public override void ModifyTooltips(List<TooltipLine> tooltips)
         {
             var tierColor = Tier.GetColor();
@@ -166,9 +156,7 @@ namespace TerraStorage.Content.Items
             }
         }
 
-        /// <summary>
-        /// Assign a specific Guid to this disk (for restoration).
-        /// </summary>
+        // Assign a specific Guid to this disk (for restoration).
         public void AssignDiskId(Guid id)
         {
             DiskId = id;
@@ -185,11 +173,9 @@ namespace TerraStorage.Content.Items
             _              => 0
         };
 
-        /// <summary>
-        /// Upgrade ingredient options per tier.  Each outer entry is one alternative recipe;
-        /// the server and client both use this to determine what to consume.
-        /// Returns null for max-tier disks (no upgrade available).
-        /// </summary>
+        // Upgrade ingredient options per tier.  Each outer entry is one alternative recipe;
+        // the server and client both use this to determine what to consume.
+        // Returns null for max-tier disks (no upgrade available).
         public static (int itemType, int count)[][] GetUpgradeOptions(DiskTier tier) => tier switch
         {
             DiskTier.Tier1 => new[]

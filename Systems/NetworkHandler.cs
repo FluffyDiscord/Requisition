@@ -13,7 +13,7 @@ using TerraStorage.Helpers;
 
 namespace TerraStorage.Systems
 {
-    /// <summary>Identifies the type of a TerraStorage multiplayer packet.</summary>
+    //Identifies the type of a TerraStorage multiplayer packet.
     public enum PacketType : byte
     {
         SyncDiskInsert,
@@ -37,22 +37,20 @@ namespace TerraStorage.Systems
         DefragRequest,
 
         // ─── Delta Sync (Predictive Mode) ────────────────────
-        /// <summary>Server → all clients: item-level delta for a single disk.</summary>
+        //Server → all clients: item-level delta for a single disk.
         DeltaDiskData,
-        /// <summary>Server → requesting client: success/failure for a storage operation.</summary>
+        //Server → requesting client: success/failure for a storage operation.
         OperationResponse,
-        /// <summary>Client → server: request full resync for a specific disk (seq gap detected).</summary>
+        //Client → server: request full resync for a specific disk (seq gap detected).
         RequestFullDiskSync,
 
-        /// <summary>Server → client: give an item directly to the client's inventory (used when storage is full).</summary>
+        //Server → client: give an item directly to the client's inventory (used when storage is full).
         GiveItemToClient,
     }
 
-    /// <summary>
-    /// Sends and receives all TerraStorage network packets.
-    /// On the server, most handlers also relay the packet to all other clients
-    /// (the standard tModLoader server-relay pattern).
-    /// </summary>
+    // Sends and receives all TerraStorage network packets.
+    // On the server, most handlers also relay the packet to all other clients
+    // (the standard tModLoader server-relay pattern).
     public static class NetworkHandler
     {
         public static void HandlePacket(Mod mod, BinaryReader reader, int whoAmI)
@@ -575,9 +573,7 @@ namespace TerraStorage.Systems
 
         // ─── DiskData Sync ──────────────────────────────────────────────
 
-        /// <summary>
-        /// Client requests DiskData for a set of disk IDs (sent when opening Terminal).
-        /// </summary>
+        // Client requests DiskData for a set of disk IDs (sent when opening Terminal).
         private static void DBG(string msg)
         {
             var path = TerraStorage.DebugLogPath;
@@ -623,10 +619,8 @@ namespace TerraStorage.Systems
             }
         }
 
-        /// <summary>
-        /// Scans all Drive Bay entities and registers any disks not yet in StorageWorldSystem.
-        /// Only runs on the server and only when there are missing IDs, so overhead is minimal.
-        /// </summary>
+        // Scans all Drive Bay entities and registers any disks not yet in StorageWorldSystem.
+        // Only runs on the server and only when there are missing IDs, so overhead is minimal.
         private static void EnsureDisksRegistered(List<Guid> diskIds)
         {
             var sys = StorageWorldSystem.Instance;
@@ -649,9 +643,7 @@ namespace TerraStorage.Systems
             DBG($"  EnsureDisksRegistered: scanned {bayCount} bays");
         }
 
-        /// <summary>
-        /// Server sends DiskData for specific disks to a specific client.
-        /// </summary>
+        // Server sends DiskData for specific disks to a specific client.
         private static void SendDiskDataToClient(Mod mod, List<Guid> diskIds, int toClient)
         {
             var sys = StorageWorldSystem.Instance;
@@ -681,9 +673,7 @@ namespace TerraStorage.Systems
             }
         }
 
-        /// <summary>
-        /// Broadcasts DiskData for the given disk IDs to all clients.
-        /// </summary>
+        // Broadcasts DiskData for the given disk IDs to all clients.
         public static void BroadcastDiskData(Mod mod, List<Guid> diskIds, int ignoreClient)
         {
             if (Main.netMode != NetmodeID.Server)
@@ -756,11 +746,9 @@ namespace TerraStorage.Systems
 
         // ─── Disk Archive ───────────────────────────────────────────────
 
-        /// <summary>
-        /// Client requests the server to archive the disk at the given inventory slot.
-        /// The GUID is included so the server can look it up in StorageWorldSystem without
-        /// relying on a fully-synced copy of the player's inventory mod data.
-        /// </summary>
+        // Client requests the server to archive the disk at the given inventory slot.
+        // The GUID is included so the server can look it up in StorageWorldSystem without
+        // relying on a fully-synced copy of the player's inventory mod data.
         public static void SendArchiveDiskRequest(Mod mod, int playerIndex, int slot, Guid diskId)
         {
             if (Main.netMode != NetmodeID.MultiplayerClient)
@@ -836,11 +824,9 @@ namespace TerraStorage.Systems
 
         // ─── Disk Recovery ──────────────────────────────────────────────
 
-        /// <summary>
-        /// Client asks the server to remap oldGuid→newId in StorageWorldSystem
-        /// (dupe-safe recovery: old GUID is deleted so the original disk becomes empty).
-        /// repDiskOldId is the replacement disk's previous GUID (Guid.Empty if blank).
-        /// </summary>
+        // Client asks the server to remap oldGuid→newId in StorageWorldSystem
+        // (dupe-safe recovery: old GUID is deleted so the original disk becomes empty).
+        // repDiskOldId is the replacement disk's previous GUID (Guid.Empty if blank).
         public static void SendRestoreDiskRequest(Mod mod, Guid oldGuid, Guid repDiskOldId, Guid newId)
         {
             if (Main.netMode != NetmodeID.MultiplayerClient) return;
@@ -886,9 +872,7 @@ namespace TerraStorage.Systems
 
         // ─── Disk Upgrade ───────────────────────────────────────────────
 
-        /// <summary>
-        /// Client asks the server to perform a disk tier upgrade in the given Drive Bay slot.
-        /// </summary>
+        // Client asks the server to perform a disk tier upgrade in the given Drive Bay slot.
         public static void SendUpgradeDiskRequest(Mod mod, int entityId, int slotIdx, Guid diskId,
             System.Collections.Generic.List<Guid> diskIds, int optionIdx,
             System.Collections.Generic.HashSet<int> stations,
@@ -1023,9 +1007,7 @@ namespace TerraStorage.Systems
 
         // ─── Sync Dispatch ──────────────────────────────────────────────
 
-        /// <summary>
-        /// Server → specific client: "put this item in your inventory."
-        /// </summary>
+        // Server → specific client: "put this item in your inventory."
         private static void SendGiveItemToClient(Mod mod, int toClient, Item item)
         {
             var packet = mod.GetPacket();
@@ -1036,9 +1018,7 @@ namespace TerraStorage.Systems
             packet.Send(toClient);
         }
 
-        /// <summary>
-        /// Client-side: server told us to take an item into our inventory.
-        /// </summary>
+        // Client-side: server told us to take an item into our inventory.
         private static void HandleGiveItemToClient(BinaryReader reader)
         {
             if (Main.netMode != NetmodeID.MultiplayerClient)
@@ -1057,9 +1037,7 @@ namespace TerraStorage.Systems
             Main.LocalPlayer.GetItem(Main.myPlayer, item, GetItemSettings.GetItemInDropItemCheck);
         }
 
-        /// <summary>
-        /// Returns true if the player's main inventory has at least one slot that can accept the item.
-        /// </summary>
+        // Returns true if the player's main inventory has at least one slot that can accept the item.
         private static bool PlayerHasRoomFor(Player player, Item item)
         {
             for (int i = 0; i < 50; i++)
@@ -1072,10 +1050,8 @@ namespace TerraStorage.Systems
             return false;
         }
 
-        /// <summary>
-        /// Ends modification tracking and broadcasts changes to all clients.
-        /// In authoritative mode: sends full disk data. In predictive mode: sends item-level deltas.
-        /// </summary>
+        // Ends modification tracking and broadcasts changes to all clients.
+        // In authoritative mode: sends full disk data. In predictive mode: sends item-level deltas.
         private static void EndTrackingAndBroadcast(Mod mod, int ignoreClient = -1)
         {
             var sys = StorageWorldSystem.Instance;
@@ -1093,13 +1069,11 @@ namespace TerraStorage.Systems
             }
         }
 
-        /// <summary>
-        /// Ends modification tracking, sends OperationResponse to the requester,
-        /// then broadcasts changes to all clients.
-        /// In predictive mode: sends success + deltas. On failure (empty modified list when
-        /// items were expected), sends denial + correction packets.
-        /// In authoritative mode: just broadcasts full disk data (ignores toClient/success).
-        /// </summary>
+        // Ends modification tracking, sends OperationResponse to the requester,
+        // then broadcasts changes to all clients.
+        // In predictive mode: sends success + deltas. On failure (empty modified list when
+        // items were expected), sends denial + correction packets.
+        // In authoritative mode: just broadcasts full disk data (ignores toClient/success).
         private static void EndTrackingAndRespond(Mod mod, int toClient, bool success,
             List<Guid> requestedDiskIds = null)
         {
@@ -1134,10 +1108,8 @@ namespace TerraStorage.Systems
 
         // ─── Delta Sync (Predictive Mode) ──────────────────────────────
 
-        /// <summary>
-        /// Broadcasts item-level deltas for modified disks to all clients.
-        /// Called instead of BroadcastDiskData when predictive sync is active.
-        /// </summary>
+        // Broadcasts item-level deltas for modified disks to all clients.
+        // Called instead of BroadcastDiskData when predictive sync is active. 
         public static void BroadcastDiskDeltas(Mod mod, Dictionary<Guid, DiskDelta> deltas)
         {
             if (Main.netMode != NetmodeID.Server)
@@ -1153,10 +1125,8 @@ namespace TerraStorage.Systems
             }
         }
 
-        /// <summary>
-        /// Sends an operation response (success/failure) to the requesting client.
-        /// On failure, also sends full SyncDiskData correction packets for all affected disks.
-        /// </summary>
+        // Sends an operation response (success/failure) to the requesting client.
+        // On failure, also sends full SyncDiskData correction packets for all affected disks.
         public static void SendOperationResponse(Mod mod, int toClient, bool success,
             List<Guid> affectedDiskIds = null)
         {
@@ -1220,9 +1190,7 @@ namespace TerraStorage.Systems
             DBG($"HandleDeltaDiskData: applied delta seq={delta.SeqNum} to disk {diskId.ToString()[..8]}, {delta.ChangedItems.Count} item changes");
         }
 
-        /// <summary>
-        /// Applies a DiskDelta to a local DiskData, modifying item stacks in-place.
-        /// </summary>
+        // Applies a DiskDelta to a local DiskData, modifying item stacks in-place.
         private static void ApplyDeltaToDisk(DiskData disk, DiskDelta delta)
         {
             foreach (var entry in delta.ChangedItems)

@@ -5,9 +5,7 @@ using Terraria.UI;
 
 namespace TerraStorage.Content.UI.Elements
 {
-    /// <summary>
-    /// UIList with smooth (lerped) scroll position instead of instant jumps.
-    /// </summary>
+    // UIList with smooth (lerped) scroll position instead of instant jumps.
     public class SmoothUIList : UIList
     {
         private UIScrollbar _smoothScrollbar;

@@ -13,15 +13,13 @@ using TerraStorage.Helpers;
 
 namespace TerraStorage.Content.Tiles
 {
-    /// <summary>
-    /// Tile entity attached to each placed Crafting Core. Holds up to
-    /// <see cref="StationSlotCount"/> crafting station items, exposes the set of
-    /// tile types and <see cref="Common.CraftingCondition"/>s they provide,
-    /// and persists that data across save/load and network sync.
-    /// </summary>
+    // Tile entity attached to each placed Crafting Core. Holds up to
+    // StationSlotCount crafting station items, exposes the set of
+    // tile types and Common.CraftingCondition they provide,
+    // and persists that data across save/load and network sync.
     public class CraftingCoreEntity : ModTileEntity
     {
-        /// <summary>Maximum number of crafting station slots in a single Crafting Core.</summary>
+        //Maximum number of crafting station slots in a single Crafting Core.
         public const int StationSlotCount = 40;
 
         public Item[] StationSlots { get; private set; } = new Item[StationSlotCount];
@@ -57,7 +55,7 @@ namespace TerraStorage.Content.Tiles
 
         public void EnsureSlotsInitialized() => InitializeSlots();
 
-        /// <summary>Returns true if at least one station slot is occupied.</summary>
+        //Returns true if at least one station slot is occupied.
         public bool HasStations()
         {
             for (int i = 0; i < StationSlotCount; i++)
@@ -66,10 +64,8 @@ namespace TerraStorage.Content.Tiles
             return false;
         }
 
-        /// <summary>
-        /// Ensures every slot is a non-null air Item rather than null.
-        /// Called defensively before slot access to guard against partial deserialization.
-        /// </summary>
+        // Ensures every slot is a non-null air Item rather than null.
+        // Called defensively before slot access to guard against partial deserialization.
         private void InitializeSlots()
         {
             for (int i = 0; i < StationSlotCount; i++)
@@ -82,11 +78,9 @@ namespace TerraStorage.Content.Tiles
             }
         }
 
-        /// <summary>
-        /// Get all tile types that the inserted crafting station items would provide.
-        /// Items that place tiles (createTile >= TileID.Dirt) count as providing that tile type
-        /// as a crafting station.
-        /// </summary>
+        // Get all tile types that the inserted crafting station items would provide.
+        // Items that place tiles (createTile >= TileID.Dirt) count as providing that tile type
+        // as a crafting station.
         public HashSet<int> GetAvailableTileTypes()
         {
             var tileTypes = new HashSet<int>();
@@ -103,9 +97,7 @@ namespace TerraStorage.Content.Tiles
             return tileTypes;
         }
 
-        /// <summary>
-        /// Maps vanilla item types to the crafting condition they provide when placed in a Crafting Core.
-        /// </summary>
+        // Maps vanilla item types to the crafting condition they provide when placed in a Crafting Core.
         private static CraftingCondition GetItemCondition(int itemType) => itemType switch
         {
             ItemID.BottomlessBucket      => CraftingCondition.NearWater,
@@ -117,9 +109,7 @@ namespace TerraStorage.Content.Tiles
             _                  => CraftingCondition.None
         };
 
-        /// <summary>
-        /// Get all crafting conditions provided by items in the station slots.
-        /// </summary>
+        // Get all crafting conditions provided by items in the station slots.
         public HashSet<CraftingCondition> GetAvailableConditions()
         {
             var conditions = new HashSet<CraftingCondition>();
@@ -135,19 +125,15 @@ namespace TerraStorage.Content.Tiles
             return conditions;
         }
 
-        /// <summary>
-        /// Check if a specific item can be inserted into the Crafting Core.
-        /// Valid items either place a crafting station tile or provide a crafting condition.
-        /// </summary>
+        // Check if a specific item can be inserted into the Crafting Core.
+        // Valid items either place a crafting station tile or provide a crafting condition.
         public static bool IsValidStation(Item item)
         {
             return item != null && !item.IsAir &&
                    (item.createTile >= TileID.Dirt || GetItemCondition(item.type) != CraftingCondition.None);
         }
 
-        /// <summary>
-        /// Try to insert a station into the first available slot.
-        /// </summary>
+        // Try to insert a station into the first available slot. 
         public bool InsertStation(Item stationItem, int slot = -1)
         {
             if (!IsValidStation(stationItem))
@@ -177,9 +163,7 @@ namespace TerraStorage.Content.Tiles
             return false;
         }
 
-        /// <summary>
-        /// Remove a station from a specific slot.
-        /// </summary>
+        // Remove a station from a specific slot.
         public Item RemoveStation(int slot)
         {
             InitializeSlots();
@@ -192,9 +176,7 @@ namespace TerraStorage.Content.Tiles
             return removed;
         }
 
-        /// <summary>
-        /// Drop all stations when the block is destroyed.
-        /// </summary>
+        // Drop all stations when the block is destroyed.
         public void DropStations(int x, int y)
         {
             InitializeSlots();
@@ -208,7 +190,7 @@ namespace TerraStorage.Content.Tiles
             }
         }
 
-        /// <summary>Opens the station management UI for this Crafting Core.</summary>
+        //Opens the station management UI for this Crafting Core.
         public void OpenStationUI(Player player)
         {
             var uiSystem = ModContent.GetInstance<CraftingCoreUISystem>();
@@ -257,9 +239,7 @@ namespace TerraStorage.Content.Tiles
             }
         }
 
-        /// <summary>
-        /// Finds the <see cref="CraftingCoreEntity"/> for any tile coordinate within the multi-tile.
-        /// </summary>
+        // Finds the <see cref="CraftingCoreEntity"/> for any tile coordinate within the multi-tile.
         public static CraftingCoreEntity FindEntity(int i, int j)
         {
             var tile = Main.tile[i, j];

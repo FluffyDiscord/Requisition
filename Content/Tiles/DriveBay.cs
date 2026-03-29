@@ -8,10 +8,8 @@ using Terraria.ObjectData;
 
 namespace TerraStorage.Content.Tiles
 {
-    /// <summary>
-    /// The Drive Bay tile (2x2). Houses up to <see cref="DriveBayEntity.DiskSlotCount"/> Storage Disks.
-    /// Blocks tile destruction while any disk is inserted and opens the disk-management UI on right-click.
-    /// </summary>
+    // The Drive Bay tile (2x2). Houses up to <see cref="DriveBayEntity.DiskSlotCount"/> Storage Disks.
+    // Blocks tile destruction while any disk is inserted and opens the disk-management UI on right-click.
     public class DriveBay : ModTile
     {
         public override void SetStaticDefaults()

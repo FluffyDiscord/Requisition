@@ -4,25 +4,19 @@ using System.IO;
 
 namespace TerraStorage.Common
 {
-    /// <summary>
-    /// Represents the item-level changes to a single disk between two points in time.
-    /// Used by delta sync to send only what changed instead of the entire disk state.
-    /// </summary>
+    // Represents the item-level changes to a single disk between two points in time.
+    // Used by delta sync to send only what changed instead of the entire disk state.
     public class DiskDelta
     {
-        /// <summary>Sequence number for this delta (set by the server on commit).</summary>
+        //Sequence number for this delta (set by the server on commit).
         public int SeqNum { get; set; }
 
-        /// <summary>
-        /// Changed stackable items (no mod data). Each entry is the new total stack count
-        /// for that item type+prefix on this disk. A NewStack of 0 means the item was fully removed.
-        /// </summary>
+        // Changed stackable items (no mod data). Each entry is the new total stack count
+        // for that item type+prefix on this disk. A NewStack of 0 means the item was fully removed.
         public List<DeltaItemEntry> ChangedItems { get; set; } = new();
 
-        /// <summary>
-        /// Complete list of unique (mod-data-bearing) items on this disk after the change.
-        /// Sent in full because diffing mod data blobs is complex and these items are rare.
-        /// </summary>
+        // Complete list of unique (mod-data-bearing) items on this disk after the change.
+        // Sent in full because diffing mod data blobs is complex and these items are rare.
         public List<StoredItemStack> UniqueItemsAfter { get; set; } = new();
 
         public void WriteNet(BinaryWriter writer)
@@ -66,14 +60,12 @@ namespace TerraStorage.Common
         }
     }
 
-    /// <summary>
-    /// A single item change within a disk delta: the new total count of an item type+prefix.
-    /// </summary>
+    // A single item change within a disk delta: the new total count of an item type+prefix.
     public class DeltaItemEntry
     {
         public int ItemType { get; set; }
         public int PrefixId { get; set; }
-        /// <summary>New total stack count on this disk. 0 = item no longer present.</summary>
+        //New total stack count on this disk. 0 = item no longer present.
         public int NewStack { get; set; }
     }
 }

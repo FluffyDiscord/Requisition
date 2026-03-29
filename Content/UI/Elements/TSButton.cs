@@ -9,10 +9,8 @@ using TerraStorage.Content.UI;
 
 namespace TerraStorage.Content.UI.Elements
 {
-    /// <summary>
-    /// General-purpose flat button matching the TerraStorage UI style.
-    /// Hover sound, enabled/disabled state, centered text.
-    /// </summary>
+    // General-purpose flat button matching the TerraStorage UI style.
+    // Hover sound, enabled/disabled state, centered text.
     public class TSButton : UIElement
     {
         private readonly string _text;

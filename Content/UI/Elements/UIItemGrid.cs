@@ -16,14 +16,11 @@ using TerraStorage.Systems;
 
 namespace TerraStorage.Content.UI.Elements
 {
-    /// <summary>
-    /// Scrollable grid that displays <see cref="ConsolidatedItem"/> entries from storage.
-    /// Supports configurable column count, an external <see cref="UIScrollbar"/>, left/right/
-    /// alt+click events, and per-item favorite highlighting via an injected checker delegate.
-    ///
-    /// Smooth scrolling: pixel-offset rendering with scissor clipping.
-    /// The UIScrollbar is kept in sync for display and drag interaction.
-    /// </summary>
+    // Scrollable grid that displays <see cref="ConsolidatedItem"/> entries from storage.
+    // Supports configurable column count, an external <see cref="UIScrollbar"/>, left/right/
+    // alt+click events, and per-item favorite highlighting via an injected checker delegate.
+    // Smooth scrolling: pixel-offset rendering with scissor clipping.
+    // The UIScrollbar is kept in sync for display and drag interaction.
     public class UIItemGrid : UIElement
     {
         private static readonly RasterizerState ScissorRasterizer = new() { ScissorTestEnable = true };
@@ -48,10 +45,8 @@ namespace TerraStorage.Content.UI.Elements
 
         public void SetShowFavoriteHint(bool show) => _showFavoriteHint = show;
 
-        /// <summary>
-        /// Returns the item currently under the mouse cursor, or null if none.
-        /// Safe to call from Update (does not depend on Draw state).
-        /// </summary>
+        // Returns the item currently under the mouse cursor, or null if none.
+        // Safe to call from Update (does not depend on Draw state).
         public int GetHoveredItemType()
         {
             var ci = GetItemAtMouse(Main.MouseScreen);

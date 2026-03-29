@@ -8,10 +8,8 @@ using TerraStorage.Systems;
 
 namespace TerraStorage.Content.UI.CraftingTree
 {
-    /// <summary>
-    /// ModSystem that manages the Crafting Tree window lifecycle: keybind registration,
-    /// open/close logic, update ticking, and draw-layer injection.
-    /// </summary>
+    // ModSystem that manages the Crafting Tree window lifecycle: keybind registration,
+    // open/close logic, update ticking, and draw-layer injection.
     public class CraftingTreeSystem : ModSystem
     {
         private CraftingTreeState _state;
@@ -91,10 +89,8 @@ namespace TerraStorage.Content.UI.CraftingTree
                 _state.Update(gameTime);
         }
 
-        /// <summary>
-        /// Gets the item type currently under the mouse cursor in the player's inventory
-        /// or any visible UI slot.
-        /// </summary>
+        // Gets the item type currently under the mouse cursor in the player's inventory
+        // or any visible UI slot.
         private static int GetHoveredItemType()
         {
             // Check the encyclopedia grid (works during UpdateUI, before Draw sets Main.HoverItem)

@@ -75,14 +75,12 @@ namespace TerraStorage.Content.UI.Encyclopedia
 
         public bool IsMouseOverPanel() => _mainPanel?.ContainsPoint(Main.MouseScreen) == true;
 
-        /// <summary>
-        /// Returns the item type hovered in the grid, usable during UpdateUI for keybind checks.
-        /// </summary>
+                // Returns the item type hovered in the grid, usable during UpdateUI for keybind checks.
+        // 
         public int GetGridHoveredItemType() => _itemGrid?.GetHoveredItemType() ?? 0;
 
-        /// <summary>
-        /// Returns true if the browse pane is currently visible (fully or partially animated in).
-        /// </summary>
+                // Returns true if the browse pane is currently visible (fully or partially animated in).
+        // 
         public bool IsBrowsePaneVisible() => _browseLerp > 0.001f;
 
         public override void OnInitialize()
@@ -336,7 +334,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
             Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.MenuTick);
         }
 
-        /// <summary>Sends the first recipe for itemType to the crafting terminal, if one exists.</summary>
+        //Sends the first recipe for itemType to the crafting terminal, if one exists.
         private static void TrySendRecipeToTerminal(int itemType)
             => EncyclopediaItemData.TrySendRecipeToTerminal(itemType);
 
@@ -1734,10 +1732,9 @@ namespace TerraStorage.Content.UI.Encyclopedia
         }
     }
 
-    /// <summary>
-    /// Small vertical tab button on the pane divider. Draws ◀ / ▶ to indicate
-    /// whether the detail panel is currently visible or collapsed.
-    /// </summary>
+        // Small vertical tab button on the pane divider. Draws ◀ / ▶ to indicate
+    // whether the detail panel is currently visible or collapsed.
+    // 
     // ────────────────────────────────────────────────────────────
     //  Browse pane: scissor-clipped container that slides over detail panel
     // ────────────────────────────────────────────────────────────

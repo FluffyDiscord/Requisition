@@ -6,12 +6,10 @@ using Terraria.ModLoader;
 
 namespace TerraStorage.Content.UI.Elements
 {
-    /// <summary>
-    /// Shared item search logic supporting prefix modes:
-    ///   (none) — search by item name
-    ///   #      — search by tooltip text
-    ///   @      — search by mod display name ("Terraria" for vanilla)
-    /// </summary>
+    // Shared item search logic supporting prefix modes:
+    //   (none) — search by item name
+    //   #      — search by tooltip text
+    //   @      — search by mod display name ("Terraria" for vanilla)
     public static class ItemSearchHelper
     {
         private static readonly Dictionary<int, string> _nameCache    = new();
@@ -29,7 +27,7 @@ namespace TerraStorage.Content.UI.Elements
             return (SearchMode.Name, search ?? "");
         }
 
-        /// <summary>Returns true if <paramref name="itemType"/> matches <paramref name="search"/>.</summary>
+        //Returns true if <paramref name="itemType"/> matches <paramref name="search"/>.
         public static bool Matches(int itemType, string search)
         {
             if (string.IsNullOrEmpty(search))
@@ -59,12 +57,10 @@ namespace TerraStorage.Content.UI.Elements
             return name;
         }
 
-        /// <summary>
-        /// Returns all tooltip lines for <paramref name="itemType"/> concatenated
-        /// into a single space-separated string for substring searching.
-        /// Includes both the static tooltip text and dynamic stat properties
-        /// (damage, defense, bait power, etc.) that Terraria renders on hover.
-        /// </summary>
+            // Returns all tooltip lines for <paramref name="itemType"/> concatenated
+        // into a single space-separated string for substring searching.
+        // Includes both the static tooltip text and dynamic stat properties
+        // (damage, defense, bait power, etc.) that Terraria renders on hover.
         public static string GetTooltip(int itemType)
         {
             if (_tooltipCache.TryGetValue(itemType, out string cached))
@@ -97,11 +93,9 @@ namespace TerraStorage.Content.UI.Elements
             return result;
         }
 
-        /// <summary>
-        /// Returns the display name of the mod that added <paramref name="itemType"/>.
-        /// Vanilla items (no <c>ModItem</c>) are reported as <c>"Terraria"</c> so
-        /// they can be found with the <c>@terraria</c> prefix.
-        /// </summary>
+        // Returns the display name of the mod that added itemType.
+        // Vanilla items (no ModItem) are reported as "Terraria" so
+        // they can be found with the @terraria prefix.
         public static string GetModName(int itemType)
         {
             if (_modCache.TryGetValue(itemType, out string cached))

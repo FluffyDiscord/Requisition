@@ -6,10 +6,8 @@ using Terraria.ModLoader.IO;
 
 namespace TerraStorage.Content.Items
 {
-    /// <summary>
-    /// Binds to a placed Terminal and opens its full UI from anywhere in the world via middle-click.
-    /// Right-click a Terminal tile while holding this to bind it.
-    /// </summary>
+    // Binds to a placed Terminal and opens its full UI from anywhere in the world via middle-click.
+    // Right-click a Terminal tile while holding this to bind it.
     public class RemoteTerminal : ModItem
     {
         private int _boundEntityId = -1;

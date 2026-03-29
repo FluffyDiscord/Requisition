@@ -6,10 +6,8 @@ using TerraStorage.Helpers;
 
 namespace TerraStorage.Content.Tiles
 {
-    /// <summary>
-    /// Registers crafting recipes for all placeable TerraStorage tiles (Drive Bay, Terminal,
-    /// Crafting Core, and condition source tiles).
-    /// </summary>
+    // Registers crafting recipes for all placeable TerraStorage tiles (Drive Bay, Terminal,
+    // Crafting Core, and condition source tiles). 
     public class TileRecipeSystem : ModSystem
     {
         internal const string GroupCopperBar  = "TerraStorage:AnyCopperBar";
@@ -119,12 +117,6 @@ namespace TerraStorage.Content.Tiles
                 .AddTile(TileID.DemonAltar)
                 .Register();
 
-            Recipe.Create(ModContent.ItemType<DemonAltarItem>())
-                .AddIngredient(ItemID.DemoniteBar, 10)
-                .AddIngredient(ItemID.ShadowScale, 5)
-                .AddTile(TileID.DemonAltar)
-                .Register();
-
             // Crimson Altar (craftable at either altar type)
             Recipe.Create(ModContent.ItemType<CrimsonAltarItem>())
                 .AddIngredient(ItemID.CrimtaneBar, 10)
@@ -132,11 +124,6 @@ namespace TerraStorage.Content.Tiles
                 .AddTile(TileID.DemonAltar)
                 .Register();
 
-            Recipe.Create(ModContent.ItemType<CrimsonAltarItem>())
-                .AddIngredient(ItemID.CrimtaneBar, 10)
-                .AddIngredient(ItemID.TissueSample, 5)
-                .AddTile(TileID.DemonAltar)
-                .Register();
         }
     }
 }

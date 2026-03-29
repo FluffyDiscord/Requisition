@@ -13,13 +13,11 @@ using TerraStorage.Systems;
 
 namespace TerraStorage.Content.UI
 {
-    /// <summary>
-    /// A floating, collapsible, pinnable panel that shows every recipe the player has
-    /// favorited via <see cref="StoragePlayerSystem"/>. For each recipe it renders the
-    /// output item and each ingredient with a live have/need count drawn from storage
-    /// and the player's inventory. Supports drag-to-move, scroll wheel, and a ghost
-    /// (semi-transparent) mode when pinned and the inventory is closed.
-    /// </summary>
+    // A floating, collapsible, pinnable panel that shows every recipe the player has
+    // favorited via <see cref="StoragePlayerSystem"/>. For each recipe it renders the
+    // output item and each ingredient with a live have/need count drawn from storage
+    // and the player's inventory. Supports drag-to-move, scroll wheel, and a ghost
+    // (semi-transparent) mode when pinned and the inventory is closed.
     public class UIFavoritedRecipesPanel : UIState
     {
         private const float PanelWidth     = 290f;
@@ -38,7 +36,7 @@ namespace TerraStorage.Content.UI
         public bool IsCollapsed { get; private set; } = false;
         public bool IsPinned    { get; private set; } = false;
 
-        /// <summary>Checks if the mouse is over the panel bounds.</summary>
+        //Checks if the mouse is over the panel bounds.
         public bool IsMouseOverPanel()
         {
             var m = Main.MouseScreen;

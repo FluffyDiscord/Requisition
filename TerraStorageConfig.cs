@@ -28,7 +28,7 @@ namespace TerraStorage
         [DefaultValue(false)]
         public bool PredictiveSyncMode { get; set; }
 
-        /// <summary>Convenience check for whether predictive delta sync is active.</summary>
+        //Convenience check for whether predictive delta sync is active.
         public static bool IsPredictiveSync => Instance?.PredictiveSyncMode ?? false;
     }
 }

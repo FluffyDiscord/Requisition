@@ -5,10 +5,8 @@ using TerraStorage.Content.Tiles;
 
 namespace TerraStorage.Content.Items
 {
-    /// <summary>
-    /// Placeable item that creates a <see cref="TerraStorage.Content.Tiles.DriveBay"/> tile (Drive Bay).
-    /// Stacks up to 99 so players can carry multiple units before placing them.
-    /// </summary>
+    // Placeable item that creates a <see cref="TerraStorage.Content.Tiles.DriveBay"/> tile (Drive Bay).
+    // Stacks up to 99 so players can carry multiple units before placing them.
     public class DriveBayItem : ModItem
     {
         public override void SetDefaults()

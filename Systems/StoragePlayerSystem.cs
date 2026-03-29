@@ -8,11 +8,9 @@ using TerraStorage.Content.Items;
 
 namespace TerraStorage.Systems
 {
-    /// <summary>
-    /// Per-player mod data that persists favorited items and recipes across sessions.
-    /// Favorites affect how items are sorted and displayed in the Terminal UI
-    /// (always appear first regardless of other sort settings).
-    /// </summary>
+    // Per-player mod data that persists favorited items and recipes across sessions.
+    // Favorites affect how items are sorted and displayed in the Terminal UI
+    // (always appear first regardless of other sort settings). 
     public class StoragePlayerSystem : ModPlayer
     {
         // (itemType, prefixId) tuple used as key so the same item with different modifiers
@@ -57,7 +55,7 @@ namespace TerraStorage.Systems
 
         public bool IsItemFavorited(int type, int prefix) => _favoritedItems.Contains((type, prefix));
 
-        /// <summary>Returns true if this specific recipe variant is favorited.</summary>
+        //Returns true if this specific recipe variant is favorited.
         public bool IsRecipeFavorited(Recipe recipe)
         {
             if (_favoritedRecipes.Count == 0) return false;
@@ -66,10 +64,8 @@ namespace TerraStorage.Systems
 
         public IReadOnlyCollection<int> FavoritedRecipes => _favoritedRecipes;
 
-        /// <summary>
-        /// Toggles the favorite state of an item. Uses a remove-first pattern:
-        /// if the key was already present it gets removed, otherwise it is added.
-        /// </summary>
+        // Toggles the favorite state of an item. Uses a remove-first pattern:
+        // if the key was already present it gets removed, otherwise it is added.
         public void ToggleItemFavorite(int type, int prefix)
         {
             var key = (type, prefix);
@@ -77,7 +73,7 @@ namespace TerraStorage.Systems
                 _favoritedItems.Add(key);
         }
 
-        /// <summary>Toggles the favorite state of this specific recipe variant.</summary>
+        //Toggles the favorite state of this specific recipe variant.
         public void ToggleRecipeFavorite(Recipe recipe)
         {
             if (!RecipeIndexLookup.TryGetValue(recipe, out int idx)) return;
@@ -98,7 +94,7 @@ namespace TerraStorage.Systems
             Player.QuickSpawnItem(Player.GetSource_GiftOrReward(), ModContent.ItemType<StorageDiskTier2>());
         }
 
-        /// <summary>Whether the Crafting Tree auto-minimizes on middle-click recipe selection.</summary>
+        //Whether the Crafting Tree auto-minimizes on middle-click recipe selection.
         public bool CraftingTreeAutoMinimize { get; set; } = true;
 
         public override void SaveData(TagCompound tag)

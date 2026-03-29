@@ -20,10 +20,9 @@ namespace TerraStorage.Content.UI.Encyclopedia
 
         public bool IsOpen => _isOpen;
 
-        /// <summary>
-        /// Returns the item type hovered in the encyclopedia grid, or 0.
-        /// Safe to call from UpdateUI.
-        /// </summary>
+                // Returns the item type hovered in the encyclopedia grid, or 0.
+        // Safe to call from UpdateUI.
+        // 
         public int GetGridHoveredItemType() => _isOpen ? _state?.GetGridHoveredItemType() ?? 0 : 0;
 
         public override void Load()

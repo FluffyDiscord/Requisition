@@ -11,13 +11,11 @@ using TerraStorage.Content.UI;
 
 namespace TerraStorage.Content.UI.Elements
 {
-    /// <summary>
-    /// A text input panel for the Terminal's item/recipe search. Supports three search
-    /// modes dispatched by <see cref="ItemSearchHelper.Parse"/>: plain name search,
-    /// <c>#</c>-prefixed tooltip search, and <c>@</c>-prefixed mod-name search.
-    /// The border color changes per mode to give visual feedback. Right-click clears
-    /// the field; Escape unfocuses and clears.
-    /// </summary>
+    // A text input panel for the Terminal's item/recipe search. Supports three search
+    // modes dispatched by <see cref="ItemSearchHelper.Parse"/>: plain name search,
+    // <c>#</c>-prefixed tooltip search, and <c>@</c>-prefixed mod-name search.
+    // The border color changes per mode to give visual feedback. Right-click clears
+    // the field; Escape unfocuses and clears. 
     public class StorageSearchBar : UIPanel
     {
         public string SearchText { get; private set; } = "";
