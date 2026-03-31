@@ -10,6 +10,8 @@ namespace TerraStorage.Content.Items
     // making them available to any connected Terminal for auto-crafting.
     public class CraftingCoreItem : ModItem
     {
+        public override string Texture => "TerraStorage/Content/Tiles/CraftingCore";
+
         public override void SetDefaults()
         {
             Item.width = 32;
@@ -23,7 +25,7 @@ namespace TerraStorage.Content.Items
             Item.consumable = true;
             Item.value = Item.buyPrice(gold: 8);
             Item.rare = ItemRarityID.Orange;
-            Item.createTile = ModContent.TileType<CraftingCore>();
+            Item.createTile = ModContent.TileType<CraftingCoreLarge>();
         }
 
     }

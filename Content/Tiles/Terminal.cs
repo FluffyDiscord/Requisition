@@ -5,6 +5,7 @@ using Terraria.Enums;
 using Terraria.GameContent.ObjectInteractions;
 using Terraria.ModLoader;
 using Terraria.ObjectData;
+using TerraStorage.Helpers;
 
 namespace TerraStorage.Content.Tiles
 {
@@ -62,8 +63,16 @@ namespace TerraStorage.Content.Tiles
 
         public override void KillMultiTile(int i, int j, int frameX, int frameY)
         {
-            // i, j is the top-left corner (tModLoader guarantees this).
-            // The entity is stored at top-left, matching where Hook_AfterPlacement placed it.
+            // Notify connected bays they've lost their terminal.
+            // Use direct position lookup — FindEntity checks HasTile which may already be
+            // cleared by the time KillMultiTile runs.
+            if (TileEntity.ByPosition.TryGetValue(new Point16(i, j), out var rawEntity)
+                && rawEntity is TerminalEntity terminal)
+            {
+                foreach (var bay in StorageNetwork.FindConnectedDriveBays(terminal.Position))
+                    bay.RefreshVisualState(false);
+            }
+
             ModContent.GetInstance<TerminalEntity>().Kill(i, j);
         }
     }

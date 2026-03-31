@@ -9,6 +9,8 @@ namespace TerraStorage.Content.Items
     // Stacks up to 99 so players can carry multiple units before placing them.
     public class DriveBayItem : ModItem
     {
+        public override string Texture => "TerraStorage/Content/Tiles/DriveBay";
+
         public override void SetDefaults()
         {
             Item.width = 32;
@@ -22,7 +24,7 @@ namespace TerraStorage.Content.Items
             Item.consumable = true;
             Item.value = Item.buyPrice(gold: 5);
             Item.rare = ItemRarityID.Blue;
-            Item.createTile = ModContent.TileType<DriveBay>();
+            Item.createTile = ModContent.TileType<DriveBayLarge>();
         }
 
     }

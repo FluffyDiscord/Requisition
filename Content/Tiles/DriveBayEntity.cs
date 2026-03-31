@@ -23,16 +23,40 @@ namespace TerraStorage.Content.Tiles
 
         public Item[] DiskSlots { get; private set; } = new Item[DiskSlotCount];
 
+        // Client-side visual state — not persisted or synced, recomputed at trigger points.
+        // Slot states: 0=empty, 1=offline, 2=online(<80%), 3=near80(>=80%), 4=full(100%)
+        public bool IsConnected { get; private set; }
+        public byte[] SlotDisplayState { get; private set; } = new byte[DiskSlotCount];
+        // Aggregate fill across all inserted disks, for the bay-level status light.
+        public int TotalUsedStacks { get; private set; }
+        public int TotalMaxStacks { get; private set; }
+
+        // Tracks StorageWorldSystem.StorageVersion to auto-refresh on storage changes
+        // and on world load (starts at -1 so first tick always triggers).
+        private long _lastSeenVersion = -1;
+
         public override void OnNetPlace()
         {
             InitializeSlots();
         }
 
+        public override void Update()
+        {
+            if (Main.netMode == NetmodeID.Server) return;
+            var sys = StorageWorldSystem.Instance;
+            if (sys == null) return;
+            if (sys.StorageVersion == _lastSeenVersion) return;
+            _lastSeenVersion = sys.StorageVersion;
+            RefreshVisualState(IsConnected);
+        }
+
         public override bool IsTileValidForEntity(int x, int y)
         {
             // x, y is the entity's stored position (top-left of the multi-tile).
+            // DriveBayLegacy is the old 2x2 tile kept for world-save compatibility.
             var tile = Main.tile[x, y];
-            return tile.HasTile && tile.TileType == ModContent.TileType<DriveBay>();
+            return tile.HasTile && (tile.TileType == ModContent.TileType<DriveBayLarge>() ||
+                                    tile.TileType == ModContent.TileType<DriveBayLegacy>());
         }
 
         public override int Hook_AfterPlacement(int i, int j, int type, int style, int direction, int alternate)
@@ -42,7 +66,7 @@ namespace TerraStorage.Content.Tiles
             {
                 // On a client we can't place tile entities directly; send the tile data and a
                 // TileEntityPlacement message so the server creates and replicates the entity.
-                NetMessage.SendTileSquare(Main.myPlayer, i, j, 2, 2);
+                NetMessage.SendTileSquare(Main.myPlayer, i, j, 3, 3);
                 NetMessage.SendData(Terraria.ID.MessageID.TileEntityPlacement, number: i, number2: j, number3: Type);
                 return -1;
             }
@@ -55,6 +79,38 @@ namespace TerraStorage.Content.Tiles
         }
 
         public void EnsureSlotsInitialized() => InitializeSlots();
+
+        // Recompute the client-side visual state for all 40 slots.
+        // Only runs on client/singleplayer — server has no display state.
+        public void RefreshVisualState(bool connected)
+        {
+            if (Main.netMode == NetmodeID.Server) return;
+            IsConnected = connected;
+            InitializeSlots();
+            var sys = StorageWorldSystem.Instance;
+            int totalUsed = 0, totalMax = 0;
+            for (int i = 0; i < DiskSlotCount; i++)
+            {
+                if (DiskSlots[i] == null || DiskSlots[i].IsAir)
+                {
+                    SlotDisplayState[i] = 0;
+                    continue;
+                }
+                if (!connected || DiskSlots[i].ModItem is not StorageDiskBase disk)
+                {
+                    SlotDisplayState[i] = 1; // offline
+                    continue;
+                }
+                var data = sys?.GetDiskData(disk.DiskId);
+                if (data == null || data.MaxStacks == 0) { SlotDisplayState[i] = 2; continue; }
+                totalUsed += data.UsedStacks;
+                totalMax  += data.MaxStacks;
+                float pct = (float)data.UsedStacks / data.MaxStacks;
+                SlotDisplayState[i] = pct >= 1f ? (byte)4 : pct >= 0.8f ? (byte)3 : (byte)2;
+            }
+            TotalUsedStacks = totalUsed;
+            TotalMaxStacks  = totalMax;
+        }
 
         //Returns true if at least one disk slot is occupied.
         public bool HasDisks()
@@ -170,6 +226,7 @@ namespace TerraStorage.Content.Tiles
                 if (DiskSlots[slot].IsAir)
                 {
                     DiskSlots[slot] = diskItem.Clone();
+                    RefreshVisualState(IsConnected);
                     return true;
                 }
                 return false;
@@ -180,6 +237,7 @@ namespace TerraStorage.Content.Tiles
                 if (DiskSlots[i].IsAir)
                 {
                     DiskSlots[i] = diskItem.Clone();
+                    RefreshVisualState(IsConnected);
                     return true;
                 }
             }
@@ -197,23 +255,8 @@ namespace TerraStorage.Content.Tiles
 
             var removed = DiskSlots[slot].Clone();
             DiskSlots[slot].TurnToAir();
+            RefreshVisualState(IsConnected);
             return removed;
-        }
-
-        // Drop all disks when the block is destroyed. 
-        public void DropDisks(int x, int y)
-        {
-            InitializeSlots();
-            for (int i = 0; i < DiskSlotCount; i++)
-            {
-                if (!DiskSlots[i].IsAir)
-                {
-                    int idx = Item.NewItem(new EntitySource_TileBreak(x, y), x * 16, y * 16, 32, 32, DiskSlots[i].type, DiskSlots[i].stack, false, DiskSlots[i].prefix);
-                    if (Main.netMode != Terraria.ID.NetmodeID.MultiplayerClient && DiskSlots[i].ModItem != null)
-                        Main.item[idx] = DiskSlots[i].Clone();
-                    DiskSlots[i].TurnToAir();
-                }
-            }
         }
 
         // Open the disk insertion UI for this storage block. 

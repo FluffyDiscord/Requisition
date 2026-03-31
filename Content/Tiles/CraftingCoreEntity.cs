@@ -32,7 +32,8 @@ namespace TerraStorage.Content.Tiles
         public override bool IsTileValidForEntity(int x, int y)
         {
             var tile = Main.tile[x, y];
-            return tile.HasTile && tile.TileType == ModContent.TileType<CraftingCore>();
+            return tile.HasTile && (tile.TileType == ModContent.TileType<CraftingCoreLarge>() ||
+                                    tile.TileType == ModContent.TileType<CraftingCoreLegacy>());
         }
 
         public override int Hook_AfterPlacement(int i, int j, int type, int style, int direction, int alternate)
@@ -41,7 +42,7 @@ namespace TerraStorage.Content.Tiles
             if (Main.netMode == Terraria.ID.NetmodeID.MultiplayerClient)
             {
                 // Clients defer entity creation to the server via TileEntityPlacement message
-                NetMessage.SendTileSquare(Main.myPlayer, i, j, 2, 2);
+                NetMessage.SendTileSquare(Main.myPlayer, i, j, 2, 3);
                 NetMessage.SendData(Terraria.ID.MessageID.TileEntityPlacement, number: i, number2: j, number3: Type);
                 return -1;
             }

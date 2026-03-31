@@ -8,12 +8,12 @@ using Terraria.ObjectData;
 
 namespace TerraStorage.Content.Tiles
 {
-    // The Crafting Core tile (2x3). Accepts crafting station items and condition provider items
-    // in its slots so connected Terminals can automatically satisfy recipe requirements.
-    // Blocks destruction while any station slot is occupied.
-    public class CraftingCoreLarge : ModTile
+    // Legacy 2x2 Crafting Core retained for world-save compatibility. Cannot be crafted or placed;
+    // exists solely so old worlds load correctly. Breaking one drops a CraftingCoreItem (the new 2x3).
+    [LegacyName("CraftingCore")]
+    public class CraftingCoreLegacy : ModTile
     {
-        public override string Texture => "TerraStorage/Content/Tiles/CraftingCore";
+        public override string Texture => "TerraStorage/Content/Tiles/DriveBayOld";
 
         public override void SetStaticDefaults()
         {
@@ -21,14 +21,12 @@ namespace TerraStorage.Content.Tiles
             Main.tileNoAttach[Type] = true;
             Main.tileLavaDeath[Type] = false;
 
-            TileObjectData.newTile.CopyFrom(TileObjectData.Style2xX);
-            TileObjectData.newTile.Origin = new Point16(0, 2);
-            TileObjectData.newTile.CoordinateHeights = new[] { 16, 16, 16 };
+            TileObjectData.newTile.CopyFrom(TileObjectData.Style2x2);
+            TileObjectData.newTile.Origin = new Point16(0, 1);
+            TileObjectData.newTile.CoordinateHeights = new[] { 16, 16 };
             TileObjectData.newTile.CoordinatePadding = 0;
             TileObjectData.newTile.Width = 2;
-            TileObjectData.newTile.Height = 3;
-            TileObjectData.newTile.HookPostPlaceMyPlayer = new PlacementHook(
-                ModContent.GetInstance<CraftingCoreEntity>().Hook_AfterPlacement, -1, 0, true);
+            TileObjectData.newTile.Height = 2;
             TileObjectData.newTile.UsesCustomCanPlace = true;
             TileObjectData.newTile.AnchorBottom = new AnchorData(AnchorType.SolidTile | AnchorType.SolidWithTop, 2, 0);
             TileObjectData.addTile(Type);
@@ -74,6 +72,8 @@ namespace TerraStorage.Content.Tiles
             if (entity != null)
                 entity.DropStations(i, j);
 
+            Item.NewItem(new EntitySource_TileBreak(i, j), i * 16, j * 16, 32, 32,
+                ModContent.ItemType<Items.CraftingCoreItem>());
             ModContent.GetInstance<CraftingCoreEntity>().Kill(i, j);
         }
     }

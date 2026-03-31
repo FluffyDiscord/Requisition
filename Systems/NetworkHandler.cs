@@ -179,6 +179,7 @@ namespace TerraStorage.Systems
                 {
                     // Clients receive the GUID-bearing item directly from the server.
                     sbe.DiskSlots[slot] = item;
+                    sbe.RefreshVisualState(sbe.IsConnected);
                 }
             }
 
@@ -206,6 +207,7 @@ namespace TerraStorage.Systems
             {
                 sbe.DiskSlots[slot] = new Item();
                 sbe.DiskSlots[slot].TurnToAir();
+                sbe.RefreshVisualState(sbe.IsConnected);
             }
 
             if (Main.netMode == NetmodeID.Server)

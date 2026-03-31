@@ -9,6 +9,8 @@ namespace TerraStorage.Content.Items
     // The Terminal is the primary interface for browsing and withdrawing from connected storage.
     public class TerminalItem : ModItem
     {
+        public override string Texture => "TerraStorage/Content/Tiles/Terminal";
+
         public override void SetDefaults()
         {
             Item.width = 32;

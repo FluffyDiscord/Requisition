@@ -66,8 +66,12 @@ Items: {
 
 Tiles: {
 	// DriveBay.MapEntry: Drive Bay
+	// DriveBayLegacy.MapEntry: Drive Bay
 	// Terminal.MapEntry: Crafting Terminal
 	// CraftingCore.MapEntry: Crafting Core
+	// CraftingCoreLegacy.MapEntry: Crafting Core
+	// CraftingCoreLarge.MapEntry: Crafting Core
+	// DriveBayLarge.MapEntry: Drive Bay Large
 }
 
 Conditions: {

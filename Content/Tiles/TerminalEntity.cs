@@ -62,6 +62,8 @@ namespace TerraStorage.Content.Tiles
         // Open the terminal UI for the player.
         public void OpenTerminalUI(Player player)
         {
+            foreach (var bay in StorageNetwork.FindConnectedDriveBays(Position))
+                bay.RefreshVisualState(true);
             var uiSystem = ModContent.GetInstance<TerminalUISystem>();
             uiSystem?.OpenTerminal(this);
         }

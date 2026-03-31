@@ -204,6 +204,7 @@ namespace TerraStorage.Content.UI
                     {
                         Main.mouseItem = _entity.DiskSlots[i].Clone();
                         _entity.DiskSlots[i].TurnToAir();
+                        _entity.RefreshVisualState(_entity.IsConnected);
                         SoundEngine.PlaySound(SoundID.Grab);
                         NetworkHandler.SendSyncDiskRemove(mod, _entity.ID, i);
                     }
@@ -252,6 +253,7 @@ namespace TerraStorage.Content.UI
                         else
                         {
                             _entity.DiskSlots[i].TurnToAir();
+                            _entity.RefreshVisualState(_entity.IsConnected);
                             NetworkHandler.SendSyncDiskRemove(mod, _entity.ID, i);
                         }
                         SoundEngine.PlaySound(SoundID.Grab);

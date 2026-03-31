@@ -8,12 +8,12 @@ using Terraria.ObjectData;
 
 namespace TerraStorage.Content.Tiles
 {
-    // The Crafting Core tile (2x3). Accepts crafting station items and condition provider items
-    // in its slots so connected Terminals can automatically satisfy recipe requirements.
-    // Blocks destruction while any station slot is occupied.
-    public class CraftingCoreLarge : ModTile
+    // Legacy 2x2 Drive Bay retained for world-save compatibility. Cannot be crafted or placed;
+    // exists solely so old worlds load correctly. Breaking one drops a DriveBayItem (the new 3x3 bay).
+    [LegacyName("DriveBay")]
+    public class DriveBayLegacy : ModTile
     {
-        public override string Texture => "TerraStorage/Content/Tiles/CraftingCore";
+        public override string Texture => "TerraStorage/Content/Tiles/DriveBayOld";
 
         public override void SetStaticDefaults()
         {
@@ -21,27 +21,25 @@ namespace TerraStorage.Content.Tiles
             Main.tileNoAttach[Type] = true;
             Main.tileLavaDeath[Type] = false;
 
-            TileObjectData.newTile.CopyFrom(TileObjectData.Style2xX);
-            TileObjectData.newTile.Origin = new Point16(0, 2);
-            TileObjectData.newTile.CoordinateHeights = new[] { 16, 16, 16 };
+            TileObjectData.newTile.CopyFrom(TileObjectData.Style2x2);
+            TileObjectData.newTile.Origin = new Point16(0, 1);
+            TileObjectData.newTile.CoordinateHeights = new[] { 16, 16 };
             TileObjectData.newTile.CoordinatePadding = 0;
             TileObjectData.newTile.Width = 2;
-            TileObjectData.newTile.Height = 3;
-            TileObjectData.newTile.HookPostPlaceMyPlayer = new PlacementHook(
-                ModContent.GetInstance<CraftingCoreEntity>().Hook_AfterPlacement, -1, 0, true);
+            TileObjectData.newTile.Height = 2;
             TileObjectData.newTile.UsesCustomCanPlace = true;
             TileObjectData.newTile.AnchorBottom = new AnchorData(AnchorType.SolidTile | AnchorType.SolidWithTop, 2, 0);
             TileObjectData.addTile(Type);
 
-            AddMapEntry(new Color(180, 120, 50), CreateMapEntryName());
+            AddMapEntry(new Color(100, 100, 150), CreateMapEntryName());
         }
 
         public override bool HasSmartInteract(int i, int j, SmartInteractScanSettings settings) => true;
 
         public override bool CanKillTile(int i, int j, ref bool blockDamaged)
         {
-            var entity = CraftingCoreEntity.FindEntity(i, j);
-            if (entity != null && entity.HasStations())
+            var entity = DriveBayEntity.FindEntity(i, j);
+            if (entity != null && entity.HasDisks())
             {
                 blockDamaged = false;
                 return false;
@@ -51,10 +49,10 @@ namespace TerraStorage.Content.Tiles
 
         public override bool RightClick(int i, int j)
         {
-            var entity = CraftingCoreEntity.FindEntity(i, j);
+            var entity = DriveBayEntity.FindEntity(i, j);
             if (entity != null)
             {
-                entity.OpenStationUI(Main.LocalPlayer);
+                entity.OpenDiskUI(Main.LocalPlayer);
                 return true;
             }
             return false;
@@ -65,16 +63,15 @@ namespace TerraStorage.Content.Tiles
             var player = Main.LocalPlayer;
             player.noThrow = 2;
             player.cursorItemIconEnabled = true;
-            player.cursorItemIconID = ModContent.ItemType<Items.CraftingCoreItem>();
+            player.cursorItemIconID = ModContent.ItemType<Items.DriveBayItem>();
         }
 
         public override void KillMultiTile(int i, int j, int frameX, int frameY)
         {
-            var entity = CraftingCoreEntity.FindEntity(i, j);
-            if (entity != null)
-                entity.DropStations(i, j);
-
-            ModContent.GetInstance<CraftingCoreEntity>().Kill(i, j);
+            // Drop the new-style Drive Bay item so the player can re-place the upgraded version.
+            Item.NewItem(new EntitySource_TileBreak(i, j), i * 16, j * 16, 32, 32,
+                ModContent.ItemType<Items.DriveBayItem>());
+            ModContent.GetInstance<DriveBayEntity>().Kill(i, j);
         }
     }
 }

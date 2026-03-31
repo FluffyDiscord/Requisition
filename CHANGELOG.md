@@ -1,6 +1,15 @@
 # TerraStorage Changelog
 ## [0.2.8]
 
+### Added
+- **Sprite update**
+    - All sprites have gotten a facelift. The CraftingCore and DriveBay are now different sizes, please break and replace your tiles to get the new form factor.
+- **Drive Bay visual overlays** — small status lights on each disk slot show fill state (offline, online, 80% full, 100% full). Bay-level status light shows overall capacity across all disks at a glance.
+
+
+### Fixed
+- Removed some unused code.
+
 ## [0.2.7] - Released
 
 ### Added
