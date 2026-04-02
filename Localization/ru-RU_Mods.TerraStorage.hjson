@@ -111,11 +111,6 @@ Configs: {
 			// Label: Easier Remote Terminal
 			// Tooltip: Removes Post-Moonlord item requirements from the Remote Terminal.
 		}
-
-		PredictiveSyncMode: {
-			// Label: Predictive Sync Mode
-			// Tooltip: Uses delta-based syncing with client-side prediction for storage operations. Reduces network traffic. Disable to use the classic full-sync method if issues arise.
-		}
 	}
 
 	TerraStorageClientConfig: {

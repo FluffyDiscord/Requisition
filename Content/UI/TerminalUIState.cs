@@ -399,10 +399,23 @@ namespace TerraStorage.Content.UI
         {
             if (_terminal != null)
             {
-                _connectedDiskIds = _terminal.GetConnectedDiskIds();
+                var newIds = _terminal.GetConnectedDiskIds();
                 var (stations, conditions) = _terminal.GetStationsAndConditions();
                 _availableStations = stations;
                 _availableConditions = conditions;
+
+                // In MP, request data for any disk IDs we don't have locally yet.
+                // This covers the case where the drive bay entity wasn't synced yet
+                // when SetTerminal first ran, so the initial request was skipped.
+                if (Main.netMode == NetmodeID.MultiplayerClient)
+                {
+                    var sys = StorageWorldSystem.Instance;
+                    var unknown = newIds.Where(id => !sys.HasDiskData(id)).ToList();
+                    if (unknown.Count > 0)
+                        NetworkHandler.SendRequestDiskData(ModLoader.GetMod("TerraStorage"), unknown);
+                }
+
+                _connectedDiskIds = newIds;
             }
             else
             {

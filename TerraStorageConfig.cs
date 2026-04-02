@@ -24,11 +24,5 @@ namespace TerraStorage
 
         [DefaultValue(false)]
         public bool EasierRemoteTerminal { get; set; }
-
-        [DefaultValue(false)]
-        public bool PredictiveSyncMode { get; set; }
-
-        //Convenience check for whether predictive delta sync is active.
-        public static bool IsPredictiveSync => Instance?.PredictiveSyncMode ?? false;
     }
 }

@@ -662,14 +662,12 @@ namespace TerraStorage.Systems
 
             // Send one packet per disk — bundling all disks risks exceeding Terraria's 65,535-byte
             // packet limit (a fully-packed Tier 4 disk is ~9KB; 40 disks would be ~360KB).
-            bool predictive = TerraStorageConfig.IsPredictiveSync;
             foreach (var data in dataToSend)
             {
                 var packet = mod.GetPacket();
                 packet.Write((byte)PacketType.SyncDiskData);
                 packet.Write(1);
-                if (predictive)
-                    packet.Write(sys.GetDiskSeqNum(data.DiskId));
+                packet.Write(sys.GetDiskSeqNum(data.DiskId));
                 data.WriteNet(packet);
                 packet.Send(toClient);
             }
@@ -695,14 +693,12 @@ namespace TerraStorage.Systems
 
             DBG($"BroadcastDiskData: {dataToSend.Count} disks (1 packet each) ignoreClient={ignoreClient}");
 
-            bool predictive = TerraStorageConfig.IsPredictiveSync;
             foreach (var data in dataToSend)
             {
                 var packet = mod.GetPacket();
                 packet.Write((byte)PacketType.SyncDiskData);
                 packet.Write(1);
-                if (predictive)
-                    packet.Write(sys.GetDiskSeqNum(data.DiskId));
+                packet.Write(sys.GetDiskSeqNum(data.DiskId));
                 data.WriteNet(packet);
                 packet.Send(-1, ignoreClient);
             }
@@ -713,17 +709,15 @@ namespace TerraStorage.Systems
             try
             {
                 int count = reader.ReadInt32();
-                bool predictive = TerraStorageConfig.IsPredictiveSync;
-                int seqNum = predictive ? reader.ReadInt32() : 0;
+                int seqNum = reader.ReadInt32();
                 var sys = StorageWorldSystem.Instance;
                 for (int i = 0; i < count; i++)
                 {
                     var data = DiskData.ReadNet(reader);
                     sys.ApplyDiskDataFromNetwork(data);
-                    if (predictive)
-                        sys.SetDiskSeqNum(data.DiskId, seqNum);
+                    sys.SetDiskSeqNum(data.DiskId, seqNum);
                 }
-                DBG($"HandleSyncDiskData: applied {count} disk(s)" + (predictive ? $" seq={seqNum}" : ""));
+                DBG($"HandleSyncDiskData: applied {count} disk(s) seq={seqNum}");
             }
             catch (Exception ex)
             {
@@ -863,11 +857,8 @@ namespace TerraStorage.Systems
             }
 
             sys.RemapDiskData(oldGuid, newId);
-            if (TerraStorageConfig.IsPredictiveSync)
-            {
-                sys.RemoveDiskSeqNum(oldGuid);
-                sys.IncrementDiskSeqNum(newId);
-            }
+            sys.RemoveDiskSeqNum(oldGuid);
+            sys.IncrementDiskSeqNum(newId);
             SendSyncRemoveDiskData(mod, oldGuid);
             BroadcastDiskData(mod, new System.Collections.Generic.List<Guid> { newId }, -1);
         }
@@ -997,12 +988,9 @@ namespace TerraStorage.Systems
             var modified = sys.Defragment(diskIds);
             if (modified.Count > 0)
             {
-                // Defrag is a rare bulk operation — bump seq nums and use full sync in all modes
-                if (TerraStorageConfig.IsPredictiveSync)
-                {
-                    foreach (var id in modified)
-                        sys.IncrementDiskSeqNum(id);
-                }
+                // Defrag is a rare bulk operation — bump seq nums and broadcast full disk state
+                foreach (var id in modified)
+                    sys.IncrementDiskSeqNum(id);
                 BroadcastDiskData(mod, modified, -1);
             }
         }
@@ -1052,59 +1040,38 @@ namespace TerraStorage.Systems
             return false;
         }
 
-        // Ends modification tracking and broadcasts changes to all clients.
-        // In authoritative mode: sends full disk data. In predictive mode: sends item-level deltas.
-        private static void EndTrackingAndBroadcast(Mod mod, int ignoreClient = -1)
+        // Ends modification tracking and broadcasts item-level deltas to all clients.
+        private static void EndTrackingAndBroadcast(Mod mod)
         {
             var sys = StorageWorldSystem.Instance;
-
-            if (TerraStorageConfig.IsPredictiveSync)
-            {
-                var (modified, deltas) = sys.EndModificationTrackingWithDeltas();
-                if (deltas.Count > 0)
-                    BroadcastDiskDeltas(mod, deltas);
-            }
-            else
-            {
-                var modified = sys.EndModificationTracking();
-                BroadcastDiskData(mod, modified, ignoreClient);
-            }
+            var (_, deltas) = sys.EndModificationTrackingWithDeltas();
+            if (deltas.Count > 0)
+                BroadcastDiskDeltas(mod, deltas);
         }
 
         // Ends modification tracking, sends OperationResponse to the requester,
-        // then broadcasts changes to all clients.
-        // In predictive mode: sends success + deltas. On failure (empty modified list when
-        // items were expected), sends denial + correction packets.
-        // In authoritative mode: just broadcasts full disk data (ignores toClient/success).
+        // then broadcasts item-level deltas to all clients.
+        // On failure, sends denial + full disk correction packets.
         private static void EndTrackingAndRespond(Mod mod, int toClient, bool success,
             List<Guid> requestedDiskIds = null)
         {
             var sys = StorageWorldSystem.Instance;
+            var (_, deltas) = sys.EndModificationTrackingWithDeltas();
 
-            if (TerraStorageConfig.IsPredictiveSync)
+            if (success && deltas.Count > 0)
             {
-                var (modified, deltas) = sys.EndModificationTrackingWithDeltas();
-
-                if (success && deltas.Count > 0)
-                {
-                    SendOperationResponse(mod, toClient, true);
-                    BroadcastDiskDeltas(mod, deltas);
-                }
-                else if (!success)
-                {
-                    // Denied: send failure response + full disk corrections
-                    SendOperationResponse(mod, toClient, false, requestedDiskIds);
-                }
-                else
-                {
-                    // Success but no changes (e.g. deposit into a full disk) — still confirm
-                    SendOperationResponse(mod, toClient, true);
-                }
+                SendOperationResponse(mod, toClient, true);
+                BroadcastDiskDeltas(mod, deltas);
+            }
+            else if (!success)
+            {
+                // Denied: send failure response + full disk corrections
+                SendOperationResponse(mod, toClient, false, requestedDiskIds);
             }
             else
             {
-                var modified = sys.EndModificationTracking();
-                BroadcastDiskData(mod, modified, -1);
+                // Success but no changes (e.g. deposit into a full disk) — still confirm
+                SendOperationResponse(mod, toClient, true);
             }
         }
 

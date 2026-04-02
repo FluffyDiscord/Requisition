@@ -941,9 +941,9 @@ namespace TerraStorage.Content.UI.Elements
             // Craft button + output slot row
             if (relY >= dims.Height - 35)
             {
-                float craftWidth = dims.Width - 30 - 14; // same as craftRect width calc
+                float craftWidth = dims.Width - 30 - 24; // same as craftRect width calc
                 // Output slot (right of craft button)
-                if (relX >= 5 + craftWidth + 4 && relX < 5 + craftWidth + 4 + 30)
+                if (relX >= 5 + craftWidth + 14 && relX < 5 + craftWidth + 14 + 30)
                 {
                     TakeFromStorage();
                     return;
@@ -1434,10 +1434,10 @@ namespace TerraStorage.Content.UI.Elements
             int outSlotSize = 40;
 
             // Craft button (on the left)
-            var craftRect = new Rectangle((int)dims.X + 5, (int)craftBtnY, (int)dims.Width - outSlotSize - 14, 30);
+            var craftRect = new Rectangle((int)dims.X + 5, (int)craftBtnY, (int)dims.Width - outSlotSize - 24, 30);
 
             // Output slot (on the right of craft button): shows current stock in storage, click to take
-            int outSlotX = craftRect.Right + 4;
+            int outSlotX = craftRect.Right + 14;
             int outputInStorage = _selectedRecipe != null
                 ? StorageWorldSystem.Instance.CountItem(_diskIds, _selectedRecipe.createItem.type)
                 : 0;

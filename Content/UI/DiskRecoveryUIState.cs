@@ -34,6 +34,8 @@ namespace TerraStorage.Content.UI
         private const int ItemRowHeight = 26;
 
         private UIPanel _panel;
+        private UIText _title;
+        private UITextPanel<string> _restoreBtn;
         private UIText _statusText;
 
         private List<DiskData> _diskList = new();
@@ -59,9 +61,9 @@ namespace TerraStorage.Content.UI
             _panel.SetPadding(10);
             Append(_panel);
 
-            var title = new UIText(Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.Title"));
-            title.HAlign = 0.5f;
-            _panel.Append(title);
+            _title = new UIText("");
+            _title.HAlign = 0.5f;
+            _panel.Append(_title);
 
             var closeBtn = new UITextPanel<string>("X", 0.7f);
             closeBtn.Width.Set(30, 0f);
@@ -73,13 +75,13 @@ namespace TerraStorage.Content.UI
             _panel.Append(closeBtn);
 
             // Restore button positioned in the bottom section
-            var restoreBtn = new UITextPanel<string>(Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.Restore"), 0.75f);
-            restoreBtn.Width.Set(90, 0f);
-            restoreBtn.Height.Set(30, 0f);
-            restoreBtn.Left.Set(60, 0f);
-            restoreBtn.Top.Set(MainAreaTop + MainAreaHeight + 32, 0f);
-            restoreBtn.OnLeftClick += OnRestoreClicked;
-            _panel.Append(restoreBtn);
+            _restoreBtn = new UITextPanel<string>("", 0.75f);
+            _restoreBtn.Width.Set(90, 0f);
+            _restoreBtn.Height.Set(30, 0f);
+            _restoreBtn.Left.Set(60, 0f);
+            _restoreBtn.Top.Set(MainAreaTop + MainAreaHeight + 32, 0f);
+            _restoreBtn.OnLeftClick += OnRestoreClicked;
+            _panel.Append(_restoreBtn);
 
             _statusText = new UIText("", 0.72f);
             _statusText.Left.Set(0, 0f);
@@ -92,6 +94,8 @@ namespace TerraStorage.Content.UI
 
         public void Open()
         {
+            _title?.SetText(Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.Title"));
+            _restoreBtn?.SetText(Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.Restore"));
             RefreshDiskList();
             _selectedDisk = null;
             _diskScrollOffset = 0;

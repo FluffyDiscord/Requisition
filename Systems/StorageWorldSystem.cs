@@ -64,14 +64,11 @@ namespace TerraStorage.Systems
         {
             _modifiedTracker = new HashSet<Guid>();
 
-            // In predictive mode, snapshot all disk states so we can compute item-level deltas later
-            if (TerraStorageConfig.IsPredictiveSync)
+            // Snapshot all disk states so we can compute item-level deltas after the operation.
+            _preModificationSnapshot = new Dictionary<Guid, List<StoredItemStack>>();
+            foreach (var kvp in _allDiskData)
             {
-                _preModificationSnapshot = new Dictionary<Guid, List<StoredItemStack>>();
-                foreach (var kvp in _allDiskData)
-                {
-                    _preModificationSnapshot[kvp.Key] = SnapshotItems(kvp.Value.Items);
-                }
+                _preModificationSnapshot[kvp.Key] = SnapshotItems(kvp.Value.Items);
             }
         }
 
