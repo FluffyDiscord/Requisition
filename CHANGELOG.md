@@ -3,17 +3,21 @@
 
 ### Added
 - **Sprite update**
-    - All sprites have gotten a facelift. The CraftingCore and DriveBay are now different sizes, please break and replace your tiles to get the new form factor.
+    - All sprites have gotten a facelift. The CraftingCore and DriveBay are now different sizes, please break and replace your tiles to get the new form factor. The terminal is still sort of a placeholder, and likely will change in the future, along with small changes here and there to the other assets
 - **Drive Bay visual overlays** — small status lights on each disk slot show fill state (offline, online, 80% full, 100% full). Bay-level status light shows overall capacity across all disks at a glance.
+- Vanilla hold-rightclick behavior in the storage terminal works as expected now
+- Remote Terminal keybind.  You still have to have the item bound the normal way however
 
 ### Changed
 - Smaller craft button to help prevent misclicks
+
 ### Removed
 - **Predictive Mode Toggle**
     - In MP, the server will always use the new Predictive networking method.  The old way has been completely depreciated as it has too many issues to continue maintaining, and has been removed entirely.  SP Remains unaffected and will continue using Fullsync since packet size is a non-issue.
 
 ### Fixed
 - Removed some unused code.
+- Fixed search bars stealing text input permanently until the game was restarted
 
 ## [0.2.7] - Released
 

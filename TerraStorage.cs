@@ -9,9 +9,12 @@ namespace TerraStorage
     public class TerraStorage : Mod
     {
         public static string DebugLogPath { get; private set; }
+        public static ModKeybind OpenRemoteTerminalHotkey { get; private set; }
 
         public override void Load()
         {
+            OpenRemoteTerminalHotkey = KeybindLoader.RegisterKeybind(this, "Open Remote Terminal", "None");
+
             string logDir = Path.Combine(AppContext.BaseDirectory, "tModLoader-Logs");
             DebugLogPath = Path.Combine(logDir, "terrastorage_debug.log");
 

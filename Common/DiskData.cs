@@ -209,11 +209,34 @@ namespace TerraStorage.Common
 
         private static bool TagCompoundEquals(TagCompound a, TagCompound b)
         {
-            using var msA = new MemoryStream();
-            using var msB = new MemoryStream();
-            TagIO.Write(a, new BinaryWriter(msA));
-            TagIO.Write(b, new BinaryWriter(msB));
-            return msA.ToArray().SequenceEqual(msB.ToArray());
+            if (a.Count != b.Count) return false;
+            foreach (var kv in a)
+            {
+                if (!b.ContainsKey(kv.Key)) return false;
+                if (!TagValueEquals(kv.Value, b[kv.Key])) return false;
+            }
+            return true;
+        }
+
+        private static bool TagValueEquals(object a, object b)
+        {
+            if (a == null && b == null) return true;
+            if (a == null || b == null) return false;
+            if (a.GetType() != b.GetType()) return false;
+            if (a is TagCompound ta && b is TagCompound tb)
+                return TagCompoundEquals(ta, tb);
+            if (a is IList<TagCompound> la && b is IList<TagCompound> lb)
+            {
+                if (la.Count != lb.Count) return false;
+                for (int i = 0; i < la.Count; i++)
+                    if (!TagCompoundEquals(la[i], lb[i])) return false;
+                return true;
+            }
+            if (a is byte[] ba && b is byte[] bb)
+                return ba.SequenceEqual(bb);
+            if (a is int[] ia && b is int[] ib)
+                return ia.SequenceEqual(ib);
+            return a.Equals(b);
         }
 
         // Returns true if two items have compatible per-instance data for merging.

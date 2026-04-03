@@ -53,6 +53,11 @@ namespace TerraStorage.Content.UI.Elements
             return ci?.ItemType ?? 0;
         }
 
+        public ConsolidatedItem GetHoveredItem()
+        {
+            return GetItemAtMouse(Main.MouseScreen);
+        }
+
         public void SetItems(List<ConsolidatedItem> items)
         {
             _items = items ?? new List<ConsolidatedItem>();

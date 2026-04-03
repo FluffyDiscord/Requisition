@@ -59,6 +59,8 @@ namespace TerraStorage.Content.UI
         {
             if (!(TerraStorageClientConfig.Instance?.RememberSearchQuery ?? true))
                 _uiState.ClearSearch();
+            else
+                _uiState.DeactivateSearch();
             _userInterface.SetState(null);
             _isOpen = false;
         }

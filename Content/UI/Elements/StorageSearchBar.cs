@@ -36,10 +36,19 @@ namespace TerraStorage.Content.UI.Elements
 
         public void Clear()
         {
+            Unfocus();
             if (string.IsNullOrEmpty(SearchText)) return;
             SearchText = "";
-            _focused = false;
             OnTextChanged?.Invoke(SearchText);
+        }
+
+        // Unfocus without clearing text (e.g. when the parent window closes).
+        public void Unfocus()
+        {
+            _focused = false;
+            _input.Deactivate();
+            if (Main.CurrentInputTextTakerOverride == this)
+                Main.CurrentInputTextTakerOverride = null;
         }
 
         public override void LeftClick(UIMouseEvent evt)
@@ -60,7 +69,7 @@ namespace TerraStorage.Content.UI.Elements
                 SearchText = "";
                 OnTextChanged?.Invoke(SearchText);
             }
-            _focused = false;
+            Unfocus();
         }
 
         public override void Update(GameTime gameTime)
@@ -72,8 +81,7 @@ namespace TerraStorage.Content.UI.Elements
                 // Check for click outside
                 if (Main.mouseLeft && !ContainsPoint(Main.MouseScreen))
                 {
-                    _input.Deactivate();
-                    _focused = false;
+                    Unfocus();
                     return;
                 }
 
@@ -93,8 +101,7 @@ namespace TerraStorage.Content.UI.Elements
                 // Escape to unfocus and clear
                 if (Keyboard.GetState().IsKeyDown(Keys.Escape))
                 {
-                    _input.Deactivate();
-                    _focused = false;
+                    Unfocus();
                     SearchText = "";
                     OnTextChanged?.Invoke(SearchText);
                 }

@@ -70,6 +70,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
 
         public void CloseEncyclopedia()
         {
+            _state?.DeactivateSearch();
             _userInterface.SetState(null);
             _isOpen = false;
         }

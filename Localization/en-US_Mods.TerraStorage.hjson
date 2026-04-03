@@ -91,6 +91,7 @@ Keybinds: {
 	CraftingTree.DisplayName: Open Crafting Tree
 	Encyclopedia.DisplayName: Toggle Encyclopedia
 	EncyclopediaQuery.DisplayName: Look Up Hovered Item
+	"Open Remote Terminal.DisplayName": Open  Remote  Terminal
 }
 
 Configs: {

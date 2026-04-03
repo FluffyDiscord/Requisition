@@ -92,6 +92,9 @@ namespace TerraStorage.Content.UI
         private long _lastStorageVersion = -1;
 
         private bool _prevMouseLeft;
+        private bool _prevMouseRight;
+        private int _rightHoldTimer;
+        private int _rightHoldNextFire;
 
         // Current panel dimensions
         private float _panelWidth = PanelMinWidth;
@@ -107,6 +110,7 @@ namespace TerraStorage.Content.UI
         // Binds the UI to a specific <see cref="TerminalEntity"/> and immediately
         // refreshes disk connections and the displayed item list.
         public void ClearSearch() => _searchBar?.Clear();
+        public void DeactivateSearch() => _searchBar?.Unfocus();
 
         public bool IsMouseOverPanel() => _mainPanel?.ContainsPoint(Main.MouseScreen) == true;
 
@@ -270,7 +274,7 @@ namespace TerraStorage.Content.UI
             _itemGrid.Top.Set(ContentY, 0f);
             _itemGrid.SetScrollbar(_scrollbar);
             _itemGrid.OnItemClicked      += OnItemClicked;
-            _itemGrid.OnItemRightClicked += OnItemRightClicked;
+            // Right-click hold is polled in Update() — not wired to the UIElement event.
             _itemGrid.OnItemAltClicked   += OnItemAltClicked;
             _itemGrid.SetFavoriteChecker((type, prefix) =>
                 StoragePlayerSystem.Local.IsItemFavorited(type, prefix));
@@ -723,10 +727,10 @@ namespace TerraStorage.Content.UI
             RefreshItems();
         }
 
-        // Handles a right-click on a storage item, extracting exactly one unit.
-        // If the cursor already holds a matching item and has room the extracted unit
-        // is merged; otherwise it is re-inserted so nothing is lost.
-        private void OnItemRightClicked(ConsolidatedItem item)
+        // Handles a right-click on a storage item, extracting `count` units (default 1).
+        // Per-instance items (ModData / FullItemTag) always extract exactly 1.
+        // Any extracted amount that doesn't fit on the cursor is re-inserted.
+        private void OnItemRightClicked(ConsolidatedItem item, int count = 1)
         {
             if (item == null || _connectedDiskIds.Count == 0)
                 return;
@@ -759,12 +763,12 @@ namespace TerraStorage.Content.UI
                 if (Main.netMode == NetmodeID.MultiplayerClient)
                 {
                     var mod = ModLoader.GetMod("TerraStorage");
-                    NetworkHandler.SendWithdrawItem(mod, _connectedDiskIds, item.ItemType, 1, item.PrefixId);
+                    NetworkHandler.SendWithdrawItem(mod, _connectedDiskIds, item.ItemType, count, item.PrefixId);
                     SoundEngine.PlaySound(SoundID.Grab);
                     return;
                 }
                 extracted = StorageWorldSystem.Instance.ExtractItem(
-                    _connectedDiskIds, item.ItemType, 1, item.PrefixId);
+                    _connectedDiskIds, item.ItemType, count, item.PrefixId);
             }
 
             if (!extracted.IsAir)
@@ -776,7 +780,17 @@ namespace TerraStorage.Content.UI
                 else if (Main.mouseItem.type == extracted.type && Main.mouseItem.prefix == extracted.prefix
                     && Main.mouseItem.stack < Main.mouseItem.maxStack)
                 {
-                    Main.mouseItem.stack += extracted.stack;
+                    int space = Main.mouseItem.maxStack - Main.mouseItem.stack;
+                    if (extracted.stack <= space)
+                    {
+                        Main.mouseItem.stack += extracted.stack;
+                    }
+                    else
+                    {
+                        Main.mouseItem.stack = Main.mouseItem.maxStack;
+                        extracted.stack -= space;
+                        StorageWorldSystem.Instance.InsertItem(_connectedDiskIds, extracted);
+                    }
                 }
                 else
                 {
@@ -955,7 +969,57 @@ namespace TerraStorage.Content.UI
                 }
             }
 
+            // Right-click: pick up 1 item on press; hold repeats at vanilla-like intervals.
+            bool mouseRight = Main.mouseRight;
+            bool justRightPressed = mouseRight && !_prevMouseRight;
+            if (_activeTab == ActiveTab.Storage && _itemGrid.ContainsPoint(Main.MouseScreen))
+            {
+                var hoveredItem = _itemGrid.GetHoveredItem();
+                if (justRightPressed)
+                {
+                    _rightHoldTimer = 0;
+                    _rightHoldNextFire = 15; // initial delay before ramp begins
+                    if (hoveredItem != null)
+                        OnItemRightClicked(hoveredItem);
+                }
+                else if (mouseRight && hoveredItem != null)
+                {
+                    _rightHoldTimer++;
+                    if (_rightHoldTimer >= _rightHoldNextFire)
+                    {
+                        bool cursorEmpty = Main.mouseItem.IsAir;
+                        bool canStack = !Main.mouseItem.IsAir
+                            && Main.mouseItem.type == hoveredItem.ItemType
+                            && Main.mouseItem.prefix == hoveredItem.PrefixId
+                            && Main.mouseItem.stack < Main.mouseItem.maxStack;
+                        if (cursorEmpty || canStack)
+                        {
+                            // Interval ramps from 15 → 4 over ~55 frames; beyond that,
+                            // keep interval at 4 and instead increase grab count.
+                            int elapsed = _rightHoldTimer - 15;
+                            int nextInterval = Math.Max(4, 15 - elapsed / 5);
+                            int grabCount = elapsed < 55 ? 1 : Math.Min(16, 1 + (elapsed - 55) / 15);
+                            OnItemRightClicked(hoveredItem, grabCount);
+                            _rightHoldNextFire = _rightHoldTimer + nextInterval;
+                        }
+                        else
+                        {
+                            _rightHoldNextFire = _rightHoldTimer + 1;
+                        }
+                    }
+                }
+                else if (!mouseRight)
+                {
+                    _rightHoldTimer = 0;
+                }
+            }
+            else
+            {
+                _rightHoldTimer = 0;
+            }
+
             _prevMouseLeft = Main.mouseLeft;
+            _prevMouseRight = mouseRight;
         }
 
         private void RecalculateLayout()

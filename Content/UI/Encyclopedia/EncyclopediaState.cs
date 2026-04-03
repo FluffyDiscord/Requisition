@@ -74,6 +74,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
         private static readonly Dictionary<int, int> _damageDefenseCache = new();
 
         public bool IsMouseOverPanel() => _mainPanel?.ContainsPoint(Main.MouseScreen) == true;
+        public void DeactivateSearch() => _searchBar?.Unfocus();
 
                 // Returns the item type hovered in the grid, usable during UpdateUI for keybind checks.
         // 

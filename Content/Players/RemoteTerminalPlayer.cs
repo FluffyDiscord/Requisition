@@ -8,7 +8,7 @@ using TerraStorage.Content.UI;
 
 namespace TerraStorage.Content.Players
 {
-    // Handles middle-click activation of the Remote Terminal from the player inventory.
+    // Handles middle-click and hotkey activation of the Remote Terminal.
     public class RemoteTerminalPlayer : ModPlayer
     {
         private bool _prevMiddle;
@@ -16,6 +16,9 @@ namespace TerraStorage.Content.Players
         public override void PostUpdate()
         {
             if (Player != Main.LocalPlayer) return;
+
+            HandleHotkey();
+
             if (!Main.playerInventory) return;
 
             bool middle = Main.mouseMiddle;
@@ -26,7 +29,26 @@ namespace TerraStorage.Content.Players
             if (Main.HoverItem == null || Main.HoverItem.IsAir) return;
             if (Main.HoverItem.ModItem is not RemoteTerminal hoverRemote) return;
 
-            int boundId = hoverRemote.BoundEntityId;
+            OpenRemote(hoverRemote);
+        }
+
+        private void HandleHotkey()
+        {
+            if (!(TerraStorage.OpenRemoteTerminalHotkey?.JustPressed ?? false)) return;
+
+            for (int i = 0; i < 50; i++)
+            {
+                if (Player.inventory[i].ModItem is RemoteTerminal remote)
+                {
+                    OpenRemote(remote);
+                    return;
+                }
+            }
+        }
+
+        private void OpenRemote(RemoteTerminal remote)
+        {
+            int boundId = remote.BoundEntityId;
 
             if (boundId < 0)
             {

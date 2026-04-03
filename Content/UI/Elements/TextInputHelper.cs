@@ -23,13 +23,13 @@ namespace TerraStorage.Content.UI.Elements
             TextInputEXT.StartTextInput();
         }
 
-        // Unsubscribe from TextInputEXT and stop OS text input mode.
+        // Unsubscribe from TextInputEXT. Does not call StopTextInput — that is
+        // a global SDL toggle that vanilla also depends on; let the engine manage it.
         public void Deactivate()
         {
             if (!_subscribed) return;
             _subscribed = false;
             TextInputEXT.TextInput -= OnTextInput;
-            TextInputEXT.StopTextInput();
             _pendingChars.Clear();
         }
 
