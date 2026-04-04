@@ -422,6 +422,15 @@ namespace TerraStorage.Systems
                 StorageWorldSystem.Instance.BeginModificationTracking();
                 int leftover = StorageWorldSystem.Instance.InsertItem(diskIds, item);
                 DBG($"  InsertItem result: leftover={leftover}");
+                if (leftover > 0)
+                {
+                    item.stack = leftover;
+                    var resultPacket = mod.GetPacket();
+                    resultPacket.Write((byte)PacketType.WithdrawItemResult);
+                    ItemIO.Send(item, resultPacket, true);
+                    resultPacket.Write(true); // shift=true: route into inventory, fall back to cursor
+                    resultPacket.Send(whoAmI);
+                }
                 EndTrackingAndRespond(mod, whoAmI, leftover < item.stack, diskIds);
             }
         }

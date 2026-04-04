@@ -1,4 +1,9 @@
 # TerraStorage Changelog
+## [0.2.10]
+
+### Fixed
+- When the server can't fit the full stack when inserting, it now sends the leftover back to the player
+ 
 ## [0.2.9]
 Just a version bump for imaging stuff on workshop.
 
