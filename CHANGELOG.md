@@ -4,6 +4,7 @@
 ### Fixed
 - When the server can't fit the full stack when inserting, it now sends the leftover back to the player
 - In SP, sometimes items dont merge due to some old branch of code left behind from the original fullsync method.  Modernized using new method
+- Fixed a dupe with items that have a use time
 
 ## [0.2.9]
 Just a version bump for imaging stuff on workshop.
