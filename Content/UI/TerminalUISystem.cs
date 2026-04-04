@@ -69,6 +69,10 @@ namespace TerraStorage.Content.UI
         {
             if (_isOpen && !Main.dedServ)
             {
+                // Block item use when mouse is over the panel — must happen before Player.Update.
+                if (_uiState.IsMouseOverPanel())
+                    Main.LocalPlayer.mouseInterface = true;
+
                 bool shift = Main.keyState.IsKeyDown(Keys.LeftShift) || Main.keyState.IsKeyDown(Keys.RightShift);
                 if (shift)
                 {

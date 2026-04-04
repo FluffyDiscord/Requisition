@@ -775,6 +775,12 @@ namespace TerraStorage.Content.UI
             if (Main.mouseItem == null || Main.mouseItem.IsAir || _connectedDiskIds.Count == 0)
                 return;
 
+            // Don't deposit while an item use animation is active. The player may have
+            // started using the cursor item outside the panel and dragged into it while
+            // holding the mouse — both the use and the deposit would fire, duping the item.
+            if (Main.LocalPlayer.itemAnimation > 0)
+                return;
+
             if (Main.netMode == NetmodeID.MultiplayerClient)
             {
                 var mod = ModLoader.GetMod("TerraStorage");

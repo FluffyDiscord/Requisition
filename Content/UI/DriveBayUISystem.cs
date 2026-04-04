@@ -83,6 +83,10 @@ namespace TerraStorage.Content.UI
             // Block Terraria's inventory shift+click BEFORE Player.Update processes it
             if (_isOpen && !Main.dedServ)
             {
+                // Block item use when mouse is over the panel — must happen before Player.Update.
+                if (_uiState.IsMouseOverPanel() || (_recoveryOpen && _recoveryState.IsMouseOverPanel()))
+                    Main.LocalPlayer.mouseInterface = true;
+
                 bool shift = Main.keyState.IsKeyDown(Keys.LeftShift) || Main.keyState.IsKeyDown(Keys.RightShift);
                 if (shift)
                 {
