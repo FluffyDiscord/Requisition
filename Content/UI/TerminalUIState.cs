@@ -678,41 +678,9 @@ namespace TerraStorage.Content.UI
                 if (shift)
                 {
                     var player = Main.LocalPlayer;
-                    // Directly place item in inventory instead of using ground pickup logic
-                    bool placedInInventory = false;
-                    for (int i = 0; i < 50; i++)
-                    {
-                        if (player.inventory[i].IsAir)
-                        {
-                            player.inventory[i] = extracted.Clone();
-                            placedInInventory = true;
-                            break;
-                        }
-                        else if (player.inventory[i].type == extracted.type && 
-                                 player.inventory[i].prefix == extracted.prefix &&
-                                 player.inventory[i].stack < player.inventory[i].maxStack)
-                        {
-                            int spaceAvailable = player.inventory[i].maxStack - player.inventory[i].stack;
-                            if (spaceAvailable >= extracted.stack)
-                            {
-                                player.inventory[i].stack += extracted.stack;
-                                placedInInventory = true;
-                                break;
-                            }
-                            else
-                            {
-                                // Partially fill the stack and put remaining in next empty slot
-                                extracted.stack -= spaceAvailable;
-                                player.inventory[i].stack = player.inventory[i].maxStack;
-                            }
-                        }
-                    }
-                    
-                    if (!placedInInventory)
-                    {
-                        // If no inventory space, re-insert into storage
+                    extracted = player.GetItem(player.whoAmI, extracted, GetItemSettings.InventoryEntityToPlayerInventorySettings);
+                    if (!extracted.IsAir)
                         StorageWorldSystem.Instance.InsertItem(_connectedDiskIds, extracted);
-                    }
                 }
                 else
                 {
