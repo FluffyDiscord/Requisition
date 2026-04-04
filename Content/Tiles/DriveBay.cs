@@ -111,7 +111,7 @@ namespace TerraStorage.Content.Tiles
 
         // Drive light dimensions (2×6 px) and bay light dimensions (4×2 px).
         private const int DLW = 2, DLH = 6, BLW = 4, BLH = 2;
-        private const int BLX = 38, BLY = 42;
+        private const int BLX = 38, BLY = 44;
 
         public override void PostDraw(int i, int j, SpriteBatch spriteBatch)
         {
@@ -137,7 +137,7 @@ namespace TerraStorage.Content.Tiles
                 byte s = states[slot];
                 if (s == 0) continue;
                 int lx = 6 + (slot % 10) * 4;
-                int ly = 4 + (slot / 10) * 10;
+                int ly = 6 + (slot / 10) * 10;
                 if (TryClipToCell(lx, ly, DLW, DLH, cx, cy, out var src, out var off))
                     spriteBatch.Draw(_driveLight[s - 1].Value, cellScreen + off, src, Color.White);
             }

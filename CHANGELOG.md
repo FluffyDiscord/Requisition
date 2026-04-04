@@ -1,9 +1,12 @@
 # TerraStorage Changelog
-## [0.2.8]
+## [0.2.9]
+Just a version bump for imaging stuff on workshop.
+
+## [0.2.8] - Released
 
 ### Added
 - **Sprite update**
-    - All sprites have gotten a facelift. The CraftingCore and DriveBay are now different sizes, please break and replace your tiles to get the new form factor. The terminal is still sort of a placeholder, and likely will change in the future, along with small changes here and there to the other assets
+    - All sprites have gotten a facelift. The CraftingCore and DriveBay are now different sizes, please break and replace your tiles to get the new form factor.
 - **Drive Bay visual overlays** — small status lights on each disk slot show fill state (offline, online, 80% full, 100% full). Bay-level status light shows overall capacity across all disks at a glance.
 - Vanilla hold-rightclick behavior in the storage terminal works as expected now
 - Remote Terminal keybind.  You still have to have the item bound the normal way however
