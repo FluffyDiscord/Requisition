@@ -49,6 +49,5 @@ build/
 dist/
 ```
 
-Now let me add all your current files and make the first commit:
 Content/Tiles/drivepallet.aseprite
 Content/Items/StorageDisk.aseprite
