@@ -105,7 +105,6 @@ namespace TerraStorage.Content.UI
                     }
                 }
 
-                Main.hidePlayerCraftingMenu = true;
                 UIDrawHelpers.SafeUpdate(_userInterface, gameTime);
             }
         }
@@ -115,6 +114,8 @@ namespace TerraStorage.Content.UI
             int inventoryIndex = layers.FindIndex(layer => layer.Name.Equals("Vanilla: Inventory"));
             if (inventoryIndex != -1 && _isOpen)
             {
+                Main.hidePlayerCraftingMenu = true;
+
                 layers.Insert(inventoryIndex + 1, new LegacyGameInterfaceLayer(
                     "TerraStorage: Terminal UI",
                     delegate

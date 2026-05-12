@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Terraria;
+using Terraria.DataStructures;
 using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
@@ -46,6 +47,11 @@ namespace TerraStorage.Systems
 
         //Server → client: give an item directly to the client's inventory (used when storage is full).
         GiveItemToClient,
+
+        //Client → server: quick-stack inventory items into a nearby terminal's disk network.
+        QuickStackToStorage,
+        //Server → client: slot updates after a quick-stack operation.
+        QuickStackResult,
     }
 
     // Sends and receives all TerraStorage network packets.
@@ -127,6 +133,12 @@ namespace TerraStorage.Systems
                     break;
                 case PacketType.GiveItemToClient:
                     HandleGiveItemToClient(reader);
+                    break;
+                case PacketType.QuickStackToStorage:
+                    HandleQuickStackToStorage(mod, reader, whoAmI);
+                    break;
+                case PacketType.QuickStackResult:
+                    HandleQuickStackResult(reader);
                     break;
             }
         }
@@ -1262,6 +1274,115 @@ namespace TerraStorage.Systems
             packet.Send(whoAmI);
 
             DBG($"HandleRequestFullDiskSync: sent full state for disk {diskId.ToString()[..8]} seq={sys.GetDiskSeqNum(diskId)} to client {whoAmI}");
+        }
+
+        // ─── Quick Stack ────────────────────────────────────────────────
+
+        public static void SendQuickStackToStorage(Mod mod, Point16 terminalPos, Player player)
+        {
+            if (Main.netMode != NetmodeID.MultiplayerClient) return;
+
+            var candidates = new List<(byte slot, Item item)>();
+            for (int i = 10; i < 50; i++)
+            {
+                var item = player.inventory[i];
+                if (item.IsAir || item.favorited || item.IsACoin) continue;
+                candidates.Add(((byte)i, item));
+            }
+            if (candidates.Count == 0) return;
+
+            var packet = mod.GetPacket();
+            packet.Write((byte)PacketType.QuickStackToStorage);
+            packet.Write(terminalPos.X);
+            packet.Write(terminalPos.Y);
+            packet.Write((byte)candidates.Count);
+            foreach (var (slot, item) in candidates)
+            {
+                packet.Write(slot);
+                ItemIO.Send(item, packet, true);
+            }
+            packet.Send();
+        }
+
+        private static void HandleQuickStackToStorage(Mod mod, BinaryReader reader, int whoAmI)
+        {
+            short tx = reader.ReadInt16();
+            short ty = reader.ReadInt16();
+            int slotCount = reader.ReadByte();
+
+            var slots = new List<(byte idx, Item item)>(slotCount);
+            for (int i = 0; i < slotCount; i++)
+            {
+                byte idx = reader.ReadByte();
+                var item = ItemIO.Receive(reader, true);
+                slots.Add((idx, item));
+            }
+
+            if (Main.netMode != NetmodeID.Server) return;
+
+            var terminalPos = new Point16(tx, ty);
+            if (!TileEntity.ByPosition.TryGetValue(terminalPos, out var entity)
+                || entity is not TerminalEntity)
+                return;
+
+            // Validate player is within range
+            var player = Main.player[whoAmI];
+            float dx = player.Center.X - (terminalPos.X * 16f + 24f);
+            float dy = player.Center.Y - (terminalPos.Y * 16f + 24f);
+            if (dx * dx + dy * dy > 240f * 240f) // 15 tiles in pixels
+                return;
+
+            var diskIds = StorageNetwork.GetAllConnectedDiskIds(terminalPos);
+            if (diskIds.Count == 0) return;
+
+            var existingTypes = StorageWorldSystem.Instance.GetItemCounts(diskIds);
+
+            StorageWorldSystem.Instance.BeginModificationTracking();
+
+            var results = new List<(byte slot, int newStack)>();
+            foreach (var (slotIdx, item) in slots)
+            {
+                if (!existingTypes.ContainsKey(item.type)) continue;
+
+                int leftover = StorageWorldSystem.Instance.InsertItem(diskIds, item);
+                results.Add((slotIdx, leftover));
+            }
+
+            EndTrackingAndRespond(mod, whoAmI, results.Count > 0, diskIds);
+
+            if (results.Count > 0)
+            {
+                var resultPacket = mod.GetPacket();
+                resultPacket.Write((byte)PacketType.QuickStackResult);
+                resultPacket.Write((byte)results.Count);
+                foreach (var (slot, newStack) in results)
+                {
+                    resultPacket.Write(slot);
+                    resultPacket.Write(newStack);
+                }
+                resultPacket.Send(whoAmI);
+            }
+        }
+
+        private static void HandleQuickStackResult(BinaryReader reader)
+        {
+            if (Main.netMode != NetmodeID.MultiplayerClient) return;
+
+            int count = reader.ReadByte();
+            var player = Main.LocalPlayer;
+
+            for (int i = 0; i < count; i++)
+            {
+                byte slotIdx = reader.ReadByte();
+                int newStack = reader.ReadInt32();
+
+                if (slotIdx >= 50) continue;
+
+                if (newStack <= 0)
+                    player.inventory[slotIdx].TurnToAir();
+                else
+                    player.inventory[slotIdx].stack = newStack;
+            }
         }
 
         // ─── Helpers ────────────────────────────────────────────────────

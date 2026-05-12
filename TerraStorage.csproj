@@ -7,5 +7,6 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="Sources\**" />
   </ItemGroup>
 </Project>

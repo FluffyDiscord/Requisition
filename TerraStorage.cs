@@ -13,6 +13,7 @@ namespace TerraStorage
 
         public override void Load()
         {
+            Terraria.On_Player.QuickStackAllChests += Systems.QuickStackSystem.OnQuickStackAllChests;
             OpenRemoteTerminalHotkey = KeybindLoader.RegisterKeybind(this, "Open Remote Terminal", "None");
 
             string logDir = Path.Combine(AppContext.BaseDirectory, "tModLoader-Logs");
@@ -28,6 +29,11 @@ namespace TerraStorage
             if (File.Exists(DebugLogPath)) File.Move(DebugLogPath, slot1);
 
             File.WriteAllText(DebugLogPath, $"=== TerraStorage Debug Log — {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===\n");
+        }
+
+        public override void Unload()
+        {
+            Terraria.On_Player.QuickStackAllChests -= Systems.QuickStackSystem.OnQuickStackAllChests;
         }
 
         public override void HandlePacket(System.IO.BinaryReader reader, int whoAmI)
