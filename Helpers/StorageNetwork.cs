@@ -108,18 +108,5 @@ namespace TerraStorage.Helpers
             return (stations, conditions);
         }
 
-        // Get all tile types available as crafting stations from connected Crafting Cores. 
-        public static HashSet<int> GetAllAvailableStations(Point16 terminalPosition)
-        {
-            var (stations, _) = GetAllStationsAndConditions(terminalPosition);
-            return stations;
-        }
-
-        // Get all crafting conditions available from connected Crafting Cores.
-        public static HashSet<CraftingCondition> GetAllAvailableConditions(Point16 terminalPosition)
-        {
-            var (_, conditions) = GetAllStationsAndConditions(terminalPosition);
-            return conditions;
-        }
     }
 }

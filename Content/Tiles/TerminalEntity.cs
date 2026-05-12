@@ -41,18 +41,6 @@ namespace TerraStorage.Content.Tiles
             return StorageNetwork.GetAllConnectedDiskIds(Position);
         }
 
-        // Get all crafting station tile types available from connected Crafting Cores.
-        public HashSet<int> GetAvailableStations()
-        {
-            return StorageNetwork.GetAllAvailableStations(Position);
-        }
-
-        // Get all crafting conditions available from connected Crafting Cores.
-        public HashSet<CraftingCondition> GetAvailableConditions()
-        {
-            return StorageNetwork.GetAllAvailableConditions(Position);
-        }
-
         // Get both stations and conditions in a single tile-entity scan.
         public (HashSet<int> stations, HashSet<CraftingCondition> conditions) GetStationsAndConditions()
         {
