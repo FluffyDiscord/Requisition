@@ -52,6 +52,9 @@ namespace TerraStorage.Systems
         QuickStackToStorage,
         //Server → client: slot updates after a quick-stack operation.
         QuickStackResult,
+
+        //Server → client: chunked disk data for disks that exceed the 65 KB packet limit.
+        SyncDiskDataChunked,
     }
 
     // Sends and receives all TerraStorage network packets.
@@ -139,6 +142,9 @@ namespace TerraStorage.Systems
                     break;
                 case PacketType.QuickStackResult:
                     HandleQuickStackResult(reader);
+                    break;
+                case PacketType.SyncDiskDataChunked:
+                    HandleSyncDiskDataChunked(reader);
                     break;
             }
         }
@@ -666,6 +672,117 @@ namespace TerraStorage.Systems
             DBG($"  EnsureDisksRegistered: scanned {bayCount} bays");
         }
 
+        // ─── Chunked Disk Packet Helper ────────────────────────────────
+
+        // Sends a single disk's SyncDiskData, automatically chunking if the
+        // serialized payload exceeds tModLoader's 65,535-byte packet limit.
+        private static void SendDiskPacket(Mod mod, DiskData data, int seqNum,
+            int toClient = -1, int ignoreClient = -1)
+        {
+            byte[] payload;
+            using (var ms = new MemoryStream())
+            using (var bw = new BinaryWriter(ms))
+            {
+                data.WriteNet(bw);
+                payload = ms.ToArray();
+            }
+
+            // 40 bytes of overhead: PacketType + count + seqNum + tModLoader framing.
+            if (payload.Length + 40 <= 65000)
+            {
+                var packet = mod.GetPacket();
+                packet.Write((byte)PacketType.SyncDiskData);
+                packet.Write(1); // count
+                packet.Write(seqNum);
+                packet.BaseStream.Write(payload, 0, payload.Length);
+                packet.Send(toClient, ignoreClient);
+            }
+            else
+            {
+                // Chunk the payload into pieces that fit in a single packet.
+                // Header per chunk: PacketType(1) + diskId(16) + seqNum(4) + chunkIdx(2)
+                //                   + totalChunks(2) + dataLength(4) = 29 bytes + tML framing.
+                const int chunkDataSize = 50000;
+                int totalChunks = (payload.Length + chunkDataSize - 1) / chunkDataSize;
+                var diskId = data.DiskId;
+
+                DBG($"SendDiskPacket: disk {diskId.ToString()[..8]} payload={payload.Length} bytes, splitting into {totalChunks} chunks");
+
+                for (int i = 0; i < totalChunks; i++)
+                {
+                    int offset = i * chunkDataSize;
+                    int length = Math.Min(chunkDataSize, payload.Length - offset);
+
+                    var packet = mod.GetPacket();
+                    packet.Write((byte)PacketType.SyncDiskDataChunked);
+                    packet.Write(diskId.ToByteArray());
+                    packet.Write(seqNum);
+                    packet.Write((ushort)i);
+                    packet.Write((ushort)totalChunks);
+                    packet.Write(length);
+                    packet.Write(payload, offset, length);
+                    packet.Send(toClient, ignoreClient);
+                }
+            }
+        }
+
+        private class ChunkBuffer
+        {
+            public int SeqNum;
+            public ushort TotalChunks;
+            public byte[][] Chunks;
+            public int Received;
+        }
+
+        private static readonly Dictionary<Guid, ChunkBuffer> _chunkBuffers = new();
+
+        private static void HandleSyncDiskDataChunked(BinaryReader reader)
+        {
+            var diskId = new Guid(reader.ReadBytes(16));
+            int seqNum = reader.ReadInt32();
+            ushort chunkIndex = reader.ReadUInt16();
+            ushort totalChunks = reader.ReadUInt16();
+            int dataLength = reader.ReadInt32();
+            byte[] data = reader.ReadBytes(dataLength);
+
+            if (!_chunkBuffers.TryGetValue(diskId, out var buf) || buf.SeqNum != seqNum)
+            {
+                buf = new ChunkBuffer
+                {
+                    SeqNum = seqNum,
+                    TotalChunks = totalChunks,
+                    Chunks = new byte[totalChunks][],
+                    Received = 0
+                };
+                _chunkBuffers[diskId] = buf;
+            }
+
+            buf.Chunks[chunkIndex] = data;
+            buf.Received++;
+
+            if (buf.Received == buf.TotalChunks)
+            {
+                using var ms = new MemoryStream();
+                for (int i = 0; i < buf.TotalChunks; i++)
+                    ms.Write(buf.Chunks[i], 0, buf.Chunks[i].Length);
+                ms.Position = 0;
+
+                using var br = new BinaryReader(ms);
+                var diskData = DiskData.ReadNet(br);
+
+                var sys = StorageWorldSystem.Instance;
+                sys.ApplyDiskDataFromNetwork(diskData);
+                sys.SetDiskSeqNum(diskId, seqNum);
+
+                _chunkBuffers.Remove(diskId);
+                DBG($"HandleSyncDiskDataChunked: reassembled {totalChunks} chunks for disk {diskId.ToString()[..8]} seq={seqNum}");
+            }
+            else
+            {
+                DBG($"HandleSyncDiskDataChunked: buffered chunk {chunkIndex + 1}/{totalChunks} for disk {diskId.ToString()[..8]}");
+            }
+        }
+
         // Server sends DiskData for specific disks to a specific client.
         private static void SendDiskDataToClient(Mod mod, List<Guid> diskIds, int toClient)
         {
@@ -679,19 +796,10 @@ namespace TerraStorage.Systems
                     dataToSend.Add(data);
             }
 
-            DBG($"  SendDiskDataToClient: sending {dataToSend.Count} disks (1 packet each) to client {toClient}");
+            DBG($"  SendDiskDataToClient: sending {dataToSend.Count} disks to client {toClient}");
 
-            // Send one packet per disk — bundling all disks risks exceeding Terraria's 65,535-byte
-            // packet limit (a fully-packed Tier 4 disk is ~9KB; 40 disks would be ~360KB).
             foreach (var data in dataToSend)
-            {
-                var packet = mod.GetPacket();
-                packet.Write((byte)PacketType.SyncDiskData);
-                packet.Write(1);
-                packet.Write(sys.GetDiskSeqNum(data.DiskId));
-                data.WriteNet(packet);
-                packet.Send(toClient);
-            }
+                SendDiskPacket(mod, data, sys.GetDiskSeqNum(data.DiskId), toClient);
         }
 
         // Broadcasts DiskData for the given disk IDs to all clients.
@@ -712,17 +820,10 @@ namespace TerraStorage.Systems
             if (dataToSend.Count == 0)
                 return;
 
-            DBG($"BroadcastDiskData: {dataToSend.Count} disks (1 packet each) ignoreClient={ignoreClient}");
+            DBG($"BroadcastDiskData: {dataToSend.Count} disks ignoreClient={ignoreClient}");
 
             foreach (var data in dataToSend)
-            {
-                var packet = mod.GetPacket();
-                packet.Write((byte)PacketType.SyncDiskData);
-                packet.Write(1);
-                packet.Write(sys.GetDiskSeqNum(data.DiskId));
-                data.WriteNet(packet);
-                packet.Send(-1, ignoreClient);
-            }
+                SendDiskPacket(mod, data, sys.GetDiskSeqNum(data.DiskId), -1, ignoreClient);
         }
 
         private static void HandleSyncDiskData(BinaryReader reader)
@@ -1136,13 +1237,7 @@ namespace TerraStorage.Systems
                 {
                     var data = sys.GetDiskData(diskId);
                     if (data == null) continue;
-
-                    var corrPacket = mod.GetPacket();
-                    corrPacket.Write((byte)PacketType.SyncDiskData);
-                    corrPacket.Write(1);
-                    corrPacket.Write(sys.GetDiskSeqNum(diskId)); // seqNum for baseline reset
-                    data.WriteNet(corrPacket);
-                    corrPacket.Send(toClient);
+                    SendDiskPacket(mod, data, sys.GetDiskSeqNum(diskId), toClient);
                 }
             }
         }
@@ -1266,14 +1361,10 @@ namespace TerraStorage.Systems
             if (data == null) return;
 
             // Send full disk state with current sequence number
-            var packet = mod.GetPacket();
-            packet.Write((byte)PacketType.SyncDiskData);
-            packet.Write(1); // count
-            packet.Write(sys.GetDiskSeqNum(diskId)); // seqNum for baseline
-            data.WriteNet(packet);
-            packet.Send(whoAmI);
+            int seq = sys.GetDiskSeqNum(diskId);
+            SendDiskPacket(mod, data, seq, whoAmI);
 
-            DBG($"HandleRequestFullDiskSync: sent full state for disk {diskId.ToString()[..8]} seq={sys.GetDiskSeqNum(diskId)} to client {whoAmI}");
+            DBG($"HandleRequestFullDiskSync: sent full state for disk {diskId.ToString()[..8]} seq={seq} to client {whoAmI}");
         }
 
         // ─── Quick Stack ────────────────────────────────────────────────
