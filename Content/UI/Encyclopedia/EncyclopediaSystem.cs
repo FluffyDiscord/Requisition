@@ -20,9 +20,6 @@ namespace TerraStorage.Content.UI.Encyclopedia
 
         public bool IsOpen => _isOpen;
 
-                // Returns the item type hovered in the encyclopedia grid, or 0.
-        // Safe to call from UpdateUI.
-        // 
         public int GetGridHoveredItemType() => _isOpen ? _state?.GetGridHoveredItemType() ?? 0 : 0;
 
         public override void Load()
@@ -46,7 +43,6 @@ namespace TerraStorage.Content.UI.Encyclopedia
         public override void OnWorldLoad()
         {
             if (Main.dedServ) return;
-            // Pre-populate the item grid so first open is instant.
             _state?.Open();
         }
 
@@ -79,8 +75,6 @@ namespace TerraStorage.Content.UI.Encyclopedia
         {
             if (Main.dedServ) return;
 
-            // Query takes priority over Toggle when hovering an item,
-            // so both keybinds can share the same key without conflict.
             bool handled = false;
             if (QueryKeybind?.JustPressed == true)
             {
@@ -108,8 +102,6 @@ namespace TerraStorage.Content.UI.Encyclopedia
 
         private int GetHoveredItemType()
         {
-            // Check our own grid first (works during UpdateUI, before Draw sets Main.HoverItem)
-            // Only if the browse pane is visible (prevents queries on hidden grid)
             if (_isOpen && _state.IsBrowsePaneVisible())
             {
                 int gridItem = _state.GetGridHoveredItemType();
@@ -139,23 +131,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
             int idx = layers.FindIndex(l => l.Name.Equals("Vanilla: Inventory"));
             if (idx == -1) return;
 
-            // Input-blocking layer before inventory
-            layers.Insert(idx, new LegacyGameInterfaceLayer(
-                "TerraStorage: Encyclopedia Input",
-                delegate
-                {
-                    if (_state.IsMouseOverPanel())
-                    {
-                        Main.LocalPlayer.mouseInterface = true;
-                        Main.mouseLeftRelease = false;
-                        Main.mouseRightRelease = false;
-                    }
-                    return true;
-                },
-                InterfaceScaleType.UI));
-
-            // Draw layer after inventory
-            layers.Insert(idx + 2, new LegacyGameInterfaceLayer(
+            layers.Insert(idx + 1, new LegacyGameInterfaceLayer(
                 "TerraStorage: Encyclopedia",
                 delegate
                 {

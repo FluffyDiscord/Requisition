@@ -131,7 +131,7 @@ namespace TerraStorage.Content.UI
 
         // Calls UserInterface.Update while suppressing mouse clicks if UIClickBlocker
         // has already consumed the click this frame. Prevents click-through between
-        // overlapping mod UIs. 
+        // overlapping mod UIs.
         public static void SafeUpdate(UserInterface ui, GameTime gameTime)
         {
             if (!UIClickBlocker.IsConsumed)

@@ -9,10 +9,6 @@ using TerraStorage.Content.Tiles;
 
 namespace TerraStorage.Content.UI
 {
-    // ModSystem that manages the Terminal UI lifecycle: opening/closing the Terminal panel,
-    // auto-closing when the player moves too far or closes their inventory, blocking vanilla
-    // shift+click while the panel is open, and injecting the draw layer into Terraria's
-    // interface stack.
     public class TerminalUISystem : ModSystem
     {
         private const float MaxInteractDistance = 15f; // tiles
@@ -24,6 +20,8 @@ namespace TerraStorage.Content.UI
         private Point16 _entityTilePos;
 
         public bool IsTerminalOpen => _isOpen;
+
+        public bool IsMouseOverPanel() => _isOpen && _uiState != null && _uiState.IsMouseOverPanel();
 
         public override void Load()
         {
@@ -48,7 +46,6 @@ namespace TerraStorage.Content.UI
             Main.playerInventory = true;
         }
 
-        // Opens the terminal UI without a proximity requirement (used by the Remote Terminal item).
         public void OpenTerminalRemote(TerminalEntity entity)
         {
             OpenTerminal(entity);
@@ -69,7 +66,6 @@ namespace TerraStorage.Content.UI
         {
             if (_isOpen && !Main.dedServ)
             {
-                // Block item use when mouse is over the panel — must happen before Player.Update.
                 if (_uiState.IsMouseOverPanel())
                     Main.LocalPlayer.mouseInterface = true;
 
@@ -109,6 +105,7 @@ namespace TerraStorage.Content.UI
                     }
                 }
 
+                Main.hidePlayerCraftingMenu = true;
                 UIDrawHelpers.SafeUpdate(_userInterface, gameTime);
             }
         }
@@ -118,35 +115,7 @@ namespace TerraStorage.Content.UI
             int inventoryIndex = layers.FindIndex(layer => layer.Name.Equals("Vanilla: Inventory"));
             if (inventoryIndex != -1 && _isOpen)
             {
-                // Block vanilla shift+click and hide crafting menu
-                layers.Insert(inventoryIndex, new LegacyGameInterfaceLayer(
-                    "TerraStorage: Shift Click Block",
-                    delegate
-                    {
-                        Main.hidePlayerCraftingMenu = true;
-                        if (_uiState.IsMouseOverPanel())
-                        {
-                            Main.LocalPlayer.mouseInterface = true;
-                            Main.mouseLeftRelease = false;
-                            Main.mouseRightRelease = false;
-                        }
-                        bool shift = Main.keyState.IsKeyDown(Keys.LeftShift) || Main.keyState.IsKeyDown(Keys.RightShift);
-                        if (shift && Main.mouseLeft && Main.mouseLeftRelease)
-                        {
-                            for (int i = 0; i < 50; i++)
-                            {
-                                if (DriveBayUIState.IsMouseOverInventorySlot(i))
-                                {
-                                    Main.mouseLeftRelease = false;
-                                    break;
-                                }
-                            }
-                        }
-                        return true;
-                    },
-                    InterfaceScaleType.UI));
-
-                layers.Insert(inventoryIndex + 2, new LegacyGameInterfaceLayer(
+                layers.Insert(inventoryIndex + 1, new LegacyGameInterfaceLayer(
                     "TerraStorage: Terminal UI",
                     delegate
                     {

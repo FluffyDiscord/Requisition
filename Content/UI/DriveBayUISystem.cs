@@ -9,9 +9,6 @@ using TerraStorage.Content.Tiles;
 
 namespace TerraStorage.Content.UI
 {
-    // ModSystem that manages the Drive Bay UI lifecycle: opening/closing the disk-management
-    // panel and the Disk Recovery sub-panel, auto-closing when the player moves too far,
-    // and injecting the UI draw/update layers into Terraria's interface layer stack.
     public class DriveBayUISystem : ModSystem
     {
         private const float MaxInteractDistance = 15f; // tiles
@@ -24,6 +21,12 @@ namespace TerraStorage.Content.UI
         private UserInterface _recoveryInterface;
         private DiskRecoveryUIState _recoveryState;
         private bool _recoveryOpen;
+
+        public bool IsOpen => _isOpen;
+
+        public bool IsMouseOverPanel() => _isOpen &&
+            ((_uiState != null && _uiState.IsMouseOverPanel()) ||
+             (_recoveryOpen && _recoveryState != null && _recoveryState.IsMouseOverPanel()));
 
         public override void Load()
         {
@@ -44,7 +47,6 @@ namespace TerraStorage.Content.UI
             if (Main.dedServ)
                 return;
 
-            // Only one TerraStorage UI open at a time
             ModContent.GetInstance<CraftingCoreUISystem>()?.CloseCraftingCore();
             ModContent.GetInstance<TerminalUISystem>()?.CloseTerminal();
 
@@ -80,10 +82,8 @@ namespace TerraStorage.Content.UI
 
         public override void PreUpdatePlayers()
         {
-            // Block Terraria's inventory shift+click BEFORE Player.Update processes it
             if (_isOpen && !Main.dedServ)
             {
-                // Block item use when mouse is over the panel — must happen before Player.Update.
                 if (_uiState.IsMouseOverPanel() || (_recoveryOpen && _recoveryState.IsMouseOverPanel()))
                     Main.LocalPlayer.mouseInterface = true;
 
@@ -123,6 +123,7 @@ namespace TerraStorage.Content.UI
                 if (_recoveryOpen)
                     UIDrawHelpers.SafeUpdate(_recoveryInterface, gameTime);
 
+                Main.hidePlayerCraftingMenu = true;
                 UIDrawHelpers.SafeUpdate(_userInterface, gameTime);
             }
         }
@@ -132,37 +133,7 @@ namespace TerraStorage.Content.UI
             int inventoryIndex = layers.FindIndex(layer => layer.Name.Equals("Vanilla: Inventory"));
             if (inventoryIndex != -1 && _isOpen)
             {
-                // Insert BEFORE the vanilla inventory layer so our block fires first.
-                // Clearing mouseLeftRelease prevents the vanilla inventory from processing the same shift+click.
-                // Block vanilla shift+click and hide crafting menu
-                layers.Insert(inventoryIndex, new LegacyGameInterfaceLayer(
-                    "TerraStorage: Shift Click Block",
-                    delegate
-                    {
-                        Main.hidePlayerCraftingMenu = true;
-                        if (_uiState.IsMouseOverPanel() || (_recoveryOpen && _recoveryState.IsMouseOverPanel()))
-                        {
-                            Main.LocalPlayer.mouseInterface = true;
-                            Main.mouseLeftRelease = false;
-                            Main.mouseRightRelease = false;
-                        }
-                        bool shift = Main.keyState.IsKeyDown(Keys.LeftShift) || Main.keyState.IsKeyDown(Keys.RightShift);
-                        if (shift && Main.mouseLeft && Main.mouseLeftRelease)
-                        {
-                            for (int i = 0; i < 50; i++)
-                            {
-                                if (DriveBayUIState.IsMouseOverInventorySlot(i))
-                                {
-                                    Main.mouseLeftRelease = false;
-                                    break;
-                                }
-                            }
-                        }
-                        return true;
-                    },
-                    InterfaceScaleType.UI));
-
-                layers.Insert(inventoryIndex + 2, new LegacyGameInterfaceLayer(
+                layers.Insert(inventoryIndex + 1, new LegacyGameInterfaceLayer(
                     "TerraStorage: Storage Block UI",
                     delegate
                     {
@@ -178,7 +149,7 @@ namespace TerraStorage.Content.UI
 
                 if (_recoveryOpen)
                 {
-                    layers.Insert(inventoryIndex + 3, new LegacyGameInterfaceLayer(
+                    layers.Insert(inventoryIndex + 2, new LegacyGameInterfaceLayer(
                         "TerraStorage: Disk Recovery UI",
                         delegate
                         {
@@ -189,6 +160,5 @@ namespace TerraStorage.Content.UI
                 }
             }
         }
-
     }
 }

@@ -12,9 +12,6 @@ using TerraStorage.Systems;
 
 namespace TerraStorage.Content.UI
 {
-    // ModSystem that manages the Favorited Recipes floating panel and the inventory-area
-    // toggle button. The button is movable via middle-click drag and its position is
-    // persisted per client via UIPositionStore. 
     public class FavoritedRecipesPanelSystem : ModSystem
     {
         private UserInterface _ui;
@@ -161,21 +158,7 @@ namespace TerraStorage.Content.UI
 
             if (_visible)
             {
-                layers.Insert(idx, new LegacyGameInterfaceLayer(
-                    "TerraStorage: Favorites Input",
-                    delegate
-                    {
-                        if (_panel.IsMouseOverPanel())
-                        {
-                            Main.LocalPlayer.mouseInterface = true;
-                            Main.mouseLeftRelease = false;
-                            Main.mouseRightRelease = false;
-                        }
-                        return true;
-                    },
-                    InterfaceScaleType.UI));
-
-                layers.Insert(idx + 2, new LegacyGameInterfaceLayer(
+                layers.Insert(idx + 1, new LegacyGameInterfaceLayer(
                     "TerraStorage: Favorited Recipes Panel",
                     delegate
                     {
@@ -193,7 +176,7 @@ namespace TerraStorage.Content.UI
             // Always draw the toggle button when inventory is open
             if (Main.playerInventory)
             {
-                layers.Insert(idx + (_visible ? 3 : 1), new LegacyGameInterfaceLayer(
+                layers.Insert(idx + (_visible ? 2 : 1), new LegacyGameInterfaceLayer(
                     "TerraStorage: Favorites Toggle Button",
                     DrawToggleButton,
                     InterfaceScaleType.UI));
@@ -206,12 +189,10 @@ namespace TerraStorage.Content.UI
             var btnRect = new Rectangle((int)_btnX, (int)_btnY, (int)BtnSize, (int)BtnSize);
             bool hovered = btnRect.Contains(Main.MouseScreen.ToPoint()) || _btnMiddleDragging;
 
-            // Hover sound
             if (hovered && !_prevHovered)
                 SoundEngine.PlaySound(SoundID.MenuTick);
             _prevHovered = hovered;
 
-            // Glow border when hovered
             if (hovered)
             {
                 Color glow = _visible ? new Color(255, 200, 50) : new Color(120, 150, 255);
@@ -221,7 +202,6 @@ namespace TerraStorage.Content.UI
                 UIDrawHelpers.DrawSolidRect(sb, new Rectangle(btnRect.Right,  btnRect.Y - 1, 1, btnRect.Height + 2), glow);
             }
 
-            // Star centered on hitbox
             const string star = "★";
             const float textScale = 0.9f;
             var font = Terraria.GameContent.FontAssets.MouseText.Value;
