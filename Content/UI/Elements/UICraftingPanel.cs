@@ -590,6 +590,16 @@ namespace TerraStorage.Content.UI.Elements
         }
 
         //Select from the recipe grid — clears navigation history.
+        private void DeselectRecipe()
+        {
+            _selectedRecipe = null;
+            _selectedCanCraft = false;
+            _currentVariants = new List<(Recipe, bool)>();
+            _currentVariantIndex = 0;
+            _recipeHistory.Clear();
+            _detailScrollOffset = 0f;
+        }
+
         private void SelectRecipe(Recipe recipe, bool canCraft)
         {
             _recipeHistory.Clear();
@@ -871,7 +881,10 @@ namespace TerraStorage.Content.UI.Elements
                 }
                 else
                 {
-                    SelectRecipe(_filteredRecipes[index].recipe, _filteredRecipes[index].canCraft);
+                    if (_selectedRecipe == _filteredRecipes[index].recipe)
+                        DeselectRecipe();
+                    else
+                        SelectRecipe(_filteredRecipes[index].recipe, _filteredRecipes[index].canCraft);
                 }
             }
         }
@@ -989,7 +1002,7 @@ namespace TerraStorage.Content.UI.Elements
                 if (!Main.mouseItem.IsAir && !shift)
                     return;
                 var mod = Terraria.ModLoader.ModLoader.GetMod("TerraStorage");
-                NetworkHandler.SendWithdrawItem(mod, _diskIds, _selectedRecipe.createItem.type, takeCount, 0, shift);
+                NetworkHandler.SendWithdrawItem(mod, _diskIds, _selectedRecipe.createItem.type, takeCount, -1, shift);
 
                 Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.Grab);
                 return;
@@ -1603,8 +1616,16 @@ namespace TerraStorage.Content.UI.Elements
 
                     if (cellRect.Contains(Main.MouseScreen.ToPoint()))
                     {
-                        string stationName = RecipeResolver.GetTileName(tileType);
-                        Main.hoverItemName = stationName + (avail ? " (Available)" : " (Missing)");
+                        if (stationItemType > 0)
+                        {
+                            _scratchItem.SetDefaults(stationItemType);
+                            Main.HoverItem = _scratchItem.Clone();
+                            Main.hoverItemName = _scratchItem.Name + (avail ? " (Available)" : " (Missing)");
+                        }
+                        else
+                        {
+                            Main.hoverItemName = RecipeResolver.GetTileName(tileType) + (avail ? " (Available)" : " (Missing)");
+                        }
                     }
 
                     reqX += cellH + 2;

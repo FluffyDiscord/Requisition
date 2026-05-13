@@ -775,6 +775,7 @@ namespace TerraStorage.Systems
                 sys.SetDiskSeqNum(diskId, seqNum);
 
                 _chunkBuffers.Remove(diskId);
+                RefreshAllDriveBays();
                 DBG($"HandleSyncDiskDataChunked: reassembled {totalChunks} chunks for disk {diskId.ToString()[..8]} seq={seqNum}");
             }
             else
@@ -839,11 +840,21 @@ namespace TerraStorage.Systems
                     sys.ApplyDiskDataFromNetwork(data);
                     sys.SetDiskSeqNum(data.DiskId, seqNum);
                 }
+                RefreshAllDriveBays();
                 DBG($"HandleSyncDiskData: applied {count} disk(s) seq={seqNum}");
             }
             catch (Exception ex)
             {
                 DBG($"HandleSyncDiskData: EXCEPTION {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        private static void RefreshAllDriveBays()
+        {
+            foreach (var kvp in TileEntity.ByID)
+            {
+                if (kvp.Value is DriveBayEntity bay)
+                    bay.RefreshVisualState(StorageNetwork.HasTerminalNearby(bay.Position));
             }
         }
 
@@ -1271,6 +1282,7 @@ namespace TerraStorage.Systems
             ApplyDeltaToDisk(diskData, delta);
             sys.SetDiskSeqNum(diskId, delta.SeqNum);
             sys.BumpStorageVersion();
+            RefreshAllDriveBays();
 
             DBG($"HandleDeltaDiskData: applied delta seq={delta.SeqNum} to disk {diskId.ToString()[..8]}, {delta.ChangedItems.Count} item changes");
         }

@@ -45,9 +45,13 @@ namespace TerraStorage.Content.Tiles
             if (Main.netMode == NetmodeID.Server) return;
             var sys = StorageWorldSystem.Instance;
             if (sys == null) return;
-            if (sys.StorageVersion == _lastSeenVersion) return;
-            _lastSeenVersion = sys.StorageVersion;
-            RefreshVisualState(StorageNetwork.HasTerminalNearby(Position));
+
+            bool connected = StorageNetwork.HasTerminalNearby(Position);
+            if (connected != IsConnected || sys.StorageVersion != _lastSeenVersion)
+            {
+                _lastSeenVersion = sys.StorageVersion;
+                RefreshVisualState(connected);
+            }
         }
 
         public override bool IsTileValidForEntity(int x, int y)
@@ -324,6 +328,17 @@ namespace TerraStorage.Content.Tiles
             for (int i = 0; i < DiskSlotCount; i++)
             {
                 DiskSlots[i] = ItemIO.Receive(reader, true);
+            }
+
+            // Show disks immediately (lights will be green/unknown until fill data arrives).
+            RefreshVisualState(StorageNetwork.HasTerminalNearby(Position));
+
+            // Request disk fill data from the server so drive lights update to correct colors.
+            if (Main.netMode == NetmodeID.MultiplayerClient)
+            {
+                var ids = GetInsertedDiskIds();
+                if (ids.Count > 0)
+                    NetworkHandler.SendRequestDiskData(ModLoader.GetMod("TerraStorage"), ids);
             }
         }
 
