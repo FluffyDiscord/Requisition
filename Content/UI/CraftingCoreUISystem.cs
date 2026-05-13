@@ -5,9 +5,9 @@ using Terraria;
 using Terraria.DataStructures;
 using Terraria.ModLoader;
 using Terraria.UI;
-using Requisition.Content.Tiles;
+using TerraStorage.Content.Tiles;
 
-namespace Requisition.Content.UI
+namespace TerraStorage.Content.UI
 {
     public class CraftingCoreUISystem : ModSystem
     {
@@ -93,7 +93,7 @@ namespace Requisition.Content.UI
                 Main.hidePlayerCraftingMenu = true;
 
                 layers.Insert(inventoryIndex + 1, new LegacyGameInterfaceLayer(
-                    "Requisition: Crafting Core UI",
+                    "TerraStorage: Crafting Core UI",
                     delegate
                     {
                         if (_uiState.IsMouseOverPanel())

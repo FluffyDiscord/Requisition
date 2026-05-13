@@ -1,10 +1,10 @@
 using System.Collections.Generic;
 using Terraria;
 using Terraria.DataStructures;
-using Requisition.Content.Tiles;
-using Requisition.Helpers;
+using TerraStorage.Content.Tiles;
+using TerraStorage.Helpers;
 
-namespace Requisition.Systems
+namespace TerraStorage.Systems
 {
     internal static class QuickStackSystem
     {

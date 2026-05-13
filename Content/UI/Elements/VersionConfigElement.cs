@@ -2,7 +2,7 @@ using Microsoft.Xna.Framework;
 using Terraria.GameContent.UI.Elements;
 using Terraria.ModLoader.Config.UI;
 
-namespace Requisition.Content.UI.Elements
+namespace TerraStorage.Content.UI.Elements
 {
     // Read-only config element that displays a string value as plain text.
     // Used to show the mod version in the config UI without an editable field. 

@@ -1,7 +1,7 @@
 using Terraria;
 using Terraria.ModLoader.IO;
 
-namespace Requisition.Helpers
+namespace TerraStorage.Helpers
 {
     // Lightweight NBT serializer for vanilla Item references (type, stack, prefix only).
     // Used when full mod-data round-tripping via <see cref="Terraria.ModLoader.IO.ItemIO"/>

@@ -1,15 +1,15 @@
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
-using Requisition.Content.Tiles;
+using TerraStorage.Content.Tiles;
 
-namespace Requisition.Content.Items
+namespace TerraStorage.Content.Items
 {
-    // Placeable item that creates a <see cref="Requisition.Content.Tiles.DriveBay"/> tile (Drive Bay).
+    // Placeable item that creates a <see cref="TerraStorage.Content.Tiles.DriveBay"/> tile (Drive Bay).
     // Stacks up to 99 so players can carry multiple units before placing them.
     public class DriveBayItem : ModItem
     {
-        public override string Texture => "Requisition/Content/Tiles/DriveBay";
+        public override string Texture => "TerraStorage/Content/Tiles/DriveBay";
 
         public override void SetDefaults()
         {

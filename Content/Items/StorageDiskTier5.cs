@@ -1,6 +1,6 @@
-using Requisition.Common;
+using TerraStorage.Common;
 
-namespace Requisition.Content.Items
+namespace TerraStorage.Content.Items
 {
     //Ultimate Storage Disk — holds up to 1024 item stacks.
     public class StorageDiskTier5 : StorageDiskBase

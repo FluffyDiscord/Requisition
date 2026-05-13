@@ -1,6 +1,6 @@
-using Requisition.Common;
+using TerraStorage.Common;
 
-namespace Requisition.Content.Items
+namespace TerraStorage.Content.Items
 {
     //Advanced Storage Disk — holds up to 128 item stacks.
     public class StorageDiskTier2 : StorageDiskBase

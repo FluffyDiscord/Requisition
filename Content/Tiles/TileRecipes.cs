@@ -1,18 +1,18 @@
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
-using Requisition.Content.Items;
-using Requisition.Helpers;
+using TerraStorage.Content.Items;
+using TerraStorage.Helpers;
 
-namespace Requisition.Content.Tiles
+namespace TerraStorage.Content.Tiles
 {
     // Registers crafting recipes for all placeable Requisition tiles (Drive Bay, Terminal,
     // Crafting Core, and condition source tiles). 
     public class TileRecipeSystem : ModSystem
     {
-        internal const string GroupCopperBar  = "Requisition:AnyCopperBar";
-        internal const string GroupGoldBar    = "Requisition:AnyGoldBar";
-        internal const string GroupIronHammer = "Requisition:AnyIronHammer";
+        internal const string GroupCopperBar  = "TerraStorage:AnyCopperBar";
+        internal const string GroupGoldBar    = "TerraStorage:AnyGoldBar";
+        internal const string GroupIronHammer = "TerraStorage:AnyIronHammer";
 
         public override void AddRecipeGroups()
         {
@@ -86,7 +86,7 @@ namespace Requisition.Content.Tiles
                 .Register();
 
             // Remote Terminal — post-Moon Lord recipe (default)
-            var condHard = new Condition("Mods.Requisition.Conditions.RemoteTerminalHard",
+            var condHard = new Condition("Mods.TerraStorage.Conditions.RemoteTerminalHard",
                 () => !(RequisitionConfig.Instance?.EasierRemoteTerminal ?? false));
             Recipe.Create(ModContent.ItemType<RemoteTerminal>())
                 .AddIngredient(ItemID.LunarBar, 8)
@@ -99,7 +99,7 @@ namespace Requisition.Content.Tiles
                 .Register();
 
             // Remote Terminal — easier recipe (post-Skeletron + Deerclops, config option)
-            var condEasy = new Condition("Mods.Requisition.Conditions.RemoteTerminalEasy",
+            var condEasy = new Condition("Mods.TerraStorage.Conditions.RemoteTerminalEasy",
                 () => RequisitionConfig.Instance?.EasierRemoteTerminal ?? false);
             Recipe.Create(ModContent.ItemType<RemoteTerminal>())
                 .AddIngredient(ItemID.HellstoneBar, 15)

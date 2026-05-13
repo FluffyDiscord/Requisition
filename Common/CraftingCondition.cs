@@ -1,4 +1,4 @@
-namespace Requisition.Common
+namespace TerraStorage.Common
 {
     // Represents special environmental conditions required for crafting.
 

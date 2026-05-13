@@ -3,7 +3,7 @@ using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
 
-namespace Requisition.Systems
+namespace TerraStorage.Systems
 {
     // Builds and maintains a reverse-lookup index mapping each craftable item type to the
     // list of all <see cref="Recipe"/>s that produce it. Built once in

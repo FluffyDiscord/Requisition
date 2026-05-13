@@ -5,7 +5,7 @@ using Terraria;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
 
-namespace Requisition.Systems
+namespace TerraStorage.Systems
 {
     // Persists UI window positions and sizes across sessions. Saved to a client-side file
     // in the tModLoader save directory; never sent to the server.

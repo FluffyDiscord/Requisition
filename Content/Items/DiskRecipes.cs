@@ -1,9 +1,9 @@
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
-using Requisition.Content.Tiles;
+using TerraStorage.Content.Tiles;
 
-namespace Requisition.Content.Items
+namespace TerraStorage.Content.Items
 {
     // Registers Storage Disk crafting recipes. Only the initial Tier 1 recipe is registered
     // here. Tier 2–6 disks are obtained exclusively by upgrading through the Terminal's

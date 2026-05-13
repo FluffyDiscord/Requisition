@@ -4,7 +4,7 @@ using Terraria.ID;
 using Terraria.Localization;
 using Terraria.ModLoader;
 
-namespace Requisition.Content.Items
+namespace TerraStorage.Content.Items
 {
     // Adds Crafting Core condition tooltips to vanilla items that can be placed
     // in the Crafting Core to provide crafting conditions.

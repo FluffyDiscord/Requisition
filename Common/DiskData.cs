@@ -5,14 +5,14 @@ using System.Linq;
 using Terraria;
 using Terraria.ModLoader.IO;
 
-namespace Requisition.Common
+namespace TerraStorage.Common
 {
     // Holds all persistent data for a single Storage Disk: its unique identity,
     // capacity tier, and the list of item stacks currently stored on it.
     // 
     public class DiskData
     {
-        //Unique identifier used to look up this disk in <see cref="Requisition.Systems.StorageWorldSystem"/>.
+        //Unique identifier used to look up this disk in <see cref="TerraStorage.Systems.StorageWorldSystem"/>.
         public Guid DiskId { get; set; }
         public DiskTier Tier { get; set; }
         public List<StoredItemStack> Items { get; set; } = new();

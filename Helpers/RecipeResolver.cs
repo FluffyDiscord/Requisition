@@ -7,11 +7,11 @@ using Terraria.Localization;
 using Terraria.DataStructures;
 using Terraria.ModLoader;
 using Terraria.Map;
-using Requisition.Common;
-using Requisition.Content.Items;
-using Requisition.Systems;
+using TerraStorage.Common;
+using TerraStorage.Content.Items;
+using TerraStorage.Systems;
 
-namespace Requisition.Helpers
+namespace TerraStorage.Helpers
 {
     // Represents a single intermediate crafting operation within a <see cref="CraftingPlan"/>.
     // Each step records what recipe is used, how many times it must be crafted, which items are

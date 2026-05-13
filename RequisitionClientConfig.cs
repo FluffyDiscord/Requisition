@@ -2,9 +2,9 @@ using System.ComponentModel;
 using Newtonsoft.Json;
 using Terraria.ModLoader;
 using Terraria.ModLoader.Config;
-using Requisition.Content.UI.Elements;
+using TerraStorage.Content.UI.Elements;
 
-namespace Requisition
+namespace TerraStorage
 {
     public class RequisitionClientConfig : ModConfig
     {

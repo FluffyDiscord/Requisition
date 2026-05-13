@@ -5,9 +5,9 @@ using Terraria.Enums;
 using Terraria.GameContent.ObjectInteractions;
 using Terraria.ModLoader;
 using Terraria.ObjectData;
-using Requisition.Helpers;
+using TerraStorage.Helpers;
 
-namespace Requisition.Content.Tiles
+namespace TerraStorage.Content.Tiles
 {
     // The Terminal tile (3x3). Players right-click it to browse storage contents, search, sort,
     // and craft items from connected Drive Bays and Crafting Cores within range.

@@ -3,7 +3,7 @@ using Microsoft.Xna.Framework;
 using Terraria.GameContent.UI.Elements;
 using Terraria.UI;
 
-namespace Requisition.Content.UI.Elements
+namespace TerraStorage.Content.UI.Elements
 {
     // UIList with smooth (lerped) scroll position instead of instant jumps.
     public class SmoothUIList : UIList

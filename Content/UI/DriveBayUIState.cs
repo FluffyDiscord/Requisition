@@ -9,12 +9,12 @@ using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.Localization;
 using Terraria.UI;
-using Requisition.Content.Items;
-using Requisition.Content.Tiles;
-using Requisition.Content.UI.Elements;
-using Requisition.Systems;
+using TerraStorage.Content.Items;
+using TerraStorage.Content.Tiles;
+using TerraStorage.Content.UI.Elements;
+using TerraStorage.Systems;
 
-namespace Requisition.Content.UI
+namespace TerraStorage.Content.UI
 {
     // UIState for the Drive Bay (Storage Block) disk-management panel.
     // Renders a grid of disk slots and handles left-click insertion/extraction
@@ -60,7 +60,7 @@ namespace Requisition.Content.UI
             _panel.SetPadding(10);
             Append(_panel);
 
-            var title = new UIText(Language.GetText("Mods.Requisition.UI.DriveBay.Title"));            
+            var title = new UIText(Language.GetText("Mods.TerraStorage.UI.DriveBay.Title"));            
             title.HAlign = 0.5f;
             _panel.Append(title);
 
@@ -69,7 +69,7 @@ namespace Requisition.Content.UI
             closeBtn.Top.Set(-4, 0f);
             _panel.Append(closeBtn);
 
-            var recoverBtn = new UITextPanel<Terraria.Localization.LocalizedText>(Language.GetText("Mods.Requisition.UI.DriveBay.Recover"), 0.65f);
+            var recoverBtn = new UITextPanel<Terraria.Localization.LocalizedText>(Language.GetText("Mods.TerraStorage.UI.DriveBay.Recover"), 0.65f);
             recoverBtn.Width.Set(80, 0f);
             recoverBtn.Height.Set(22, 0f);
             recoverBtn.Left.Set(0, 0f);
@@ -171,7 +171,7 @@ namespace Requisition.Content.UI
 
                 var cursorItem = Main.mouseItem;
 
-                var mod = ModLoader.GetMod("Requisition");
+                var mod = ModLoader.GetMod("TerraStorage");
 
                 if (cursorItem != null && !cursorItem.IsAir)
                 {

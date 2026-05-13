@@ -8,9 +8,9 @@ using Terraria.GameContent;
 using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.UI;
-using Requisition.Systems;
+using TerraStorage.Systems;
 
-namespace Requisition.Content.UI
+namespace TerraStorage.Content.UI
 {
     public class FavoritedRecipesPanelSystem : ModSystem
     {
@@ -159,7 +159,7 @@ namespace Requisition.Content.UI
             if (_visible)
             {
                 layers.Insert(idx + 1, new LegacyGameInterfaceLayer(
-                    "Requisition: Favorited Recipes Panel",
+                    "TerraStorage: Favorited Recipes Panel",
                     delegate
                     {
                         if (_panel.IsMouseOverPanel())
@@ -177,7 +177,7 @@ namespace Requisition.Content.UI
             if (Main.playerInventory)
             {
                 layers.Insert(idx + (_visible ? 2 : 1), new LegacyGameInterfaceLayer(
-                    "Requisition: Favorites Toggle Button",
+                    "TerraStorage: Favorites Toggle Button",
                     DrawToggleButton,
                     InterfaceScaleType.UI));
             }

@@ -1,6 +1,6 @@
 using Terraria;
 
-namespace Requisition.Content.UI
+namespace TerraStorage.Content.UI
 {
     // Per-frame singleton flag that prevents click events from propagating through
     // overlapping UI panels. The first panel whose bounds contain the mouse consumes

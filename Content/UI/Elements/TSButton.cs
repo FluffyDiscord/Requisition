@@ -5,9 +5,9 @@ using Terraria.Audio;
 using Terraria.GameContent;
 using Terraria.ID;
 using Terraria.UI;
-using Requisition.Content.UI;
+using TerraStorage.Content.UI;
 
-namespace Requisition.Content.UI.Elements
+namespace TerraStorage.Content.UI.Elements
 {
     // General-purpose flat button matching the Requisition UI style.
     // Hover sound, enabled/disabled state, centered text.

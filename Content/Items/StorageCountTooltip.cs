@@ -4,10 +4,10 @@ using Microsoft.Xna.Framework.Input;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
-using Requisition.Content.UI.Elements;
-using Requisition.Systems;
+using TerraStorage.Content.UI.Elements;
+using TerraStorage.Systems;
 
-namespace Requisition.Content.Items
+namespace TerraStorage.Content.Items
 {
     // Appends "In Storage: X" to item tooltips when the player has recently
     // opened a Terminal. Uses the last-opened terminal's disk IDs.

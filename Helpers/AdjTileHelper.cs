@@ -4,7 +4,7 @@ using System.Linq;
 using Terraria.ID;
 using Terraria.ModLoader;
 
-namespace Requisition.Helpers
+namespace TerraStorage.Helpers
 {
     // Resolves Terraria's adjTile chains so that higher-tier crafting stations
     // (e.g. Mythril Anvil) are recognized as valid substitutes for lower-tier

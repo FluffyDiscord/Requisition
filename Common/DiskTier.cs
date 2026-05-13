@@ -1,4 +1,4 @@
-namespace Requisition.Common
+namespace TerraStorage.Common
 {
     // Represents the storage capacity tier of a Storage Disk, from Basic (64 stacks)
     // up to Terra (2048 stacks). Integer values are used for NBT serialization.

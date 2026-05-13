@@ -1,6 +1,6 @@
 using Terraria.ModLoader;
 
-namespace Requisition.Content.UI
+namespace TerraStorage.Content.UI
 {
     internal class ItemSlotBlocker : ILoadable
     {

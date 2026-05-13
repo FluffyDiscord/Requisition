@@ -10,12 +10,12 @@ using Terraria.ID;
 using Terraria.Localization;
 using Terraria.ModLoader;
 using Terraria.UI;
-using Requisition.Content.UI;
-using Requisition.Content.UI.Elements;
-using Requisition.Helpers;
-using Requisition.Systems;
+using TerraStorage.Content.UI;
+using TerraStorage.Content.UI.Elements;
+using TerraStorage.Helpers;
+using TerraStorage.Systems;
 
-namespace Requisition.Content.UI.CraftingTree
+namespace TerraStorage.Content.UI.CraftingTree
 {
     // UIState for the Crafting Tree window. Displays a pannable, zoomable graph showing
     // all recipes an item is used in, expanding outward recursively. Nodes are colored
@@ -599,7 +599,7 @@ namespace Requisition.Content.UI.CraftingTree
                 Main.LocalPlayer.mouseInterface = true;
                 if (mouseInPanel)
                 {
-                    PlayerInput.LockVanillaMouseScroll("Requisition/CraftingTree");
+                    PlayerInput.LockVanillaMouseScroll("TerraStorage/CraftingTree");
                     if (Main.mouseLeft || Main.mouseRight || Main.mouseMiddle)
                         UIClickBlocker.Consume();
                 }
@@ -1022,8 +1022,8 @@ namespace Requisition.Content.UI.CraftingTree
                 && Main.MouseScreen.Y >= amY && Main.MouseScreen.Y <= amY + 24)
             {
                 string tip = _autoMinimize
-                    ? Language.GetTextValue("Mods.Requisition.UI.CraftingTree.AutoMinimizeOn")
-                    : Language.GetTextValue("Mods.Requisition.UI.CraftingTree.AutoMinimizeOff");
+                    ? Language.GetTextValue("Mods.TerraStorage.UI.CraftingTree.AutoMinimizeOn")
+                    : Language.GetTextValue("Mods.TerraStorage.UI.CraftingTree.AutoMinimizeOff");
                 Main.instance.MouseText(tip);
             }
 
@@ -1291,7 +1291,7 @@ namespace Requisition.Content.UI.CraftingTree
             {
                 float cycleScale = _zoom * 0.25f;
                 var cyclePos = new Vector2(screenPos.X + 2 * _zoom, screenPos.Y + size - 12 * _zoom);
-                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.Requisition.UI.CraftingTree.Cycle"), cyclePos, Color.Yellow, cycleScale);
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingTree.Cycle"), cyclePos, Color.Yellow, cycleScale);
             }
         }
 
@@ -1400,7 +1400,7 @@ namespace Requisition.Content.UI.CraftingTree
             // ── Dropped by ──
             if (drops != null && drops.Count > 0)
             {
-                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.Requisition.UI.CraftingTree.DroppedBy"), new Vector2(panelX + 8, y + 2), new Color(255, 200, 100), labelScale);
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingTree.DroppedBy"), new Vector2(panelX + 8, y + 2), new Color(255, 200, 100), labelScale);
                 y += 22;
 
                 foreach (var drop in drops)
@@ -1433,7 +1433,7 @@ namespace Requisition.Content.UI.CraftingTree
             // ── Sold by ──
             if (shops != null && shops.Count > 0)
             {
-                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.Requisition.UI.CraftingTree.SoldBy"), new Vector2(panelX + 8, y + 2), new Color(100, 200, 255), labelScale);
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingTree.SoldBy"), new Vector2(panelX + 8, y + 2), new Color(100, 200, 255), labelScale);
                 y += 22;
 
                 foreach (var shop in shops)
@@ -1460,7 +1460,7 @@ namespace Requisition.Content.UI.CraftingTree
             // ── Shimmered from ──
             if (shimmerFrom != null && shimmerFrom.Count > 0)
             {
-                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.Requisition.UI.CraftingTree.ShimmeredFrom"), new Vector2(panelX + 8, y + 2), new Color(200, 100, 255), labelScale);
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingTree.ShimmeredFrom"), new Vector2(panelX + 8, y + 2), new Color(200, 100, 255), labelScale);
                 y += 22;
 
                 foreach (int srcType in shimmerFrom)
@@ -1487,7 +1487,7 @@ namespace Requisition.Content.UI.CraftingTree
             // ── Shimmers into ──
             if (shimmerTo > 0)
             {
-                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.Requisition.UI.CraftingTree.ShimmersInto"), new Vector2(panelX + 8, y + 2), new Color(200, 100, 255), labelScale);
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingTree.ShimmersInto"), new Vector2(panelX + 8, y + 2), new Color(200, 100, 255), labelScale);
                 y += 22;
 
                 float rowX = panelX + 6;

@@ -7,12 +7,12 @@ using Terraria.DataStructures;
 using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
-using Requisition.Common;
-using Requisition.Content.Items;
-using Requisition.Content.Tiles;
-using Requisition.Helpers;
+using TerraStorage.Common;
+using TerraStorage.Content.Items;
+using TerraStorage.Content.Tiles;
+using TerraStorage.Helpers;
 
-namespace Requisition.Systems
+namespace TerraStorage.Systems
 {
     //Identifies the type of a Requisition multiplayer packet.
     public enum PacketType : byte

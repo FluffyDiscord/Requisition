@@ -3,7 +3,8 @@
 	<!-- Import tModLoader mod properties -->
 	<Import Project="..\tModLoader.targets" />
   <PropertyGroup>
-    <AssemblyName>Requisition</AssemblyName>
+    <AssemblyName>TerraStorage</AssemblyName>
+    <RootNamespace>TerraStorage</RootNamespace>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <ItemGroup>

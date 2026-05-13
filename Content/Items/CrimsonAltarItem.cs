@@ -2,7 +2,7 @@ using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
 
-namespace Requisition.Content.Items
+namespace TerraStorage.Content.Items
 {
     // Station item for the Crafting Core. Provides TileID.DemonAltar so recipes
     // that require a Crimson Altar can be crafted via the Terminal.

@@ -4,11 +4,11 @@ using Terraria;
 using Terraria.DataStructures;
 using Terraria.ModLoader;
 using Terraria.ObjectData;
-using Requisition.Content.UI;
-using Requisition.Common;
-using Requisition.Helpers;
+using TerraStorage.Content.UI;
+using TerraStorage.Common;
+using TerraStorage.Helpers;
 
-namespace Requisition.Content.Tiles
+namespace TerraStorage.Content.Tiles
 {
     // Tile entity attached to each placed Terminal. Provides the bridge between the UI and
     // <see cref="Helpers.StorageNetwork"/>, which discovers all connected Drive Bays

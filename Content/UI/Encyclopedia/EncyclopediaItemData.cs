@@ -3,11 +3,11 @@ using Terraria;
 using Terraria.ID;
 using Terraria.Localization;
 using Terraria.ModLoader;
-using Requisition.Content.UI.CraftingTree;
-using Requisition.Content.UI.Elements;
-using Requisition.Systems;
+using TerraStorage.Content.UI.CraftingTree;
+using TerraStorage.Content.UI.Elements;
+using TerraStorage.Systems;
 
-namespace Requisition.Content.UI.Encyclopedia
+namespace TerraStorage.Content.UI.Encyclopedia
 {
         // ModSystem that pre-builds all encyclopedia data during PostSetupRecipes
     // so there is no lazy-init stall during gameplay.

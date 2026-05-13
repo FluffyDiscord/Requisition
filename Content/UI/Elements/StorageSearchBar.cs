@@ -7,9 +7,9 @@ using Terraria.GameContent;
 using Terraria.GameContent.UI.Elements;
 using Terraria.GameInput;
 using Terraria.UI;
-using Requisition.Content.UI;
+using TerraStorage.Content.UI;
 
-namespace Requisition.Content.UI.Elements
+namespace TerraStorage.Content.UI.Elements
 {
     // A text input panel for the Terminal's item/recipe search. Supports three search
     // modes dispatched by <see cref="ItemSearchHelper.Parse"/>: plain name search,

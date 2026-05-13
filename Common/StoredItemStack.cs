@@ -3,7 +3,7 @@ using Terraria;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
 
-namespace Requisition.Common
+namespace TerraStorage.Common
 {
     // Represents a single stack of items on a Storage Disk.
     // Tracks item type, stack size, prefix (modifier), and the global insertion

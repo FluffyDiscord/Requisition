@@ -6,14 +6,14 @@ using Terraria.GameContent.ObjectInteractions;
 using Terraria.ModLoader;
 using Terraria.ObjectData;
 
-namespace Requisition.Content.Tiles
+namespace TerraStorage.Content.Tiles
 {
     // Legacy 2x2 Crafting Core retained for world-save compatibility. Cannot be crafted or placed;
     // exists solely so old worlds load correctly. Breaking one drops a CraftingCoreItem (the new 2x3).
     [LegacyName("CraftingCore")]
     public class CraftingCoreLegacy : ModTile
     {
-        public override string Texture => "Requisition/Content/Tiles/DriveBayOld";
+        public override string Texture => "TerraStorage/Content/Tiles/DriveBayOld";
 
         public override void SetStaticDefaults()
         {

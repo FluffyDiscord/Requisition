@@ -5,9 +5,9 @@ using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
-using Requisition.Systems;
+using TerraStorage.Systems;
 
-namespace Requisition.Commands
+namespace TerraStorage.Commands
 {
     // Server console command for listing and immediately restoring Requisition disk backups.
     // Usage:
@@ -97,7 +97,7 @@ namespace Requisition.Commands
                 // In MP, push all restored disk data to connected clients.
                 if (Main.netMode == NetmodeID.Server)
                 {
-                    var mod = ModLoader.GetMod("Requisition");
+                    var mod = ModLoader.GetMod("TerraStorage");
                     var allIds = sys.GetAllDiskData().Select(d => d.DiskId).ToList();
                     NetworkHandler.BroadcastDiskData(mod, allIds, ignoreClient: -1);
                 }

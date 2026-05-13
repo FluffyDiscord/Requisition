@@ -7,11 +7,11 @@ using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
 using Terraria.UI;
-using Requisition.Content.Items;
-using Requisition.Content.Tiles;
-using Requisition.Content.UI;
+using TerraStorage.Content.Items;
+using TerraStorage.Content.Tiles;
+using TerraStorage.Content.UI;
 
-namespace Requisition.Systems
+namespace TerraStorage.Systems
 {
     // Per-player mod data that persists favorited items and recipes across sessions.
     // Favorites affect how items are sorted and displayed in the Terminal UI
@@ -132,7 +132,7 @@ namespace Requisition.Systems
 
             if (Main.netMode == NetmodeID.MultiplayerClient)
             {
-                var mod = ModLoader.GetMod("Requisition");
+                var mod = ModLoader.GetMod("TerraStorage");
                 NetworkHandler.SendDepositItem(mod, _lastOpenedDiskIds, item);
                 inventory[slot].TurnToAir();
             }
@@ -166,7 +166,7 @@ namespace Requisition.Systems
                     if (item.stack <= 0)
                         inventory[slot].TurnToAir();
                     SoundEngine.PlaySound(SoundID.Grab);
-                    var mod = ModLoader.GetMod("Requisition");
+                    var mod = ModLoader.GetMod("TerraStorage");
                     NetworkHandler.SendSyncStationInsert(mod, entity.ID, s, entity.StationSlots[s]);
                     return true;
                 }
@@ -189,7 +189,7 @@ namespace Requisition.Systems
                         return true;
                     inventory[slot].TurnToAir();
                     SoundEngine.PlaySound(SoundID.Grab);
-                    var mod = ModLoader.GetMod("Requisition");
+                    var mod = ModLoader.GetMod("TerraStorage");
                     NetworkHandler.SendSyncDiskInsert(mod, entity.ID, s, entity.DiskSlots[s]);
                     return true;
                 }

@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework.Input;
 using SDL2;
 
-namespace Requisition.Content.UI.Elements
+namespace TerraStorage.Content.UI.Elements
 {
     // Locale-aware text input using FNA's TextInputEXT (fires OS-resolved Unicode chars,
     // including Cyrillic and IME input). Backspace repeat uses raw keyboard state.

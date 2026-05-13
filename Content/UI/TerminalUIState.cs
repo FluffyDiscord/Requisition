@@ -13,13 +13,13 @@ using Terraria.ID;
 using Terraria.Localization;
 using Terraria.ModLoader;
 using Terraria.UI;
-using Requisition.Content.Tiles;
-using Requisition.Common;
-using Requisition.Systems;
-using Requisition.Content.UI.Elements;
-using Requisition.Helpers;
+using TerraStorage.Content.Tiles;
+using TerraStorage.Common;
+using TerraStorage.Systems;
+using TerraStorage.Content.UI.Elements;
+using TerraStorage.Helpers;
 
-namespace Requisition.Content.UI
+namespace TerraStorage.Content.UI
 {
     // Controls the order in which consolidated items are displayed in the Terminal's Storage tab.
     public enum SortMode
@@ -135,7 +135,7 @@ namespace Requisition.Content.UI
             // In multiplayer, request the latest disk data from the server
             if (Main.netMode == NetmodeID.MultiplayerClient && _connectedDiskIds.Count > 0)
             {
-                var mod = ModLoader.GetMod("Requisition");
+                var mod = ModLoader.GetMod("TerraStorage");
                 NetworkHandler.SendRequestDiskData(mod, _connectedDiskIds);
             }
 
@@ -416,7 +416,7 @@ namespace Requisition.Content.UI
                     var sys = StorageWorldSystem.Instance;
                     var unknown = newIds.Where(id => !sys.HasDiskData(id)).ToList();
                     if (unknown.Count > 0)
-                        NetworkHandler.SendRequestDiskData(ModLoader.GetMod("Requisition"), unknown);
+                        NetworkHandler.SendRequestDiskData(ModLoader.GetMod("TerraStorage"), unknown);
                 }
 
                 _connectedDiskIds = newIds;
@@ -466,7 +466,7 @@ namespace Requisition.Content.UI
             {
                 _cachedItems.Clear();
                 _itemGrid?.SetItems(new List<ConsolidatedItem>());
-                _statusText?.SetText(Language.GetText("Mods.Requisition.UI.DiskPanel.SlotCount").Format(0, 0));
+                _statusText?.SetText(Language.GetText("Mods.TerraStorage.UI.DiskPanel.SlotCount").Format(0, 0));
                 return;
             }
 
@@ -510,7 +510,7 @@ namespace Requisition.Content.UI
             favorited.AddRange(regular);
             _itemGrid?.SetItems(favorited);
             var (used, max) = GetStorageCapacity();
-            _statusText?.SetText(Language.GetText("Mods.Requisition.UI.DiskPanel.SlotCount").Format(used, max));
+            _statusText?.SetText(Language.GetText("Mods.TerraStorage.UI.DiskPanel.SlotCount").Format(used, max));
         }
 
         // Sorts <paramref name="items"/> in-place according to <see cref="_currentSort"/>
@@ -637,7 +637,7 @@ namespace Requisition.Content.UI
                 // Per-instance item (UnloadedItem, unique NBT): extract the exact stack the user clicked.
                 if (Main.netMode == NetmodeID.MultiplayerClient)
                 {
-                    var mod = ModLoader.GetMod("Requisition");
+                    var mod = ModLoader.GetMod("TerraStorage");
                     NetworkHandler.SendWithdrawItemByModData(mod, _connectedDiskIds, item.ModData, shift);
                     SoundEngine.PlaySound(SoundID.Grab);
                     return;
@@ -649,7 +649,7 @@ namespace Requisition.Content.UI
                 // Per-instance item with GlobalItem data only (e.g. Entropy enchantments).
                 if (Main.netMode == NetmodeID.MultiplayerClient)
                 {
-                    var mod = ModLoader.GetMod("Requisition");
+                    var mod = ModLoader.GetMod("TerraStorage");
                     NetworkHandler.SendWithdrawItemByFullItemTag(mod, _connectedDiskIds, item.FullItemTag, shift);
                     SoundEngine.PlaySound(SoundID.Grab);
                     return;
@@ -664,7 +664,7 @@ namespace Requisition.Content.UI
 
                 if (Main.netMode == NetmodeID.MultiplayerClient)
                 {
-                    var mod = ModLoader.GetMod("Requisition");
+                    var mod = ModLoader.GetMod("TerraStorage");
                     NetworkHandler.SendWithdrawItem(mod, _connectedDiskIds, item.ItemType, withdrawCount, item.PrefixId, shift);
                     SoundEngine.PlaySound(SoundID.Grab);
                     return;
@@ -708,7 +708,7 @@ namespace Requisition.Content.UI
             {
                 if (Main.netMode == NetmodeID.MultiplayerClient)
                 {
-                    var mod = ModLoader.GetMod("Requisition");
+                    var mod = ModLoader.GetMod("TerraStorage");
                     NetworkHandler.SendWithdrawItemByModData(mod, _connectedDiskIds, item.ModData);
                     SoundEngine.PlaySound(SoundID.Grab);
                     return;
@@ -719,7 +719,7 @@ namespace Requisition.Content.UI
             {
                 if (Main.netMode == NetmodeID.MultiplayerClient)
                 {
-                    var mod = ModLoader.GetMod("Requisition");
+                    var mod = ModLoader.GetMod("TerraStorage");
                     NetworkHandler.SendWithdrawItemByFullItemTag(mod, _connectedDiskIds, item.FullItemTag);
                     SoundEngine.PlaySound(SoundID.Grab);
                     return;
@@ -730,7 +730,7 @@ namespace Requisition.Content.UI
             {
                 if (Main.netMode == NetmodeID.MultiplayerClient)
                 {
-                    var mod = ModLoader.GetMod("Requisition");
+                    var mod = ModLoader.GetMod("TerraStorage");
                     NetworkHandler.SendWithdrawItem(mod, _connectedDiskIds, item.ItemType, count, item.PrefixId);
                     SoundEngine.PlaySound(SoundID.Grab);
                     return;
@@ -783,7 +783,7 @@ namespace Requisition.Content.UI
 
             if (Main.netMode == NetmodeID.MultiplayerClient)
             {
-                var mod = ModLoader.GetMod("Requisition");
+                var mod = ModLoader.GetMod("TerraStorage");
                 NetworkHandler.SendDepositItem(mod, _connectedDiskIds, Main.mouseItem);
                 Main.mouseItem.TurnToAir();
                 SoundEngine.PlaySound(SoundID.Grab);
@@ -809,7 +809,7 @@ namespace Requisition.Content.UI
 
             var player = Main.LocalPlayer;
             var mod = Main.netMode == NetmodeID.MultiplayerClient
-                ? ModLoader.GetMod("Requisition")
+                ? ModLoader.GetMod("TerraStorage")
                 : null;
 
             for (int i = 10; i < 50; i++)
@@ -847,7 +847,7 @@ namespace Requisition.Content.UI
             if (_mainPanel.ContainsPoint(Main.MouseScreen))
             {
                 Main.LocalPlayer.mouseInterface = true;
-                PlayerInput.LockVanillaMouseScroll("Requisition");
+                PlayerInput.LockVanillaMouseScroll("TerraStorage");
             }
 
             bool shift = Main.keyState.IsKeyDown(Keys.LeftShift) || Main.keyState.IsKeyDown(Keys.RightShift);
@@ -882,7 +882,7 @@ namespace Requisition.Content.UI
 
                     if (Main.netMode == NetmodeID.MultiplayerClient)
                     {
-                        var mod = ModLoader.GetMod("Requisition");
+                        var mod = ModLoader.GetMod("TerraStorage");
                         NetworkHandler.SendDepositItem(mod, _connectedDiskIds, Main.LocalPlayer.inventory[i]);
                         Main.LocalPlayer.inventory[i].TurnToAir();
                     }
@@ -925,7 +925,7 @@ namespace Requisition.Content.UI
                         // Disk IDs are unchanged — let the crafting panel's own throttled
                         // refresh detect the version change and update at its next tick.
                         var (used, max) = GetStorageCapacity();
-                        _statusText?.SetText(Language.GetText("Mods.Requisition.UI.DiskPanel.SlotCount").Format(used, max));
+                        _statusText?.SetText(Language.GetText("Mods.TerraStorage.UI.DiskPanel.SlotCount").Format(used, max));
                         break;
                     case ActiveTab.Storage:
                         RefreshItems();

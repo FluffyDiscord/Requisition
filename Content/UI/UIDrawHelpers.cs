@@ -8,7 +8,7 @@ using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.UI;
 
-namespace Requisition.Content.UI
+namespace TerraStorage.Content.UI
 {
     // Shared drawing helpers for all Requisition UI panels.
     internal static class UIDrawHelpers

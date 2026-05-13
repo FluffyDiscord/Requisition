@@ -1,16 +1,16 @@
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
-using Requisition.Content.Tiles;
+using TerraStorage.Content.Tiles;
 
-namespace Requisition.Content.Items
+namespace TerraStorage.Content.Items
 {
     // Placeable item that creates a CraftingCore tile.
     // The Crafting Core holds virtual crafting station items and condition providers,
     // making them available to any connected Terminal for auto-crafting.
     public class CraftingCoreItem : ModItem
     {
-        public override string Texture => "Requisition/Content/Tiles/CraftingCore";
+        public override string Texture => "TerraStorage/Content/Tiles/CraftingCore";
 
         public override void SetDefaults()
         {

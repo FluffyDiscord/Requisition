@@ -4,9 +4,9 @@ using System.Linq;
 using Terraria;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
-using Requisition.Common;
+using TerraStorage.Common;
 
-namespace Requisition.Systems
+namespace TerraStorage.Systems
 {
     // World-level system that owns the authoritative storage of all disk data.
     // Provides insert, extract, and query operations across one or more disks,

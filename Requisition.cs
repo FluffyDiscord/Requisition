@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using Terraria.ModLoader;
 
-namespace Requisition
+namespace TerraStorage
 {
     // Mod entry point for Requisition. Handles all incoming network packets
     // by delegating to the centralized <see cref="Systems.NetworkHandler"/>.

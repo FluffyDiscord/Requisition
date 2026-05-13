@@ -6,14 +6,14 @@ using Terraria.GameContent.ObjectInteractions;
 using Terraria.ModLoader;
 using Terraria.ObjectData;
 
-namespace Requisition.Content.Tiles
+namespace TerraStorage.Content.Tiles
 {
     // The Crafting Core tile (2x3). Accepts crafting station items and condition provider items
     // in its slots so connected Terminals can automatically satisfy recipe requirements.
     // Blocks destruction while any station slot is occupied.
     public class CraftingCoreLarge : ModTile
     {
-        public override string Texture => "Requisition/Content/Tiles/CraftingCore";
+        public override string Texture => "TerraStorage/Content/Tiles/CraftingCore";
 
         public override void SetStaticDefaults()
         {

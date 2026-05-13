@@ -12,11 +12,11 @@ using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.Localization;
 using Terraria.UI;
-using Requisition.Common;
-using Requisition.Content.Items;
-using Requisition.Systems;
+using TerraStorage.Common;
+using TerraStorage.Content.Items;
+using TerraStorage.Systems;
 
-namespace Requisition.Content.UI
+namespace TerraStorage.Content.UI
 {
     // UIState for the Disk Recovery sub-panel opened from the Drive Bay UI.
     // Displays all known <see cref="DiskData"/> entries from <see cref="StorageWorldSystem"/>,
@@ -94,8 +94,8 @@ namespace Requisition.Content.UI
 
         public void Open()
         {
-            _title?.SetText(Language.GetTextValue("Mods.Requisition.UI.DiskRecovery.Title"));
-            _restoreBtn?.SetText(Language.GetTextValue("Mods.Requisition.UI.DiskRecovery.Restore"));
+            _title?.SetText(Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.Title"));
+            _restoreBtn?.SetText(Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.Restore"));
             RefreshDiskList();
             _selectedDisk = null;
             _diskScrollOffset = 0;
@@ -149,18 +149,18 @@ namespace Requisition.Content.UI
         {
             if (_selectedDisk == null)
             {
-                _statusText.SetText($"[c/FF8888:{Language.GetTextValue("Mods.Requisition.UI.DiskRecovery.SelectFirst")}]");
+                _statusText.SetText($"[c/FF8888:{Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.SelectFirst")}]");
                 return;
             }
             if (_replacementDisk == null || _replacementDisk.IsAir ||
                 _replacementDisk.ModItem is not StorageDiskBase repDisk)
             {
-                _statusText.SetText($"[c/FF8888:{Language.GetTextValue("Mods.Requisition.UI.DiskRecovery.NeedReplacementDisk")}]");
+                _statusText.SetText($"[c/FF8888:{Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.NeedReplacementDisk")}]");
                 return;
             }
             if (repDisk.Tier != _selectedDisk.Tier)
             {
-                _statusText.SetText($"[c/FF8888:{Language.GetText("Mods.Requisition.UI.DiskRecovery.TierMismatch").Format(_selectedDisk.Tier.GetName())}]");
+                _statusText.SetText($"[c/FF8888:{Language.GetText("Mods.TerraStorage.UI.DiskRecovery.TierMismatch").Format(_selectedDisk.Tier.GetName())}]");
                 return;
             }
 
@@ -169,7 +169,7 @@ namespace Requisition.Content.UI
             if (Main.netMode == NetmodeID.MultiplayerClient)
             {
                 // Server will remap the data and broadcast to all clients.
-                var mod = ModLoader.GetMod("Requisition");
+                var mod = ModLoader.GetMod("TerraStorage");
                 NetworkHandler.SendRestoreDiskRequest(mod, _selectedDisk.DiskId, repDisk.DiskId, newId);
             }
             else
@@ -201,7 +201,7 @@ namespace Requisition.Content.UI
             _selectedDisk = null;
             _itemScrollOffset = 0;
             RefreshDiskList();
-            _statusText.SetText($"[c/88FF88:{Language.GetTextValue("Mods.Requisition.UI.DiskRecovery.DiskRestored")}]");
+            _statusText.SetText($"[c/88FF88:{Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.DiskRestored")}]");
             SoundEngine.PlaySound(SoundID.Item37);
         }
 
@@ -228,7 +228,7 @@ namespace Requisition.Content.UI
         {
             var bgRect = new Rectangle((int)lx, (int)ly, ListWidth, MainAreaHeight);
             Utils.DrawInvBG(spriteBatch, bgRect, new Color(23, 33, 69) * 0.85f);
-            Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.Requisition.UI.DiskRecovery.KnownDisks"), new Vector2(lx + 6, ly + 4), Color.White, 0.8f);
+            Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.KnownDisks"), new Vector2(lx + 6, ly + 4), Color.White, 0.8f);
 
             int entryAreaTop = (int)(ly + 22);
             int entryAreaH = MainAreaHeight - 22;
@@ -270,14 +270,14 @@ namespace Requisition.Content.UI
 
             if (_diskList.Count == 0)
             {
-                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.Requisition.UI.DiskRecovery.NoDiskData"),
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.NoDiskData"),
                     new Vector2(lx + 6, ly + MainAreaHeight / 2f - 8), Color.Gray, 0.75f);
             }
             else if (_diskList.Count > maxVisible)
             {
                 int lo = _diskScrollOffset + 1;
                 int hi = Math.Min(_diskScrollOffset + maxVisible, _diskList.Count);
-                Utils.DrawBorderString(spriteBatch, Language.GetText("Mods.Requisition.UI.DiskRecovery.SlotRange").Format(lo, hi, _diskList.Count),
+                Utils.DrawBorderString(spriteBatch, Language.GetText("Mods.TerraStorage.UI.DiskRecovery.SlotRange").Format(lo, hi, _diskList.Count),
                     new Vector2(lx + 4, ly + MainAreaHeight - 14), Color.Gray, 0.6f);
             }
         }
@@ -289,7 +289,7 @@ namespace Requisition.Content.UI
 
             if (_selectedDisk == null)
             {
-                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.Requisition.UI.DiskRecovery.SelectDisk"),
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.SelectDisk"),
                     new Vector2(dx + 8, dy + 8), Color.Gray, 0.8f);
                 return;
             }
@@ -309,7 +309,7 @@ namespace Requisition.Content.UI
 
             if (_selectedDisk.Items.Count == 0)
             {
-                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.Requisition.UI.DiskRecovery.NoItemsOnDisk"),
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.NoItemsOnDisk"),
                     new Vector2(dx + 8, itemAreaTop + 6), Color.Gray, 0.75f);
                 return;
             }
@@ -354,7 +354,7 @@ namespace Requisition.Content.UI
                 int lo = _itemScrollOffset + 1;
                 int hi = Math.Min(_itemScrollOffset + maxVisible, _selectedDisk.Items.Count);
                 Utils.DrawBorderString(spriteBatch,
-                    Language.GetText("Mods.Requisition.UI.DiskRecovery.SlotRange").Format(lo, hi, _selectedDisk.Items.Count),
+                    Language.GetText("Mods.TerraStorage.UI.DiskRecovery.SlotRange").Format(lo, hi, _selectedDisk.Items.Count),
                     new Vector2(dx + 4, dy + MainAreaHeight - 14), Color.Gray, 0.6f);
             }
         }
@@ -362,7 +362,7 @@ namespace Requisition.Content.UI
         private void DrawBottomSection(SpriteBatch spriteBatch, float bx, float by)
         {
             Utils.DrawBorderString(spriteBatch,
-                Language.GetTextValue("Mods.Requisition.UI.DiskRecovery.PlaceBlankDisk"),
+                Language.GetTextValue("Mods.TerraStorage.UI.DiskRecovery.PlaceBlankDisk"),
                 new Vector2(bx, by), Color.White, 0.78f);
 
             var slotRect = GetSlotRect();

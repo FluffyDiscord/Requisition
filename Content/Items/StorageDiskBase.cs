@@ -7,10 +7,10 @@ using Terraria.DataStructures;
 using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
-using Requisition.Common;
-using Requisition.Systems;
+using TerraStorage.Common;
+using TerraStorage.Systems;
 
-namespace Requisition.Content.Items
+namespace TerraStorage.Content.Items
 {
     // Base class for all Storage Disk items. Manages the disk's unique GUID,
     // NBT persistence, tooltip generation, and world-system registration.

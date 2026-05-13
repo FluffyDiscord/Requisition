@@ -6,7 +6,7 @@ using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
 
-namespace Requisition.Systems
+namespace TerraStorage.Systems
 {
     // Manages rolling backups of StorageWorldSystem disk data per world.
     // Keeps up to 3 backup slots; slot 0 is continuously updated during a play session,
