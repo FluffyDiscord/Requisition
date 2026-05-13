@@ -1,5 +1,8 @@
-# Claude
+# AI tools
 .claude/
+.continue/
+.cursor/
+.cursorrules
 CLAUDE.md
 
 # tModLoader / Terraria
