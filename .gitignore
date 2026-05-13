@@ -1,3 +1,7 @@
+# Claude
+.claude/
+CLAUDE.md
+
 # tModLoader / Terraria
 Sources
 *.backup/
@@ -51,6 +55,5 @@ dist/
 
 # Plans
 ./plans/
-```
 
 *.aseprite
