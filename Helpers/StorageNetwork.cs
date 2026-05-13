@@ -108,5 +108,24 @@ namespace TerraStorage.Helpers
             return (stations, conditions);
         }
 
+        // Returns true if any TerminalEntity is within search radius of the given position.
+        public static bool HasTerminalNearby(Point16 position)
+        {
+            int px = position.X;
+            int py = position.Y;
+
+            foreach (var kvp in TileEntity.ByID)
+            {
+                if (kvp.Value is TerminalEntity terminal)
+                {
+                    int dx = px - terminal.Position.X;
+                    int dy = py - terminal.Position.Y;
+                    if (dx * dx + dy * dy <= SearchRadiusSq)
+                        return true;
+                }
+            }
+
+            return false;
+        }
     }
 }

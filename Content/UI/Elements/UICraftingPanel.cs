@@ -1812,11 +1812,15 @@ namespace TerraStorage.Content.UI.Elements
 
                     if (sRect.Contains(Main.MouseScreen.ToPoint()))
                     {
-                        Main.hoverItemName = RecipeResolver.GetTileName(tileType);
                         if (stationItemType > 0)
                         {
                             _scratchItem.SetDefaults(stationItemType);
                             Main.HoverItem = _scratchItem.Clone();
+                            Main.hoverItemName = _scratchItem.Name;
+                        }
+                        else
+                        {
+                            Main.hoverItemName = RecipeResolver.GetTileName(tileType);
                         }
                     }
 

@@ -47,7 +47,7 @@ namespace TerraStorage.Content.Tiles
             if (sys == null) return;
             if (sys.StorageVersion == _lastSeenVersion) return;
             _lastSeenVersion = sys.StorageVersion;
-            RefreshVisualState(IsConnected);
+            RefreshVisualState(StorageNetwork.HasTerminalNearby(Position));
         }
 
         public override bool IsTileValidForEntity(int x, int y)

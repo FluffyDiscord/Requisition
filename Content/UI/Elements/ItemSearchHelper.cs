@@ -87,6 +87,8 @@ namespace TerraStorage.Content.UI.Elements
             if (item.material) sb.Append("material ");
             if (item.potion) sb.Append("potion ");
             if (item.ammo > 0) sb.Append("ammo ");
+            if (item.DamageType != null && item.DamageType != DamageClass.Default)
+                sb.Append(item.DamageType.DisplayName).Append(' ');
 
             string result = sb.ToString();
             _tooltipCache[itemType] = result;
