@@ -8,13 +8,13 @@ using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.Localization;
 using Terraria.UI;
-using TerraStorage.Common;
-using TerraStorage.Content.Items;
-using TerraStorage.Content.Tiles;
-using TerraStorage.Helpers;
-using TerraStorage.Systems;
+using Requisition.Common;
+using Requisition.Content.Items;
+using Requisition.Content.Tiles;
+using Requisition.Helpers;
+using Requisition.Systems;
 
-namespace TerraStorage.Content.UI.Elements
+namespace Requisition.Content.UI.Elements
 {
     // Disks tab panel for the Terminal UI. Shows all disks in connected Drive Bays,
     // their contents, and an in-place upgrade UI that consumes materials from storage.
@@ -275,7 +275,7 @@ namespace TerraStorage.Content.UI.Elements
 
             if (Main.netMode == NetmodeID.MultiplayerClient)
             {
-                var mod = ModLoader.GetMod("TerraStorage");
+                var mod = ModLoader.GetMod("Requisition");
                 NetworkHandler.SendUpgradeDiskRequest(mod, entry.Bay.ID, entry.Slot, guid,
                     _diskIds, _ingCacheOptionIdx, _stations, _conditions);
                 Terraria.Audio.SoundEngine.PlaySound(SoundID.Grab);
@@ -321,7 +321,7 @@ namespace TerraStorage.Content.UI.Elements
 
             if (Main.netMode == NetmodeID.MultiplayerClient)
             {
-                var mod = ModLoader.GetMod("TerraStorage");
+                var mod = ModLoader.GetMod("Requisition");
                 NetworkHandler.SendDefragRequest(mod, _diskIds);
                 return;
             }
@@ -352,7 +352,7 @@ namespace TerraStorage.Content.UI.Elements
                             : defragHover   ? new Color(90, 115, 205) * 0.95f
                                             : new Color(63, 82, 151) * 0.85f;
             Utils.DrawInvBG(sb, _defragButtonRect, defragColor);
-            string defragLabel = Language.GetTextValue("Mods.TerraStorage.UI.DiskPanel.Defragment");
+            string defragLabel = Language.GetTextValue("Mods.Requisition.UI.DiskPanel.Defragment");
             var defragTextSize = FontAssets.MouseText.Value.MeasureString(defragLabel) * 0.75f;
             Utils.DrawBorderString(sb, defragLabel,
                 new Vector2(_defragButtonRect.X + (_defragButtonRect.Width - defragTextSize.X) / 2f,
@@ -368,14 +368,14 @@ namespace TerraStorage.Content.UI.Elements
             if (_selectedIndex >= 0 && _selectedIndex < _disks.Count)
                 DrawDiskDetail(sb, rightX, dims.Y, rightW, dims.Height, _disks[_selectedIndex]);
             else
-                Utils.DrawBorderString(sb, Language.GetTextValue("Mods.TerraStorage.UI.DiskPanel.SelectDisk"), new Vector2(rightX + 8, dims.Y + 16), Color.Gray, 0.85f);
+                Utils.DrawBorderString(sb, Language.GetTextValue("Mods.Requisition.UI.DiskPanel.SelectDisk"), new Vector2(rightX + 8, dims.Y + 16), Color.Gray, 0.85f);
         }
 
         private void DrawDiskList(SpriteBatch sb, float x, float y, float height)
         {
             if (_disks.Count == 0)
             {
-                Utils.DrawBorderString(sb, Language.GetTextValue("Mods.TerraStorage.UI.DiskPanel.NoDisksConnected"), new Vector2(x + 6, y + 8), Color.Gray, 0.7f);
+                Utils.DrawBorderString(sb, Language.GetTextValue("Mods.Requisition.UI.DiskPanel.NoDisksConnected"), new Vector2(x + 6, y + 8), Color.Gray, 0.7f);
                 return;
             }
 
@@ -428,7 +428,7 @@ namespace TerraStorage.Content.UI.Elements
                 var data = StorageWorldSystem.Instance.GetDiskData(entry.Disk.DiskId);
                 if (data != null)
                 {
-                    string usage = Language.GetText("Mods.TerraStorage.UI.DiskPanel.SlotCount").Format(data.UsedStacks, data.MaxStacks);
+                    string usage = Language.GetText("Mods.Requisition.UI.DiskPanel.SlotCount").Format(data.UsedStacks, data.MaxStacks);
                     Utils.DrawBorderString(sb, usage, new Vector2(x + 48, rowY + 26), Color.LightGray, 0.65f);
                 }
             }
@@ -444,7 +444,7 @@ namespace TerraStorage.Content.UI.Elements
             var data = StorageWorldSystem.Instance.GetDiskData(entry.Disk.DiskId);
             if (data == null)
             {
-                Utils.DrawBorderString(sb, Language.GetTextValue("Mods.TerraStorage.UI.DiskPanel.DiskUnavailable"), new Vector2(x, y + 10), Color.Gray, 0.8f);
+                Utils.DrawBorderString(sb, Language.GetTextValue("Mods.Requisition.UI.DiskPanel.DiskUnavailable"), new Vector2(x, y + 10), Color.Gray, 0.8f);
                 return;
             }
 
@@ -455,7 +455,7 @@ namespace TerraStorage.Content.UI.Elements
             // Header: name + slot count.
             Utils.DrawBorderString(sb, entry.Disk.Tier.GetName() + " Storage Disk",
                 new Vector2(x, y + 2), tierColor, 0.9f);
-            Utils.DrawBorderString(sb, Language.GetText("Mods.TerraStorage.UI.DiskPanel.SlotCount").Format(data.UsedStacks, data.MaxStacks),
+            Utils.DrawBorderString(sb, Language.GetText("Mods.Requisition.UI.DiskPanel.SlotCount").Format(data.UsedStacks, data.MaxStacks),
                 new Vector2(x, y + 22), Color.LightGray, 0.75f);
 
             // Usage bar: track is 1px larger on all sides than the fill.
@@ -469,7 +469,7 @@ namespace TerraStorage.Content.UI.Elements
 
             // Contents label and grid.
             float labelY  = barY + 14f;
-            Utils.DrawBorderString(sb, Language.GetTextValue("Mods.TerraStorage.UI.DiskPanel.Contents"), new Vector2(x, labelY), Color.White, 0.75f);
+            Utils.DrawBorderString(sb, Language.GetTextValue("Mods.Requisition.UI.DiskPanel.Contents"), new Vector2(x, labelY), Color.White, 0.75f);
 
             float gridY = labelY + 18f;
             float gridH = height - (gridY - y) - upgradeH - 10f;
@@ -486,7 +486,7 @@ namespace TerraStorage.Content.UI.Elements
             // Upgrade section.
             if (isMaxTier)
             {
-                Utils.DrawBorderString(sb, Language.GetTextValue("Mods.TerraStorage.UI.DiskPanel.MaxTier"), new Vector2(x, upgradeY + 4), Color.Gold, 0.8f);
+                Utils.DrawBorderString(sb, Language.GetTextValue("Mods.Requisition.UI.DiskPanel.MaxTier"), new Vector2(x, upgradeY + 4), Color.Gold, 0.8f);
                 _upgradeButtonRect = Rectangle.Empty;
             }
             else
@@ -512,7 +512,7 @@ namespace TerraStorage.Content.UI.Elements
 
             if (items.Count == 0)
             {
-                Utils.DrawBorderString(sb, Language.GetTextValue("Mods.TerraStorage.UI.DiskPanel.Empty"), new Vector2(x + 4, y + 4), Color.Gray, 0.7f);
+                Utils.DrawBorderString(sb, Language.GetTextValue("Mods.Requisition.UI.DiskPanel.Empty"), new Vector2(x + 4, y + 4), Color.Gray, 0.7f);
             }
             else
             {
@@ -579,7 +579,7 @@ namespace TerraStorage.Content.UI.Elements
             EnsureIngredientCache();
 
             var nextTier = (DiskTier)((int)tier + 1);
-            Utils.DrawBorderString(sb, Language.GetText("Mods.TerraStorage.UI.DiskPanel.UpgradeTo").Format(nextTier.GetName() + " Storage Disk"),
+            Utils.DrawBorderString(sb, Language.GetText("Mods.Requisition.UI.DiskPanel.UpgradeTo").Format(nextTier.GetName() + " Storage Disk"),
                 new Vector2(x, y + 2), Color.White, 0.75f);
 
             float ingY = y + 22f;
@@ -610,7 +610,7 @@ namespace TerraStorage.Content.UI.Elements
 
             _upgradeButtonRect = new Rectangle((int)x, (int)btnY, 100, 24);
             Utils.DrawInvBG(sb, _upgradeButtonRect, btnColor);
-            string upgradeLabel = Language.GetTextValue("Mods.TerraStorage.UI.DiskPanel.Upgrade");
+            string upgradeLabel = Language.GetTextValue("Mods.Requisition.UI.DiskPanel.Upgrade");
             var upgradeTextSize = FontAssets.MouseText.Value.MeasureString(upgradeLabel) * 0.75f;
             Utils.DrawBorderString(sb, upgradeLabel,
                 new Vector2(x + (100 - upgradeTextSize.X) / 2f, btnY + (24 - upgradeTextSize.Y) / 2f),

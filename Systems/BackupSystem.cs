@@ -6,7 +6,7 @@ using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
 
-namespace TerraStorage.Systems
+namespace Requisition.Systems
 {
     // Manages rolling backups of StorageWorldSystem disk data per world.
     // Keeps up to 3 backup slots; slot 0 is continuously updated during a play session,
@@ -77,7 +77,7 @@ namespace TerraStorage.Systems
             }
             catch (Exception ex)
             {
-                ModContent.GetInstance<TerraStorage>()?.Logger.Warn($"[TerraStorage] BackupSystem.Flush: {ex.Message}");
+                ModContent.GetInstance<Requisition>()?.Logger.Warn($"[Requisition] BackupSystem.Flush: {ex.Message}");
             }
         }
 
@@ -99,7 +99,7 @@ namespace TerraStorage.Systems
             }
             catch (Exception ex)
             {
-                ModContent.GetInstance<TerraStorage>()?.Logger.Warn($"[TerraStorage] BackupSystem.RotateBackups: {ex.Message}");
+                ModContent.GetInstance<Requisition>()?.Logger.Warn($"[Requisition] BackupSystem.RotateBackups: {ex.Message}");
             }
         }
 
@@ -124,7 +124,7 @@ namespace TerraStorage.Systems
             }
             catch (Exception ex)
             {
-                ModContent.GetInstance<TerraStorage>()?.Logger.Warn($"[TerraStorage] BackupSystem.TryConsumeRestoreOverride: {ex.Message}");
+                ModContent.GetInstance<Requisition>()?.Logger.Warn($"[Requisition] BackupSystem.TryConsumeRestoreOverride: {ex.Message}");
                 return null;
             }
         }
@@ -144,7 +144,7 @@ namespace TerraStorage.Systems
             }
             catch (Exception ex)
             {
-                ModContent.GetInstance<TerraStorage>()?.Logger.Warn($"[TerraStorage] BackupSystem.QueueRestore: {ex.Message}");
+                ModContent.GetInstance<Requisition>()?.Logger.Warn($"[Requisition] BackupSystem.QueueRestore: {ex.Message}");
                 return false;
             }
         }
@@ -176,7 +176,7 @@ namespace TerraStorage.Systems
         // ─── Paths ──────────────────────────────────────────────────────────
 
         public static string GetBackupDir(string worldPath) =>
-            Path.Combine(Path.GetDirectoryName(worldPath)!, Path.GetFileNameWithoutExtension(worldPath) + "_TerraStorage");
+            Path.Combine(Path.GetDirectoryName(worldPath)!, Path.GetFileNameWithoutExtension(worldPath) + "_Requisition");
 
         public static string GetBackupPath(string worldPath, int slot) =>
             Path.Combine(GetBackupDir(worldPath), $"backup_{slot}.dat");

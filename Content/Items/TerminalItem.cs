@@ -1,15 +1,15 @@
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
-using TerraStorage.Content.Tiles;
+using Requisition.Content.Tiles;
 
-namespace TerraStorage.Content.Items
+namespace Requisition.Content.Items
 {
     // Placeable item that creates a Terminal tile.
     // The Terminal is the primary interface for browsing and withdrawing from connected storage.
     public class TerminalItem : ModItem
     {
-        public override string Texture => "TerraStorage/Content/Tiles/Terminal";
+        public override string Texture => "Requisition/Content/Tiles/Terminal";
 
         public override void SetDefaults()
         {

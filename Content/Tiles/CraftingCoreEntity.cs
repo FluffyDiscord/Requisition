@@ -7,11 +7,11 @@ using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
 using Terraria.ObjectData;
-using TerraStorage.Common;
-using TerraStorage.Content.UI;
-using TerraStorage.Helpers;
+using Requisition.Common;
+using Requisition.Content.UI;
+using Requisition.Helpers;
 
-namespace TerraStorage.Content.Tiles
+namespace Requisition.Content.Tiles
 {
     // Tile entity attached to each placed Crafting Core. Holds up to
     // StationSlotCount crafting station items, exposes the set of

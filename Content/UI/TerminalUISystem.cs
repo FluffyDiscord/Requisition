@@ -5,9 +5,9 @@ using Terraria;
 using Terraria.DataStructures;
 using Terraria.ModLoader;
 using Terraria.UI;
-using TerraStorage.Content.Tiles;
+using Requisition.Content.Tiles;
 
-namespace TerraStorage.Content.UI
+namespace Requisition.Content.UI
 {
     public class TerminalUISystem : ModSystem
     {
@@ -54,7 +54,7 @@ namespace TerraStorage.Content.UI
 
         public void CloseTerminal()
         {
-            if (!(TerraStorageClientConfig.Instance?.RememberSearchQuery ?? true))
+            if (!(RequisitionClientConfig.Instance?.RememberSearchQuery ?? true))
                 _uiState.ClearSearch();
             else
                 _uiState.DeactivateSearch();
@@ -104,7 +104,7 @@ namespace TerraStorage.Content.UI
                 Main.hidePlayerCraftingMenu = true;
 
                 layers.Insert(inventoryIndex + 1, new LegacyGameInterfaceLayer(
-                    "TerraStorage: Terminal UI",
+                    "Requisition: Terminal UI",
                     delegate
                     {
                         if (_uiState.IsMouseOverPanel())

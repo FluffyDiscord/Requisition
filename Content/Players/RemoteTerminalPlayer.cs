@@ -2,11 +2,11 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.DataStructures;
 using Terraria.ModLoader;
-using TerraStorage.Content.Items;
-using TerraStorage.Content.Tiles;
-using TerraStorage.Content.UI;
+using Requisition.Content.Items;
+using Requisition.Content.Tiles;
+using Requisition.Content.UI;
 
-namespace TerraStorage.Content.Players
+namespace Requisition.Content.Players
 {
     // Handles middle-click and hotkey activation of the Remote Terminal.
     public class RemoteTerminalPlayer : ModPlayer
@@ -34,7 +34,7 @@ namespace TerraStorage.Content.Players
 
         private void HandleHotkey()
         {
-            if (!(TerraStorage.OpenRemoteTerminalHotkey?.JustPressed ?? false)) return;
+            if (!(Requisition.OpenRemoteTerminalHotkey?.JustPressed ?? false)) return;
 
             for (int i = 0; i < 50; i++)
             {

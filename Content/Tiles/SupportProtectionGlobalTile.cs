@@ -2,7 +2,7 @@ using Terraria;
 using Terraria.DataStructures;
 using Terraria.ModLoader;
 
-namespace TerraStorage.Content.Tiles
+namespace Requisition.Content.Tiles
 {
     // Prevents breaking the floor block directly underneath an occupied multi-tile
     // so the device above doesn't lose support and destroy its contents.

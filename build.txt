@@ -1,4 +1,4 @@
-displayName = TerraStorage
+displayName = Requisition
 author = _/Stixx
-version = 0.2.10
-buildIgnore = Sources/*, .gitignore, .git/*, .continue/*, .claude/*, CLAUDE.md, CHANGELOG.md, DESCRIPTION.md, *.kra, *.kra~, *.png~, Backup_*.zip, SS/*, *.aseprite
+version = 0.5.0
+buildIgnore = Sources/*, .gitignore, .git/*, .claude/*, *.md, *.kra, *.kra~, *.png~, Backup_*.zip, SS/*, *.aseprite, *.code-workspace

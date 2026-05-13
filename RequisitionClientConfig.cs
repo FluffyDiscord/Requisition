@@ -2,13 +2,13 @@ using System.ComponentModel;
 using Newtonsoft.Json;
 using Terraria.ModLoader;
 using Terraria.ModLoader.Config;
-using TerraStorage.Content.UI.Elements;
+using Requisition.Content.UI.Elements;
 
-namespace TerraStorage
+namespace Requisition
 {
-    public class TerraStorageClientConfig : ModConfig
+    public class RequisitionClientConfig : ModConfig
     {
-        public static TerraStorageClientConfig Instance { get; private set; }
+        public static RequisitionClientConfig Instance { get; private set; }
 
         public override ConfigScope Mode => ConfigScope.ClientSide;
 
@@ -17,7 +17,7 @@ namespace TerraStorage
         [JsonIgnore]
         [ShowDespiteJsonIgnore]
         [CustomModConfigItem(typeof(VersionConfigElement))]
-        public string Version => ModContent.GetInstance<TerraStorage>().Version.ToString();
+        public string Version => ModContent.GetInstance<Requisition>().Version.ToString();
 
         [Header("General")]
 

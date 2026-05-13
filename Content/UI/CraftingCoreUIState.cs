@@ -9,11 +9,11 @@ using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.Localization;
 using Terraria.UI;
-using TerraStorage.Content.Tiles;
-using TerraStorage.Content.UI.Elements;
-using TerraStorage.Systems;
+using Requisition.Content.Tiles;
+using Requisition.Content.UI.Elements;
+using Requisition.Systems;
 
-namespace TerraStorage.Content.UI
+namespace Requisition.Content.UI
 {
     // UIState for the Crafting Core station-module panel. Renders a grid of station slots
     // and handles left-click insertion/extraction and shift+click quick-transfer of valid
@@ -59,11 +59,11 @@ namespace TerraStorage.Content.UI
             _panel.SetPadding(10);
             Append(_panel);
 
-            var title = new UIText(Language.GetText("Mods.TerraStorage.UI.CraftingCore.Title"));
+            var title = new UIText(Language.GetText("Mods.Requisition.UI.CraftingCore.Title"));
             title.HAlign = 0.5f;
             _panel.Append(title);
 
-            var helpText = new UIText(Language.GetText("Mods.TerraStorage.UI.CraftingCore.HelpText"), 0.7f);
+            var helpText = new UIText(Language.GetText("Mods.Requisition.UI.CraftingCore.HelpText"), 0.7f);
             helpText.HAlign = 0.5f;
             helpText.Top.Set(22, 0f);
             _panel.Append(helpText);
@@ -166,7 +166,7 @@ namespace TerraStorage.Content.UI
 
                 var cursorItem = Main.mouseItem;
 
-                var mod = ModLoader.GetMod("TerraStorage");
+                var mod = ModLoader.GetMod("Requisition");
 
                 if (cursorItem != null && !cursorItem.IsAir)
                 {

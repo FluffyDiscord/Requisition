@@ -8,9 +8,9 @@ using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.UI;
 
-namespace TerraStorage.Content.UI
+namespace Requisition.Content.UI
 {
-    // Shared drawing helpers for all TerraStorage UI panels.
+    // Shared drawing helpers for all Requisition UI panels.
     internal static class UIDrawHelpers
     {
         private static Texture2D _pixel;
@@ -29,7 +29,7 @@ namespace TerraStorage.Content.UI
         {
             get
             {
-                int opacity = TerraStorageClientConfig.Instance?.PanelUnderlayOpacity ?? 85;
+                int opacity = RequisitionClientConfig.Instance?.PanelUnderlayOpacity ?? 85;
                 int alpha = (int)(opacity / 100f * 255);
                 return new Color(10, 10, 20, alpha);
             }

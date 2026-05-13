@@ -1,10 +1,10 @@
 using System.Collections.Generic;
 using Terraria;
 using Terraria.DataStructures;
-using TerraStorage.Content.Tiles;
-using TerraStorage.Helpers;
+using Requisition.Content.Tiles;
+using Requisition.Helpers;
 
-namespace TerraStorage.Systems
+namespace Requisition.Systems
 {
     internal static class QuickStackSystem
     {
@@ -49,7 +49,7 @@ namespace TerraStorage.Systems
             }
             else if (Main.netMode == Terraria.ID.NetmodeID.MultiplayerClient)
             {
-                var mod = Terraria.ModLoader.ModContent.GetInstance<TerraStorage>();
+                var mod = Terraria.ModLoader.ModContent.GetInstance<Requisition>();
                 foreach (var terminal in terminals)
                     NetworkHandler.SendQuickStackToStorage(mod, terminal.Position, player);
             }

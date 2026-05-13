@@ -7,9 +7,9 @@ using Terraria.GameContent;
 using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.UI;
-using TerraStorage.Content.UI;
+using Requisition.Content.UI;
 
-namespace TerraStorage.Content.UI.Elements
+namespace Requisition.Content.UI.Elements
 {
     // Item categories used by <see cref="UICategoryFilterBar"/> to classify items.
     // The integer value of each member is used as an index into the filter-enabled

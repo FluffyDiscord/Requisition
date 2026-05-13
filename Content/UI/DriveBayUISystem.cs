@@ -5,9 +5,9 @@ using Terraria;
 using Terraria.DataStructures;
 using Terraria.ModLoader;
 using Terraria.UI;
-using TerraStorage.Content.Tiles;
+using Requisition.Content.Tiles;
 
-namespace TerraStorage.Content.UI
+namespace Requisition.Content.UI
 {
     public class DriveBayUISystem : ModSystem
     {
@@ -124,7 +124,7 @@ namespace TerraStorage.Content.UI
                 Main.hidePlayerCraftingMenu = true;
 
                 layers.Insert(inventoryIndex + 1, new LegacyGameInterfaceLayer(
-                    "TerraStorage: Storage Block UI",
+                    "Requisition: Storage Block UI",
                     delegate
                     {
                         if (_uiState.IsMouseOverPanel() || (_recoveryOpen && _recoveryState.IsMouseOverPanel()))
@@ -140,7 +140,7 @@ namespace TerraStorage.Content.UI
                 if (_recoveryOpen)
                 {
                     layers.Insert(inventoryIndex + 2, new LegacyGameInterfaceLayer(
-                        "TerraStorage: Disk Recovery UI",
+                        "Requisition: Disk Recovery UI",
                         delegate
                         {
                             _recoveryInterface.Draw(Main.spriteBatch, new GameTime());

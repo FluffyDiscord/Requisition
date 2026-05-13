@@ -7,12 +7,12 @@ using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
 using Terraria.ObjectData;
-using TerraStorage.Content.Items;
-using TerraStorage.Content.UI;
-using TerraStorage.Helpers;
-using TerraStorage.Systems;
+using Requisition.Content.Items;
+using Requisition.Content.UI;
+using Requisition.Helpers;
+using Requisition.Systems;
 
-namespace TerraStorage.Content.Tiles
+namespace Requisition.Content.Tiles
 {
     // Tile entity attached to each placed Drive Bay. Manages the array of inserted Storage Disks,
     // handles multiplayer synchronization, and persists disk items across save/load cycles.
@@ -338,7 +338,7 @@ namespace TerraStorage.Content.Tiles
             {
                 var ids = GetInsertedDiskIds();
                 if (ids.Count > 0)
-                    NetworkHandler.SendRequestDiskData(ModLoader.GetMod("TerraStorage"), ids);
+                    NetworkHandler.SendRequestDiskData(ModLoader.GetMod("Requisition"), ids);
             }
         }
 

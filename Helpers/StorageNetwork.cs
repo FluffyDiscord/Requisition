@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.DataStructures;
-using TerraStorage.Content.Tiles;
-using TerraStorage.Common;
+using Requisition.Content.Tiles;
+using Requisition.Common;
 
-namespace TerraStorage.Helpers
+namespace Requisition.Helpers
 {
     // Utility class that discovers all Drive Bay and Crafting Core tile entities
     // within a fixed tile radius of a Terminal, forming the "network" for a given Terminal.

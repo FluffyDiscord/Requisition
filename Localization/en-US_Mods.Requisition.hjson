@@ -95,8 +95,8 @@ Keybinds: {
 }
 
 Configs: {
-	TerraStorageConfig: {
-		DisplayName: TerraStorage (Server)
+	RequisitionConfig: {
+		DisplayName: Requisition (Server)
 
 		Version: {
 			Label: Version
@@ -114,8 +114,8 @@ Configs: {
 		}
 	}
 
-	TerraStorageClientConfig: {
-		DisplayName: TerraStorage (Client)
+	RequisitionClientConfig: {
+		DisplayName: Requisition (Client)
 
 		Version: {
 			Label: Version

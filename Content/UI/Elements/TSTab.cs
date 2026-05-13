@@ -5,9 +5,9 @@ using Terraria.Audio;
 using Terraria.GameContent;
 using Terraria.ID;
 using Terraria.UI;
-using TerraStorage.Content.UI;
+using Requisition.Content.UI;
 
-namespace TerraStorage.Content.UI.Elements
+namespace Requisition.Content.UI.Elements
 {
     // Flat, modern tab button. Active state shown with a brighter background
     // and a 2 px accent line at the bottom edge.

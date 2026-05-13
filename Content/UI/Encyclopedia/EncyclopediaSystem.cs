@@ -4,10 +4,10 @@ using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.UI;
-using TerraStorage.Content.UI.Elements;
-using TerraStorage.Systems;
+using Requisition.Content.UI.Elements;
+using Requisition.Systems;
 
-namespace TerraStorage.Content.UI.Encyclopedia
+namespace Requisition.Content.UI.Encyclopedia
 {
     public class EncyclopediaSystem : ModSystem
     {
@@ -132,7 +132,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
             if (idx == -1) return;
 
             layers.Insert(idx + 1, new LegacyGameInterfaceLayer(
-                "TerraStorage: Encyclopedia",
+                "Requisition: Encyclopedia",
                 delegate
                 {
                     if (_state.IsMouseOverPanel())

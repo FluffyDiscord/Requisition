@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 
-namespace TerraStorage.Common
+namespace Requisition.Common
 {
     // Represents the item-level changes to a single disk between two points in time.
     // Used by delta sync to send only what changed instead of the entire disk state.

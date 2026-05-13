@@ -5,7 +5,7 @@ using Terraria.GameContent.ItemDropRules;
 using Terraria.ID;
 using Terraria.ModLoader;
 
-namespace TerraStorage.Systems
+namespace Requisition.Systems
 {
     public readonly struct DropSource
     {

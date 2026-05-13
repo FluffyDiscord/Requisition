@@ -11,13 +11,13 @@ using Terraria.GameContent.UI.Elements;
 using Terraria.GameInput;
 using Terraria.Localization;
 using Terraria.UI;
-using TerraStorage.Common;
-using TerraStorage.Content.UI;
-using TerraStorage.Content.UI.CraftingTree;
-using TerraStorage.Helpers;
-using TerraStorage.Systems;
+using Requisition.Common;
+using Requisition.Content.UI;
+using Requisition.Content.UI.CraftingTree;
+using Requisition.Helpers;
+using Requisition.Systems;
 
-namespace TerraStorage.Content.UI.Elements
+namespace Requisition.Content.UI.Elements
 {
     // Split-panel crafting UI: a scrollable recipe grid on the left and a detail view
     // on the right. Supports recipe variant cycling, ingredient right-click navigation
@@ -1001,7 +1001,7 @@ namespace TerraStorage.Content.UI.Elements
             {
                 if (!Main.mouseItem.IsAir && !shift)
                     return;
-                var mod = Terraria.ModLoader.ModLoader.GetMod("TerraStorage");
+                var mod = Terraria.ModLoader.ModLoader.GetMod("Requisition");
                 NetworkHandler.SendWithdrawItem(mod, _diskIds, _selectedRecipe.createItem.type, takeCount, -1, shift);
 
                 Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.Grab);
@@ -1059,7 +1059,7 @@ namespace TerraStorage.Content.UI.Elements
                 // In MP, send a craft request to the server instead of executing locally
                 if (_selectedRecipe != null)
                 {
-                    var mod = Terraria.ModLoader.ModLoader.GetMod("TerraStorage");
+                    var mod = Terraria.ModLoader.ModLoader.GetMod("Requisition");
                     NetworkHandler.SendCraftRequest(mod, _diskIds, _selectedRecipe.createItem.type,
                         _craftAmount * _selectedRecipe.createItem.stack, _availableStations, _availableConditions, _cleanCraft);
                     Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.Grab);
@@ -1143,15 +1143,15 @@ namespace TerraStorage.Content.UI.Elements
             var uncraftRect = new Rectangle((int)dims.X, (int)dims.Y, (int)halfW, 20);
             bool uncraftHover = uncraftRect.Contains(Main.MouseScreen.ToPoint());
             Color uncraftColor = uncraftHover ? Color.White : Color.LightGray;
-            Utils.DrawBorderString(spriteBatch, $"{uncraftBox} {Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.ShowUncraftable")}",
+            Utils.DrawBorderString(spriteBatch, $"{uncraftBox} {Language.GetTextValue("Mods.Requisition.UI.CraftingPanel.ShowUncraftable")}",
                 new Vector2(dims.X + 4, dims.Y + 2), uncraftColor, checkScale);
             if (uncraftHover && !_recursionDragActive)
                 Main.hoverItemName = "Show recipes you can't currently craft";
 
             string recursiveBox = _recursiveCraft ? "[X]" : "[  ]";
             string depthLabel = _recursiveCraft
-                ? $"{recursiveBox} {Language.GetText("Mods.TerraStorage.UI.CraftingPanel.RecursiveWithDepth").Format(_recursionDepth)}"
-                : $"{recursiveBox} {Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.Recursive")}";
+                ? $"{recursiveBox} {Language.GetText("Mods.Requisition.UI.CraftingPanel.RecursiveWithDepth").Format(_recursionDepth)}"
+                : $"{recursiveBox} {Language.GetTextValue("Mods.Requisition.UI.CraftingPanel.Recursive")}";
             var recursiveRect = new Rectangle((int)(dims.X + halfW), (int)dims.Y, (int)halfW, 20);
             _recursiveCheckRect = recursiveRect;
             bool recursiveHover = recursiveRect.Contains(Main.MouseScreen.ToPoint());
@@ -1180,8 +1180,8 @@ namespace TerraStorage.Content.UI.Elements
             if (_filteredRecipes.Count == 0)
             {
                 string msg = _availableStations.Count == 0
-                    ? Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.NoCraftingCore")
-                    : Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.NoRecipesMatch");
+                    ? Language.GetTextValue("Mods.Requisition.UI.CraftingPanel.NoCraftingCore")
+                    : Language.GetTextValue("Mods.Requisition.UI.CraftingPanel.NoRecipesMatch");
                 Utils.DrawBorderString(spriteBatch, msg,
                     new Vector2(dims.X + 5, gridStartY + 5), Color.Gray, 0.7f);
                 return;
@@ -1581,7 +1581,7 @@ namespace TerraStorage.Content.UI.Elements
                                 || _selectedRecipe.Conditions.Count > 0;
             if (hasRequirements)
             {
-                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.Requires"),
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.Requisition.UI.CraftingPanel.Requires"),
                     new Vector2(dims.X + 5, y), Color.LightGoldenrodYellow, 0.7f);
                 y += 18;
 
@@ -1684,7 +1684,7 @@ namespace TerraStorage.Content.UI.Elements
             }
 
             // Ingredients label + variant paginator on the same row
-            Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.Ingredients"),
+            Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.Requisition.UI.CraftingPanel.Ingredients"),
                 new Vector2(dims.X + 5, y), Color.Yellow, 0.7f);
 
             if (_currentVariants.Count > 1)
@@ -1788,7 +1788,7 @@ namespace TerraStorage.Content.UI.Elements
             // Crafting chain steps
             if (_currentPlan != null && _currentPlan.Steps.Count > 1)
             {
-                Utils.DrawBorderString(spriteBatch, Language.GetText("Mods.TerraStorage.UI.CraftingPanel.CraftingChain").Format(_currentPlan.Steps.Count),
+                Utils.DrawBorderString(spriteBatch, Language.GetText("Mods.Requisition.UI.CraftingPanel.CraftingChain").Format(_currentPlan.Steps.Count),
                     new Vector2(dims.X + 5, y), Color.LightGray, 0.65f);
                 y += 16;
 
@@ -1809,13 +1809,13 @@ namespace TerraStorage.Content.UI.Elements
             var dims = _detailPanel.GetInnerDimensions();
             float y = dims.Y + 10;
 
-            Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.SelectRecipe"),
+            Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.Requisition.UI.CraftingPanel.SelectRecipe"),
                 new Vector2(dims.X + 10, y), Color.Gray, 0.9f);
             y += 30;
 
             if (_availableStations.Count > 0)
             {
-                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.AvailableStations"),
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.Requisition.UI.CraftingPanel.AvailableStations"),
                     new Vector2(dims.X + 10, y), Color.LightGoldenrodYellow, 0.75f);
                 y += 20;
 
@@ -1856,13 +1856,13 @@ namespace TerraStorage.Content.UI.Elements
             }
             else
             {
-                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.NoCraftingCore"),
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.Requisition.UI.CraftingPanel.NoCraftingCore"),
                     new Vector2(dims.X + 10, y), Color.IndianRed, 0.75f);
                 y += 20;
-                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.PlaceCraftingCore"),
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.Requisition.UI.CraftingPanel.PlaceCraftingCore"),
                     new Vector2(dims.X + 10, y), Color.Gray, 0.7f);
                 y += 18;
-                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.CraftingPanel.AndInsertStations"),
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.Requisition.UI.CraftingPanel.AndInsertStations"),
                     new Vector2(dims.X + 10, y), Color.Gray, 0.7f);
             }
         }
@@ -1901,7 +1901,7 @@ namespace TerraStorage.Content.UI.Elements
             }
 
             // Current value label at top
-            Utils.DrawBorderString(spriteBatch, Language.GetText("Mods.TerraStorage.UI.CraftingPanel.Depth").Format(_recursionDepth),
+            Utils.DrawBorderString(spriteBatch, Language.GetText("Mods.Requisition.UI.CraftingPanel.Depth").Format(_recursionDepth),
                 new Vector2(sliderX - 2, sliderY - 16), Color.Yellow, 0.55f);
         }
 

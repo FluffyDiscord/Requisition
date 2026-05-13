@@ -4,9 +4,9 @@ using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.UI;
-using TerraStorage.Systems;
+using Requisition.Systems;
 
-namespace TerraStorage.Content.UI.CraftingTree
+namespace Requisition.Content.UI.CraftingTree
 {
     public class CraftingTreeSystem : ModSystem
     {
@@ -114,7 +114,7 @@ namespace TerraStorage.Content.UI.CraftingTree
             if (idx == -1) return;
 
             layers.Insert(idx + 1, new LegacyGameInterfaceLayer(
-                "TerraStorage: Crafting Tree",
+                "Requisition: Crafting Tree",
                 delegate
                 {
                     if (_state.IsMouseOverPanel())

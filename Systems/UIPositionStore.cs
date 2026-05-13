@@ -5,7 +5,7 @@ using Terraria;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
 
-namespace TerraStorage.Systems
+namespace Requisition.Systems
 {
     // Persists UI window positions and sizes across sessions. Saved to a client-side file
     // in the tModLoader save directory; never sent to the server.
@@ -16,7 +16,7 @@ namespace TerraStorage.Systems
         private static bool _loaded = false;
 
         private static string SavePath => Path.Combine(
-            Main.SavePath, "ModLoader", "TerraStorage", "ui_positions.dat");
+            Main.SavePath, "ModLoader", "Requisition", "ui_positions.dat");
 
         public override void Load()
         {

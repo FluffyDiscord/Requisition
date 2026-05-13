@@ -4,7 +4,7 @@ using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
 
-namespace TerraStorage.Content.Items
+namespace Requisition.Content.Items
 {
     // Binds to a placed Terminal and opens its full UI from anywhere in the world via middle-click.
     // Right-click a Terminal tile while holding this to bind it.

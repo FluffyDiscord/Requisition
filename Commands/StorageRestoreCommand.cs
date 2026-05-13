@@ -5,11 +5,11 @@ using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
-using TerraStorage.Systems;
+using Requisition.Systems;
 
-namespace TerraStorage.Commands
+namespace Requisition.Commands
 {
-    // Server console command for listing and immediately restoring TerraStorage disk backups.
+    // Server console command for listing and immediately restoring Requisition disk backups.
     // Usage:
     //   tsrestore list        — show available backups for the current world
     //   tsrestore &lt;0|1|2&gt;    — restore from that slot immediately (no world reload needed)
@@ -18,7 +18,7 @@ namespace TerraStorage.Commands
         public override string Command => "tsrestore";
         public override CommandType Type => CommandType.Console | CommandType.World;
         public override string Usage => "tsrestore list  |  tsrestore <0|1|2>";
-        public override string Description => "List or restore TerraStorage disk backups for the current world.";
+        public override string Description => "List or restore Requisition disk backups for the current world.";
 
         public override void Action(CommandCaller caller, string input, string[] args)
         {
@@ -97,7 +97,7 @@ namespace TerraStorage.Commands
                 // In MP, push all restored disk data to connected clients.
                 if (Main.netMode == NetmodeID.Server)
                 {
-                    var mod = ModLoader.GetMod("TerraStorage");
+                    var mod = ModLoader.GetMod("Requisition");
                     var allIds = sys.GetAllDiskData().Select(d => d.DiskId).ToList();
                     NetworkHandler.BroadcastDiskData(mod, allIds, ignoreClient: -1);
                 }

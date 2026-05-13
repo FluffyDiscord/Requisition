@@ -11,11 +11,11 @@ using Terraria.ID;
 using Terraria.Localization;
 using Terraria.ModLoader;
 using Terraria.UI;
-using TerraStorage.Content.UI.Elements;
-using TerraStorage.Helpers;
-using TerraStorage.Systems;
+using Requisition.Content.UI.Elements;
+using Requisition.Helpers;
+using Requisition.Systems;
 
-namespace TerraStorage.Content.UI.Encyclopedia
+namespace Requisition.Content.UI.Encyclopedia
 {
     public class EncyclopediaState : UIState
     {
@@ -117,7 +117,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
             Append(_mainPanel);
 
             // Title
-            var title = new UIText(Language.GetText("Mods.TerraStorage.UI.Encyclopedia.Title"), 0.9f);
+            var title = new UIText(Language.GetText("Mods.Requisition.UI.Encyclopedia.Title"), 0.9f);
             title.Left.Set(10, 0f);
             title.Top.Set(2, 0f);
             _mainPanel.Append(title);
@@ -242,7 +242,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
             _detailList.SetScrollbar(_detailScrollbar);
             _detailPanel.Append(_detailList);
 
-            _detailList.Add(new UIText(Language.GetText("Mods.TerraStorage.UI.Encyclopedia.ClickToView"), 0.85f) { TextColor = Color.Gray });
+            _detailList.Add(new UIText(Language.GetText("Mods.Requisition.UI.Encyclopedia.ClickToView"), 0.85f) { TextColor = Color.Gray });
 
             // Toggle strip — permanent left-edge anchor, always on top, never moves
             _browseToggleBtn = new BrowseToggleButton(
@@ -524,7 +524,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
                 }
 
                 var section = new UIEncyclopediaSection(
-                    $"{Language.GetTextValue("Mods.TerraStorage.UI.Encyclopedia.DroppedBy")} ({drops.Count})", new Color(255, 180, 80), npcRow);
+                    $"{Language.GetTextValue("Mods.Requisition.UI.Encyclopedia.DroppedBy")} ({drops.Count})", new Color(255, 180, 80), npcRow);
                 _detailList.Add(section);
                 _detailList.Add(new UISpacer(4));
             }
@@ -539,7 +539,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
                     npcRow.AddNpcSlot(shop.NpcType, null, null, shop.Price);
 
                 var section = new UIEncyclopediaSection(
-                    $"{Language.GetTextValue("Mods.TerraStorage.UI.Encyclopedia.SoldBy")} ({shops.Count})", new Color(100, 200, 255), npcRow);
+                    $"{Language.GetTextValue("Mods.Requisition.UI.Encyclopedia.SoldBy")} ({shops.Count})", new Color(100, 200, 255), npcRow);
                 _detailList.Add(section);
                 _detailList.Add(new UISpacer(4));
             }
@@ -553,7 +553,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
                 row.AddItemSlot(shimmerTo, 1);
 
                 var section = new UIEncyclopediaSection(
-                    Language.GetTextValue("Mods.TerraStorage.UI.Encyclopedia.ShimmersInto"), new Color(200, 150, 255), row);
+                    Language.GetTextValue("Mods.Requisition.UI.Encyclopedia.ShimmersInto"), new Color(200, 150, 255), row);
                 _detailList.Add(section);
                 _detailList.Add(new UISpacer(4));
             }
@@ -575,7 +575,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
             if (!hasAny)
             {
                 _detailList.Add(new UISpacer(6));
-                _detailList.Add(new UIText(Language.GetTextValue("Mods.TerraStorage.UI.Encyclopedia.NoSourceData"), 0.8f) { TextColor = Color.Gray });
+                _detailList.Add(new UIText(Language.GetTextValue("Mods.Requisition.UI.Encyclopedia.NoSourceData"), 0.8f) { TextColor = Color.Gray });
             }
         }
 
@@ -657,7 +657,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
             if (!hasAny)
             {
                 _detailList.Add(new UISpacer(6));
-                _detailList.Add(new UIText(Language.GetTextValue("Mods.TerraStorage.UI.Encyclopedia.NoDropOrShop"), 0.8f) { TextColor = Color.Gray });
+                _detailList.Add(new UIText(Language.GetTextValue("Mods.Requisition.UI.Encyclopedia.NoDropOrShop"), 0.8f) { TextColor = Color.Gray });
             }
         }
 
@@ -751,7 +751,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
         private void AddBackButton()
         {
             if (_history.Count == 0) return;
-            var btn = new UITextPanel<string>(Language.GetTextValue("Mods.TerraStorage.UI.Encyclopedia.Back"), 0.7f);
+            var btn = new UITextPanel<string>(Language.GetTextValue("Mods.Requisition.UI.Encyclopedia.Back"), 0.7f);
             btn.Width.Set(70, 0f);
             btn.Height.Set(22, 0f);
             btn.OnLeftClick += (_, _) => NavigateBack();
@@ -775,7 +775,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
             if (_mainPanel.ContainsPoint(Main.MouseScreen))
             {
                 Main.LocalPlayer.mouseInterface = true;
-                PlayerInput.LockVanillaMouseScroll("TerraStorage/Encyclopedia");
+                PlayerInput.LockVanillaMouseScroll("Requisition/Encyclopedia");
             }
 
             if (Main.keyState.IsKeyDown(Keys.Escape) && Main.oldKeyState.IsKeyUp(Keys.Escape))
@@ -1188,7 +1188,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
             }
 
             // Measure
-            string buyLabel = Language.GetTextValue("Mods.TerraStorage.UI.Encyclopedia.BuyLabel");
+            string buyLabel = Language.GetTextValue("Mods.Requisition.UI.Encyclopedia.BuyLabel");
             float nameW     = font.MeasureString(npcName).X * scale;
             float buyLabelW = hasPrice ? font.MeasureString(buyLabel).X * scale : 0f;
             float priceW    = 0f;
@@ -1609,7 +1609,7 @@ namespace TerraStorage.Content.UI.Encyclopedia
             // Result stack indicator
             if (recipe.ResultStack > 1)
             {
-                Utils.DrawBorderString(spriteBatch, Language.GetText("Mods.TerraStorage.UI.Encyclopedia.Makes").Format(recipe.ResultStack),
+                Utils.DrawBorderString(spriteBatch, Language.GetText("Mods.Requisition.UI.Encyclopedia.Makes").Format(recipe.ResultStack),
                     new Vector2(dims.X + dims.Width - 4, contentY + 4),
                     new Color(200, 200, 100), 0.6f, 1f, 0f);
             }
@@ -1854,8 +1854,8 @@ namespace TerraStorage.Content.UI.Encyclopedia
             {
                 Main.LocalPlayer.mouseInterface = true;
                 Main.hoverItemName = isOpen
-                    ? Language.GetTextValue("Mods.TerraStorage.UI.Encyclopedia.CloseBrowser")
-                    : Language.GetTextValue("Mods.TerraStorage.UI.Encyclopedia.OpenBrowser");
+                    ? Language.GetTextValue("Mods.Requisition.UI.Encyclopedia.CloseBrowser")
+                    : Language.GetTextValue("Mods.Requisition.UI.Encyclopedia.OpenBrowser");
             }
         }
     }

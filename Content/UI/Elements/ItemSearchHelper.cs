@@ -4,7 +4,7 @@ using System.Text;
 using Terraria;
 using Terraria.ModLoader;
 
-namespace TerraStorage.Content.UI.Elements
+namespace Requisition.Content.UI.Elements
 {
     // Shared item search logic supporting prefix modes:
     //   (none) — search by item name

@@ -4,9 +4,9 @@ using System.Linq;
 using Terraria;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
-using TerraStorage.Common;
+using Requisition.Common;
 
-namespace TerraStorage.Systems
+namespace Requisition.Systems
 {
     // World-level system that owns the authoritative storage of all disk data.
     // Provides insert, extract, and query operations across one or more disks,
@@ -593,7 +593,7 @@ namespace TerraStorage.Systems
 
         private static void DBG(string msg)
         {
-            var path = TerraStorage.DebugLogPath;
+            var path = Requisition.DebugLogPath;
             if (path == null) return;
             try
             {
@@ -683,7 +683,7 @@ namespace TerraStorage.Systems
             try
             {
                 string dumpDir = System.IO.Path.Combine(
-                    AppContext.BaseDirectory, "tModLoader-Logs", "TerraStorage-DiskDumps");
+                    AppContext.BaseDirectory, "tModLoader-Logs", "Requisition-DiskDumps");
                 System.IO.Directory.CreateDirectory(dumpDir);
 
                 foreach (var data in _allDiskData.Values)
@@ -715,7 +715,7 @@ namespace TerraStorage.Systems
             }
             catch (System.Exception ex)
             {
-                Terraria.ModLoader.ModContent.GetInstance<TerraStorage>()?.Logger.Warn($"DumpDiskData failed: {ex.Message}");
+                Terraria.ModLoader.ModContent.GetInstance<Requisition>()?.Logger.Warn($"DumpDiskData failed: {ex.Message}");
             }
         }
 
@@ -724,7 +724,7 @@ namespace TerraStorage.Systems
             var restoreTag = BackupSystem.TryConsumeRestoreOverride();
             if (restoreTag != null)
             {
-                ModContent.GetInstance<TerraStorage>()?.Logger.Info("[TerraStorage] Restoring storage from backup.");
+                ModContent.GetInstance<Requisition>()?.Logger.Info("[Requisition] Restoring storage from backup.");
                 tag = restoreTag;
             }
 

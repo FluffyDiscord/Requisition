@@ -9,9 +9,9 @@ using Terraria.GameContent;
 using Terraria.ID;
 using Terraria.Localization;
 using Terraria.UI;
-using TerraStorage.Systems;
+using Requisition.Systems;
 
-namespace TerraStorage.Content.UI
+namespace Requisition.Content.UI
 {
     // A floating, collapsible, pinnable panel that shows every recipe the player has
     // favorited via <see cref="StoragePlayerSystem"/>. For each recipe it renders the
@@ -104,7 +104,7 @@ namespace TerraStorage.Content.UI
             if (panelRect.Contains(Main.MouseScreen.ToPoint()))
             {
                 Main.LocalPlayer.mouseInterface = true;
-                Terraria.GameInput.PlayerInput.LockVanillaMouseScroll("TerraStorage:FavPanel");
+                Terraria.GameInput.PlayerInput.LockVanillaMouseScroll("Requisition:FavPanel");
                 if (justClicked)
                     UIClickBlocker.Consume();
             }
@@ -231,7 +231,7 @@ namespace TerraStorage.Content.UI
                 if (pinHov) Main.hoverItemName = IsPinned ? "Unpin (hide when inventory closes)" : "Pin (keep visible)";
             }
 
-            Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.FavoritedRecipes.Title"),
+            Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.Requisition.UI.FavoritedRecipes.Title"),
                 new Vector2(PanelLeft + 6, PanelTop + 5), Color.Gold * alpha, 0.75f);
 
             if (IsCollapsed) return;
@@ -281,7 +281,7 @@ namespace TerraStorage.Content.UI
 
             if (favorites.Count == 0)
             {
-                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.TerraStorage.UI.FavoritedRecipes.NoFavorites"),
+                Utils.DrawBorderString(spriteBatch, Language.GetTextValue("Mods.Requisition.UI.FavoritedRecipes.NoFavorites"),
                     new Vector2(PanelLeft + 8, PanelTop + HeaderHeight + 6), Color.Gray * alpha, 0.7f);
             }
 

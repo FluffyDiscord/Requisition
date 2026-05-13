@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
 
-namespace TerraStorage.Content.UI.CraftingTree
+namespace Requisition.Content.UI.CraftingTree
 {
     // A single node in the Crafting Tree graph. Each node represents an item type
     // and holds references to child nodes in two directions:

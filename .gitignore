@@ -30,6 +30,7 @@ obj/
 *.swp
 *.swo
 *~
+*.code-workspace
 
 # OS files
 .DS_Store
@@ -47,7 +48,9 @@ Desktop.ini
 # Build outputs
 build/
 dist/
+
+# Plans
+./plans/
 ```
 
-Content/Tiles/drivepallet.aseprite
-Content/Items/StorageDisk.aseprite
+*.aseprite

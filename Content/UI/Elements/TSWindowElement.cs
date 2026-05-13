@@ -7,11 +7,11 @@ using Terraria.GameContent;
 using Terraria.ID;
 using Terraria.GameContent.UI.Elements;
 using Terraria.UI;
-using TerraStorage.Systems;
+using Requisition.Systems;
 
-namespace TerraStorage.Content.UI.Elements
+namespace Requisition.Content.UI.Elements
 {
-    // Reusable window chrome for all TerraStorage floating panels.
+    // Reusable window chrome for all Requisition floating panels.
     // Handles background, optional title bar, resize handle, drag-to-move,
     // and position/size persistence via UIPositionStore.
     // Usage:

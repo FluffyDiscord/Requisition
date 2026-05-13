@@ -1,6 +1,6 @@
 Adds a networked bulk storage system to Terraria. Store thousands of item stacks across tiered Storage Disks, access and craft from them through a Terminal, and take your collection between worlds.
 
-[b]This mod is in alpha — bugs are expected. Please report anything you find![/b]
+[b]This mod is in beta — bugs are expected. Please report anything you find![/b]
 [hr][/hr]
 
 [h2]Terminal[/h2]

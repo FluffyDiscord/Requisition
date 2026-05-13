@@ -1,18 +1,18 @@
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
-using TerraStorage.Content.Items;
-using TerraStorage.Helpers;
+using Requisition.Content.Items;
+using Requisition.Helpers;
 
-namespace TerraStorage.Content.Tiles
+namespace Requisition.Content.Tiles
 {
-    // Registers crafting recipes for all placeable TerraStorage tiles (Drive Bay, Terminal,
+    // Registers crafting recipes for all placeable Requisition tiles (Drive Bay, Terminal,
     // Crafting Core, and condition source tiles). 
     public class TileRecipeSystem : ModSystem
     {
-        internal const string GroupCopperBar  = "TerraStorage:AnyCopperBar";
-        internal const string GroupGoldBar    = "TerraStorage:AnyGoldBar";
-        internal const string GroupIronHammer = "TerraStorage:AnyIronHammer";
+        internal const string GroupCopperBar  = "Requisition:AnyCopperBar";
+        internal const string GroupGoldBar    = "Requisition:AnyGoldBar";
+        internal const string GroupIronHammer = "Requisition:AnyIronHammer";
 
         public override void AddRecipeGroups()
         {
@@ -86,8 +86,8 @@ namespace TerraStorage.Content.Tiles
                 .Register();
 
             // Remote Terminal — post-Moon Lord recipe (default)
-            var condHard = new Condition("Mods.TerraStorage.Conditions.RemoteTerminalHard",
-                () => !(TerraStorageConfig.Instance?.EasierRemoteTerminal ?? false));
+            var condHard = new Condition("Mods.Requisition.Conditions.RemoteTerminalHard",
+                () => !(RequisitionConfig.Instance?.EasierRemoteTerminal ?? false));
             Recipe.Create(ModContent.ItemType<RemoteTerminal>())
                 .AddIngredient(ItemID.LunarBar, 8)
                 .AddIngredient(ItemID.FragmentStardust, 10)
@@ -99,8 +99,8 @@ namespace TerraStorage.Content.Tiles
                 .Register();
 
             // Remote Terminal — easier recipe (post-Skeletron + Deerclops, config option)
-            var condEasy = new Condition("Mods.TerraStorage.Conditions.RemoteTerminalEasy",
-                () => TerraStorageConfig.Instance?.EasierRemoteTerminal ?? false);
+            var condEasy = new Condition("Mods.Requisition.Conditions.RemoteTerminalEasy",
+                () => RequisitionConfig.Instance?.EasierRemoteTerminal ?? false);
             Recipe.Create(ModContent.ItemType<RemoteTerminal>())
                 .AddIngredient(ItemID.HellstoneBar, 15)
                 .AddIngredient(ItemID.Bone, 10)

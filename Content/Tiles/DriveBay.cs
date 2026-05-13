@@ -9,15 +9,15 @@ using Terraria.GameContent.ObjectInteractions;
 using Terraria.ModLoader;
 using Terraria.ObjectData;
 
-namespace TerraStorage.Content.Tiles
+namespace Requisition.Content.Tiles
 {
     // The Drive Bay tile (3x3). Houses up to <see cref="DriveBayEntity.DiskSlotCount"/> Storage Disks.
     // Blocks tile destruction while any disk is inserted and opens the disk-management UI on right-click.
     public class DriveBayLarge : ModTile
     {
-        public override string Texture => "TerraStorage/Content/Tiles/DriveBay";
+        public override string Texture => "Requisition/Content/Tiles/DriveBay";
 
-        private const string StatesPath = "TerraStorage/Content/Tiles/DriveBayStates/";
+        private const string StatesPath = "Requisition/Content/Tiles/DriveBayStates/";
 
         // Bay-level status light textures (indexed by bay state: 0=Offline, 1=Online, 2=80%, 3=Full)
         private Asset<Texture2D>[] _bayLight;

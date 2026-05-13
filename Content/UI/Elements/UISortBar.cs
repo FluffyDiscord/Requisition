@@ -5,9 +5,9 @@ using Terraria;
 using Terraria.GameContent;
 using Terraria.ID;
 using Terraria.UI;
-using TerraStorage.Content.UI;
+using Requisition.Content.UI;
 
-namespace TerraStorage.Content.UI.Elements
+namespace Requisition.Content.UI.Elements
 {
     // A row of seven icon buttons corresponding to each <see cref="SortMode"/>.
     // Left-click selects a sort mode; right-click on the active button toggles

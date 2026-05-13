@@ -7,14 +7,14 @@ using Terraria.DataStructures;
 using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
-using TerraStorage.Common;
-using TerraStorage.Content.Items;
-using TerraStorage.Content.Tiles;
-using TerraStorage.Helpers;
+using Requisition.Common;
+using Requisition.Content.Items;
+using Requisition.Content.Tiles;
+using Requisition.Helpers;
 
-namespace TerraStorage.Systems
+namespace Requisition.Systems
 {
-    //Identifies the type of a TerraStorage multiplayer packet.
+    //Identifies the type of a Requisition multiplayer packet.
     public enum PacketType : byte
     {
         SyncDiskInsert,
@@ -57,7 +57,7 @@ namespace TerraStorage.Systems
         SyncDiskDataChunked,
     }
 
-    // Sends and receives all TerraStorage network packets.
+    // Sends and receives all Requisition network packets.
     // On the server, most handlers also relay the packet to all other clients
     // (the standard tModLoader server-relay pattern).
     public static class NetworkHandler
@@ -605,7 +605,7 @@ namespace TerraStorage.Systems
         // Client requests DiskData for a set of disk IDs (sent when opening Terminal).
         private static void DBG(string msg)
         {
-            var path = TerraStorage.DebugLogPath;
+            var path = Requisition.DebugLogPath;
             if (path == null) return;
             try
             {
@@ -1266,7 +1266,7 @@ namespace TerraStorage.Systems
             if (delta.SeqNum != lastSeen + 1)
             {
                 DBG($"HandleDeltaDiskData: seq gap for disk {diskId.ToString()[..8]}: expected {lastSeen + 1}, got {delta.SeqNum}. Requesting full sync.");
-                SendRequestFullDiskSync(ModContent.GetInstance<TerraStorage>(), diskId);
+                SendRequestFullDiskSync(ModContent.GetInstance<Requisition>(), diskId);
                 return;
             }
 
@@ -1275,7 +1275,7 @@ namespace TerraStorage.Systems
             if (diskData == null)
             {
                 DBG($"HandleDeltaDiskData: disk {diskId.ToString()[..8]} not found locally, requesting full sync.");
-                SendRequestFullDiskSync(ModContent.GetInstance<TerraStorage>(), diskId);
+                SendRequestFullDiskSync(ModContent.GetInstance<Requisition>(), diskId);
                 return;
             }
 

@@ -3,10 +3,10 @@ using System.IO;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
-using TerraStorage.Content.Items;
-using TerraStorage.Systems;
+using Requisition.Content.Items;
+using Requisition.Systems;
 
-namespace TerraStorage.Content.Players
+namespace Requisition.Content.Players
 {
     // Handles middle-click archiving and unarchiving of Storage Disks in the player inventory.
     // Archive embeds items into the disk's NBT and removes their world entry (cross-world transport).
@@ -74,7 +74,7 @@ namespace TerraStorage.Content.Players
                 // Server must perform the archive because StorageWorldSystem is server-authoritative.
                 // The server will send back the updated disk item via ArchiveDiskResult.
                 NetworkHandler.SendArchiveDiskRequest(
-                    ModLoader.GetMod("TerraStorage"), Main.myPlayer, slot, disk.DiskId);
+                    ModLoader.GetMod("Requisition"), Main.myPlayer, slot, disk.DiskId);
             }
         }
 
@@ -99,7 +99,7 @@ namespace TerraStorage.Content.Players
 
         private static void DBG(string msg)
         {
-            var path = TerraStorage.DebugLogPath;
+            var path = Requisition.DebugLogPath;
             if (path == null) return;
             try
             {

@@ -11,10 +11,10 @@ using Terraria.GameContent.UI.Elements;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
 using Terraria.UI;
-using TerraStorage.Content.UI;
-using TerraStorage.Systems;
+using Requisition.Content.UI;
+using Requisition.Systems;
 
-namespace TerraStorage.Content.UI.Elements
+namespace Requisition.Content.UI.Elements
 {
     // Scrollable grid that displays <see cref="ConsolidatedItem"/> entries from storage.
     // Supports configurable column count, an external <see cref="UIScrollbar"/>, left/right/

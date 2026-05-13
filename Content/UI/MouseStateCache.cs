@@ -1,4 +1,4 @@
-namespace TerraStorage.Content.UI
+namespace Requisition.Content.UI
 {
     internal static class MouseStateCache
     {

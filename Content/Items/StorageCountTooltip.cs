@@ -4,10 +4,10 @@ using Microsoft.Xna.Framework.Input;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
-using TerraStorage.Content.UI.Elements;
-using TerraStorage.Systems;
+using Requisition.Content.UI.Elements;
+using Requisition.Systems;
 
-namespace TerraStorage.Content.Items
+namespace Requisition.Content.Items
 {
     // Appends "In Storage: X" to item tooltips when the player has recently
     // opened a Terminal. Uses the last-opened terminal's disk IDs.
@@ -19,7 +19,7 @@ namespace TerraStorage.Content.Items
             if (Main.gameMenu) return;
 
             // Storage count
-            if (TerraStorageClientConfig.Instance?.InStorageTooltip == true)
+            if (RequisitionClientConfig.Instance?.InStorageTooltip == true)
             {
                 var player = StoragePlayerSystem.Local;
                 var diskIds = player.LastOpenedDiskIds;
@@ -35,7 +35,7 @@ namespace TerraStorage.Content.Items
             }
 
             // Debug: hold Alt to show classification properties (requires client config)
-            if (TerraStorageClientConfig.Instance?.DebugTooltips == true
+            if (RequisitionClientConfig.Instance?.DebugTooltips == true
                 && (Main.keyState.IsKeyDown(Keys.LeftAlt) || Main.keyState.IsKeyDown(Keys.RightAlt)))
             {
                 var cat = UICategoryFilterBar.ClassifyItem(item.type);

@@ -1,6 +1,6 @@
-using TerraStorage.Common;
+using Requisition.Common;
 
-namespace TerraStorage.Content.Items
+namespace Requisition.Content.Items
 {
     //Basic Storage Disk — holds up to 64 item stacks.
     public class StorageDiskTier1 : StorageDiskBase
