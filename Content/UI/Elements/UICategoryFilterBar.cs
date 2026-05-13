@@ -21,6 +21,8 @@ namespace TerraStorage.Content.UI.Elements
         MagicWeapons,
         SummonerWeapons,
         ThrowingWeapons,
+        RadiantWeapons,    // Thorium Healer
+        SymphonicWeapons,  // Thorium Bard
         OtherWeapons,
         Ammo,
         Tools,
@@ -41,38 +43,87 @@ namespace TerraStorage.Content.UI.Elements
     // <c>SetDefaults</c> calls during filtering.
     public class UICategoryFilterBar : UIElement
     {
-        // Representative item IDs for each category icon
-        private static readonly int[] CategoryItemIcons =
-        {
-            ItemID.GoldBroadsword,       // Melee
-            ItemID.GoldBow,              // Ranged
-            ItemID.WaterBolt,            // Magic
-            ItemID.SlimeStaff,           // Summon
-            ItemID.Shuriken,             // Throwing
-            ItemID.Flamethrower,         // Other Weapons
-            ItemID.MusketBall,           // Ammo
-            ItemID.GoldPickaxe,          // Tools
-            ItemID.IronChainmail,        // Armor
-            ItemID.HermesBoots,          // Accessories
-            ItemID.FamiliarWig,          // Vanity
-            ItemID.HealingPotion,        // Potions
-            ItemID.Wood,                 // Placeable
-            ItemID.SuspiciousLookingEye, // Boss Summoners
-            ItemID.Gel,                  // Materials
-            ItemID.Torch                 // Misc
-        };
-
         private static readonly Dictionary<int, ItemCategory> _categoryCache = new();
         private static readonly HashSet<int> _crossModBossSummoners = new();
         private static bool _crossModInitialized;
 
-        private readonly bool[] _enabled = new bool[16];
+        // Thorium damage classes, resolved at init time
+        private static DamageClass _thoriumRadiant;
+        private static DamageClass _thoriumSymphonic;
+        private static bool _thoriumLoaded;
+
+        // Categories that are actually active (excludes Thorium categories when not loaded)
+        private static List<ItemCategory> _activeCategories;
+        private static List<int> _activeCategoryIcons;
+        private static List<string> _activeCategoryTooltips;
+
+        private static int CategoryCount => _activeCategories?.Count ?? 0;
+
+        private readonly bool[] _enabled;
         public event Action OnFilterChanged;
 
         public UICategoryFilterBar()
         {
-            for (int i = 0; i < 16; i++)
+            InitActiveCategories();
+            _enabled = new bool[CategoryCount];
+            for (int i = 0; i < CategoryCount; i++)
                 _enabled[i] = true;
+        }
+
+        private static void InitActiveCategories()
+        {
+            if (_activeCategories != null) return;
+
+            _thoriumLoaded = ModLoader.TryGetMod("ThoriumMod", out var thorium);
+            if (_thoriumLoaded)
+            {
+                if (thorium.TryFind<DamageClass>("HealerDamage", out var radiant))
+                    _thoriumRadiant = radiant;
+                if (thorium.TryFind<DamageClass>("BardDamage", out var symphonic))
+                    _thoriumSymphonic = symphonic;
+            }
+
+            _activeCategories = new List<ItemCategory>();
+            _activeCategoryIcons = new List<int>();
+            _activeCategoryTooltips = new List<string>();
+
+            void Add(ItemCategory cat, int icon, string tooltip)
+            {
+                _activeCategories.Add(cat);
+                _activeCategoryIcons.Add(icon);
+                _activeCategoryTooltips.Add(tooltip);
+            }
+
+            Add(ItemCategory.MeleeWeapons,    ItemID.GoldBroadsword,       "Melee Weapons");
+            Add(ItemCategory.RangedWeapons,   ItemID.GoldBow,              "Ranged Weapons");
+            Add(ItemCategory.MagicWeapons,    ItemID.WaterBolt,            "Magic Weapons");
+            Add(ItemCategory.SummonerWeapons, ItemID.SlimeStaff,           "Summoner Weapons");
+            Add(ItemCategory.ThrowingWeapons, ItemID.Shuriken,             "Rogue/Throwing Weapons");
+
+            if (_thoriumLoaded)
+            {
+                int radiantIcon = ItemID.FallenStar;
+                int symphonicIcon = ItemID.Harp;
+                if (thorium.TryFind<ModItem>("HolyStaff", out var rItem))
+                    radiantIcon = rItem.Type;
+                if (thorium.TryFind<ModItem>("OceanDrum", out var sItem))
+                    symphonicIcon = sItem.Type;
+
+                Add(ItemCategory.RadiantWeapons,   radiantIcon,   "Radiant Weapons (Healer)");
+                Add(ItemCategory.SymphonicWeapons, symphonicIcon, "Symphonic Weapons (Bard)");
+            }
+
+            Add(ItemCategory.OtherWeapons,    ItemID.Flamethrower,         "Other Weapons");
+            Add(ItemCategory.Ammo,            ItemID.MusketBall,           "Ammunition");
+            Add(ItemCategory.Tools,           ItemID.GoldPickaxe,          "Tools (Pick/Axe/Hammer/Rod)");
+            Add(ItemCategory.Armor,           ItemID.IronChainmail,        "Armor");
+            Add(ItemCategory.Accessories,     ItemID.HermesBoots,          "Accessories");
+            Add(ItemCategory.Vanity,          ItemID.FamiliarWig,          "Vanity Items");
+            Add(ItemCategory.Potions,         ItemID.HealingPotion,        "Potions & Consumables");
+            Add(ItemCategory.Placables,       ItemID.Wood,                 "Placeable Items");
+            Add(ItemCategory.BossSummoners,   ItemID.SuspiciousLookingEye, "Boss Summoning Items");
+            Add(ItemCategory.Materials,       ItemID.Gel,                  "Crafting Materials");
+            Add(ItemCategory.Miscellaneous,   ItemID.Torch,                "Miscellaneous");
         }
 
         public override void LeftClick(UIMouseEvent evt)
@@ -87,7 +138,7 @@ namespace TerraStorage.Content.UI.Elements
                 if (onlyThisEnabled)
                 {
                     int enabledCount = 0;
-                    for (int i = 0; i < 16; i++)
+                    for (int i = 0; i < CategoryCount; i++)
                         if (_enabled[i]) enabledCount++;
                     onlyThisEnabled = enabledCount == 1;
                 }
@@ -95,13 +146,13 @@ namespace TerraStorage.Content.UI.Elements
                 if (onlyThisEnabled)
                 {
                     // Re-enable all
-                    for (int i = 0; i < 16; i++)
+                    for (int i = 0; i < CategoryCount; i++)
                         _enabled[i] = true;
                 }
                 else
                 {
                     // Select only this one
-                    for (int i = 0; i < 16; i++)
+                    for (int i = 0; i < CategoryCount; i++)
                         _enabled[i] = i == index;
                 }
                 OnFilterChanged?.Invoke();
@@ -120,24 +171,23 @@ namespace TerraStorage.Content.UI.Elements
             }
         }
 
-        private const float BtnSize = 25f;
-
         private int GetButtonAtMouse(Vector2 mousePos)
         {
             var dims = GetDimensions();
+            float btnSize = dims.Height;
             float relX = mousePos.X - dims.X;
             float relY = mousePos.Y - dims.Y;
 
-            int columns = Math.Max(1, (int)(dims.Width / BtnSize));
-            int rows = (16 + columns - 1) / columns;
+            int columns = Math.Max(1, (int)(dims.Width / btnSize));
+            int rows = (CategoryCount + columns - 1) / columns;
 
-            int col = (int)(relX / BtnSize);
-            int row = (int)(relY / BtnSize);
+            int col = (int)(relX / btnSize);
+            int row = (int)(relY / btnSize);
             if (col < 0 || col >= columns || row < 0 || row >= rows)
                 return -1;
 
             int index = row * columns + col;
-            return index < 16 ? index : -1;
+            return index < CategoryCount ? index : -1;
         }
 
         // Returns true if the item passes the current filter state. When all categories
@@ -146,14 +196,15 @@ namespace TerraStorage.Content.UI.Elements
         {
             // Short-circuit: if all categories are on, nothing is filtered out.
             bool allEnabled = true;
-            for (int i = 0; i < 16; i++)
+            for (int i = 0; i < CategoryCount; i++)
             {
                 if (!_enabled[i]) { allEnabled = false; break; }
             }
             if (allEnabled) return true;
 
             var category = ClassifyItem(itemType);
-            return _enabled[(int)category];
+            int idx = _activeCategories.IndexOf(category);
+            return idx < 0 || _enabled[idx];
         }
 
         public static ItemCategory ClassifyItem(int itemType)
@@ -225,6 +276,10 @@ namespace TerraStorage.Content.UI.Elements
                     return ItemCategory.SummonerWeapons;
                 if (item.DamageType.CountsAsClass(DamageClass.Throwing))
                     return ItemCategory.ThrowingWeapons;
+                if (_thoriumRadiant != null && item.DamageType.CountsAsClass(_thoriumRadiant))
+                    return ItemCategory.RadiantWeapons;
+                if (_thoriumSymphonic != null && item.DamageType.CountsAsClass(_thoriumSymphonic))
+                    return ItemCategory.SymphonicWeapons;
                 return ItemCategory.OtherWeapons;
             }
 
@@ -300,15 +355,16 @@ namespace TerraStorage.Content.UI.Elements
         protected override void DrawSelf(SpriteBatch spriteBatch)
         {
             var dims = GetDimensions();
-            int columns = Math.Max(1, (int)(dims.Width / BtnSize));
+            float btnSize = dims.Height;
+            int columns = Math.Max(1, (int)(dims.Width / btnSize));
 
-            for (int i = 0; i < 16; i++)
+            for (int i = 0; i < CategoryCount; i++)
             {
                 int col = i % columns;
                 int row = i / columns;
-                float x = dims.X + col * BtnSize;
-                float y = dims.Y + row * BtnSize;
-                var btnRect = new Rectangle((int)x, (int)y, (int)BtnSize - 2, (int)BtnSize - 2);
+                float x = dims.X + col * btnSize;
+                float y = dims.Y + row * btnSize;
+                var btnRect = new Rectangle((int)x, (int)y, (int)btnSize - 2, (int)btnSize - 2);
 
                 bool hover = btnRect.Contains(Main.MouseScreen.ToPoint());
                 Color bgColor;
@@ -320,14 +376,14 @@ namespace TerraStorage.Content.UI.Elements
                 Utils.DrawInvBG(spriteBatch, btnRect, bgColor);
 
                 // Draw item icon
-                int iconItemType = CategoryItemIcons[i];
+                int iconItemType = _activeCategoryIcons[i];
                 Color iconTint = _enabled[i] ? Color.White : Color.Gray * 0.6f;
                 DrawFilterIcon(spriteBatch, iconItemType, btnRect, iconTint);
 
                 if (hover)
                 {
                     Main.LocalPlayer.mouseInterface = true;
-                    Main.hoverItemName = GetCategoryTooltip(i) + "\n[Left-click: isolate | Right-click: toggle]";
+                    Main.hoverItemName = _activeCategoryTooltips[i] + "\n[Left-click: isolate | Right-click: toggle]";
                 }
             }
         }
@@ -352,28 +408,5 @@ namespace TerraStorage.Content.UI.Elements
             spriteBatch.Draw(texture, center, sourceRect, tint, 0f, origin, scale, SpriteEffects.None, 0f);
         }
 
-        private static string GetCategoryTooltip(int index)
-        {
-            return (ItemCategory)index switch
-            {
-                ItemCategory.MeleeWeapons => "Melee Weapons",
-                ItemCategory.RangedWeapons => "Ranged Weapons",
-                ItemCategory.MagicWeapons => "Magic Weapons",
-                ItemCategory.SummonerWeapons => "Summoner Weapons",
-                ItemCategory.ThrowingWeapons => "Rogue/Throwing Weapons",
-                ItemCategory.OtherWeapons => "Other Weapons",
-                ItemCategory.Ammo => "Ammunition",
-                ItemCategory.Tools => "Tools (Pick/Axe/Hammer/Rod)",
-                ItemCategory.Armor => "Armor",
-                ItemCategory.Accessories => "Accessories",
-                ItemCategory.Vanity => "Vanity Items",
-                ItemCategory.Potions => "Potions & Consumables",
-                ItemCategory.Placables => "Placeable Items",
-                ItemCategory.BossSummoners => "Boss Summoning Items",
-                ItemCategory.Materials => "Crafting Materials",
-                ItemCategory.Miscellaneous => "Miscellaneous",
-                _ => ""
-            };
-        }
     }
 }
