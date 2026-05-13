@@ -104,5 +104,5 @@ No known bugs at this time.
 
 [h1]Changes[/h1]
 View the change log and source code on [url=https://github.com/votex09/Requisition]GitHub[/url].
-Report bugs on [url=https://github.com/votex09/Requisition/issues]GitHub Issues[/url] or the [url=https://steamcommunity.com/sharedfiles/filedetails/discussions/3687137546]Steam discussions[/url].
+Report bugs on [url=https://github.com/votex09/Requisition/issues]GitHub Issues[/url].
 Please respond on the [url=https://docs.google.com/forms/d/e/1FAIpQLSdJOfgR8zuIduP-bBiLykIMJDc4uW_QsDpNUhRbtH5PAlK1gA/viewform?usp=header]UI Review Poll[/url]
