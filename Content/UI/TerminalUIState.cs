@@ -838,26 +838,6 @@ namespace TerraStorage.Content.UI
 
         public override void Update(GameTime gameTime)
         {
-            // Pre-detect shift+click on an inventory slot BEFORE base.Update() propagates
-            // LeftClick events to child elements. When the terminal panel is positioned near
-            // the inventory (e.g. after dragging), the crafting panel's LeftClick handler
-            // could fire ExecuteCraft() instead of depositing the clicked item. Consuming
-            // the click blocker here prevents that from happening.
-            bool shift = Main.keyState.IsKeyDown(Keys.LeftShift) || Main.keyState.IsKeyDown(Keys.RightShift);
-            bool shiftInventoryDeposit = false;
-            if (Main.mouseLeft && !_prevMouseLeft && !UIClickBlocker.IsConsumed && shift)
-            {
-                for (int i = 0; i < 50; i++)
-                {
-                    if (!Main.LocalPlayer.inventory[i].IsAir && DriveBayUIState.IsMouseOverInventorySlot(i))
-                    {
-                        UIClickBlocker.Consume();
-                        shiftInventoryDeposit = true;
-                        break;
-                    }
-                }
-            }
-
             base.Update(gameTime);
 
             // If the Crafting Tree selected a recipe, switch to the Crafting tab
@@ -870,19 +850,7 @@ namespace TerraStorage.Content.UI
                 PlayerInput.LockVanillaMouseScroll("TerraStorage");
             }
 
-            // Block Terraria's inventory handling when shift is held so we can intercept shift+click
-            if (shift && !_mainPanel.ContainsPoint(Main.MouseScreen))
-            {
-                for (int i = 0; i < 50; i++)
-                {
-                    if (DriveBayUIState.IsMouseOverInventorySlot(i))
-                    {
-                        Main.LocalPlayer.mouseInterface = true;
-                        break;
-                    }
-                }
-            }
-
+            bool shift = Main.keyState.IsKeyDown(Keys.LeftShift) || Main.keyState.IsKeyDown(Keys.RightShift);
             bool justClicked = Main.mouseLeft && !UIClickBlocker.IsConsumed;
 
             if (justClicked)
@@ -897,16 +865,41 @@ namespace TerraStorage.Content.UI
                         DepositCursorItem();
                     }
                 }
-                else if (shift)
-                {
-                    HandleInventoryShiftClick();
-                }
             }
-            else if (shiftInventoryDeposit)
+
+            // Shift+drag: deposit items from inventory slots the mouse drags over while
+            // holding shift+click. ShiftClickSlot handles the initial click; this handles
+            // subsequent frames as the mouse moves across other slots.
+            if (Main.mouseLeft && _prevMouseLeft && shift
+                && _connectedDiskIds.Count > 0 && !_mainPanel.ContainsPoint(Main.MouseScreen))
             {
-                // The pre-check consumed the click blocker to prevent panel overlap from
-                // accidentally triggering ExecuteCraft(). Perform the deposit now.
-                HandleInventoryShiftClick();
+                for (int i = 0; i < 50; i++)
+                {
+                    if (Main.LocalPlayer.inventory[i].IsAir)
+                        continue;
+                    if (!DriveBayUIState.IsMouseOverInventorySlot(i))
+                        continue;
+
+                    if (Main.netMode == NetmodeID.MultiplayerClient)
+                    {
+                        var mod = ModLoader.GetMod("TerraStorage");
+                        NetworkHandler.SendDepositItem(mod, _connectedDiskIds, Main.LocalPlayer.inventory[i]);
+                        Main.LocalPlayer.inventory[i].TurnToAir();
+                    }
+                    else
+                    {
+                        int leftover = StorageWorldSystem.Instance.InsertItem(
+                            _connectedDiskIds, Main.LocalPlayer.inventory[i]);
+                        if (leftover <= 0)
+                            Main.LocalPlayer.inventory[i].TurnToAir();
+                        else
+                            Main.LocalPlayer.inventory[i].stack = leftover;
+                    }
+
+                    SoundEngine.PlaySound(SoundID.Grab);
+                    RefreshItems();
+                    break;
+                }
             }
 
             // Refresh disk connections every ~2 seconds; topology changes are infrequent.
@@ -1024,39 +1017,5 @@ namespace TerraStorage.Content.UI
             base.DrawSelf(spriteBatch);
         }
 
-        private void HandleInventoryShiftClick()
-        {
-            if (_connectedDiskIds.Count == 0)
-                return;
-
-            var player = Main.LocalPlayer;
-            for (int i = 0; i < 50; i++)
-            {
-                if (player.inventory[i].IsAir)
-                    continue;
-
-                if (!DriveBayUIState.IsMouseOverInventorySlot(i))
-                    continue;
-
-                if (Main.netMode == NetmodeID.MultiplayerClient)
-                {
-                    var mod = ModLoader.GetMod("TerraStorage");
-                    NetworkHandler.SendDepositItem(mod, _connectedDiskIds, player.inventory[i]);
-                    player.inventory[i].TurnToAir();
-                }
-                else
-                {
-                    int leftover = StorageWorldSystem.Instance.InsertItem(_connectedDiskIds, player.inventory[i]);
-                    if (leftover <= 0)
-                        player.inventory[i].TurnToAir();
-                    else
-                        player.inventory[i].stack = leftover;
-                }
-
-                SoundEngine.PlaySound(SoundID.Grab);
-                RefreshItems();
-                return;
-            }
-        }
     }
 }

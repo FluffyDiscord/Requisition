@@ -68,19 +68,6 @@ namespace TerraStorage.Content.UI
             {
                 if (_uiState.IsMouseOverPanel())
                     Main.LocalPlayer.mouseInterface = true;
-
-                bool shift = Main.keyState.IsKeyDown(Keys.LeftShift) || Main.keyState.IsKeyDown(Keys.RightShift);
-                if (shift)
-                {
-                    for (int i = 0; i < 50; i++)
-                    {
-                        if (DriveBayUIState.IsMouseOverInventorySlot(i))
-                        {
-                            Main.LocalPlayer.mouseInterface = true;
-                            break;
-                        }
-                    }
-                }
             }
         }
 

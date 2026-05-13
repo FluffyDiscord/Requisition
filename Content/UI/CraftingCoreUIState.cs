@@ -32,6 +32,8 @@ namespace TerraStorage.Content.UI
 
         public bool IsMouseOverPanel() => _panel?.ContainsPoint(Main.MouseScreen) == true;
 
+        public CraftingCoreEntity Entity => _entity;
+
         public void SetEntity(CraftingCoreEntity entity)
         {
             _entity = entity;
@@ -123,19 +125,7 @@ namespace TerraStorage.Content.UI
             if (_panel.ContainsPoint(Main.MouseScreen))
                 Main.LocalPlayer.mouseInterface = true;
 
-            // Block Terraria's inventory handling when shift is held so we can intercept shift+click
             bool shift = Main.keyState.IsKeyDown(Keys.LeftShift) || Main.keyState.IsKeyDown(Keys.RightShift);
-            if (shift && !_panel.ContainsPoint(Main.MouseScreen))
-            {
-                for (int i = 0; i < 50; i++)
-                {
-                    if (DriveBayUIState.IsMouseOverInventorySlot(i))
-                    {
-                        Main.LocalPlayer.mouseInterface = true;
-                        break;
-                    }
-                }
-            }
 
             bool justClicked = Main.mouseLeft && !_prevMouseLeft && !UIClickBlocker.IsConsumed;
             _prevMouseLeft = Main.mouseLeft;
@@ -148,10 +138,6 @@ namespace TerraStorage.Content.UI
                     var dims = _panel.GetDimensions();
                     if (Main.MouseScreen.Y >= dims.Y + 26)
                         HandleSlotClick(Main.MouseScreen, shift);
-                }
-                else if (shift)
-                {
-                    HandleInventoryShiftClick();
                 }
             }
         }
@@ -262,39 +248,6 @@ namespace TerraStorage.Content.UI
             }
         }
 
-        private void HandleInventoryShiftClick()
-        {
-            if (_entity == null)
-                return;
-
-            var player = Main.LocalPlayer;
-            for (int i = 0; i < 50; i++)
-            {
-                if (player.inventory[i].IsAir || !CraftingCoreEntity.IsValidStation(player.inventory[i]))
-                    continue;
-
-                if (!DriveBayUIState.IsMouseOverInventorySlot(i))
-                    continue;
-
-                _entity.EnsureSlotsInitialized();
-                for (int s = 0; s < CraftingCoreEntity.StationSlotCount; s++)
-                {
-                    if (_entity.StationSlots[s].IsAir)
-                    {
-                        _entity.StationSlots[s] = player.inventory[i].Clone();
-                        _entity.StationSlots[s].stack = 1;
-                        player.inventory[i].stack--;
-                        if (player.inventory[i].stack <= 0)
-                            player.inventory[i].TurnToAir();
-                        SoundEngine.PlaySound(SoundID.Grab);
-                        var mod = ModLoader.GetMod("TerraStorage");
-                        NetworkHandler.SendSyncStationInsert(mod, _entity.ID, s, _entity.StationSlots[s]);
-                        return;
-                    }
-                }
-                break;
-            }
-        }
 
         // Draws a single item centered inside <paramref name="rect"/>, respecting animation
         // frames and scaling oversized sprites down to fit within 36 px.

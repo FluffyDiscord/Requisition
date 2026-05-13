@@ -2,9 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Terraria;
+using Terraria.Audio;
+using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
+using Terraria.UI;
 using TerraStorage.Content.Items;
+using TerraStorage.Content.Tiles;
+using TerraStorage.Content.UI;
 
 namespace TerraStorage.Systems
 {
@@ -96,6 +101,101 @@ namespace TerraStorage.Systems
 
         //Whether the Crafting Tree auto-minimizes on middle-click recipe selection.
         public bool CraftingTreeAutoMinimize { get; set; } = true;
+
+        public override bool ShiftClickSlot(Item[] inventory, int context, int slot)
+        {
+            if (context != ItemSlot.Context.InventoryItem)
+                return false;
+
+            // Terminal: deposit item into storage
+            if (ModContent.GetInstance<TerminalUISystem>().IsTerminalOpen && _lastOpenedDiskIds.Count > 0)
+                return DepositToStorage(inventory, slot);
+
+            // Crafting Core: insert station item
+            var coreEntity = ModContent.GetInstance<CraftingCoreUISystem>()?.OpenEntity;
+            if (coreEntity != null)
+                return InsertStation(inventory, slot, coreEntity);
+
+            // Drive Bay: insert disk
+            var bayEntity = ModContent.GetInstance<DriveBayUISystem>()?.OpenEntity;
+            if (bayEntity != null)
+                return InsertDisk(inventory, slot, bayEntity);
+
+            return false;
+        }
+
+        private bool DepositToStorage(Item[] inventory, int slot)
+        {
+            var item = inventory[slot];
+            if (item.IsAir)
+                return true;
+
+            if (Main.netMode == NetmodeID.MultiplayerClient)
+            {
+                var mod = ModLoader.GetMod("TerraStorage");
+                NetworkHandler.SendDepositItem(mod, _lastOpenedDiskIds, item);
+                inventory[slot].TurnToAir();
+            }
+            else
+            {
+                int leftover = StorageWorldSystem.Instance.InsertItem(_lastOpenedDiskIds, item);
+                if (leftover <= 0)
+                    inventory[slot].TurnToAir();
+                else
+                    inventory[slot].stack = leftover;
+            }
+
+            SoundEngine.PlaySound(SoundID.Grab);
+            return true;
+        }
+
+        private static bool InsertStation(Item[] inventory, int slot, CraftingCoreEntity entity)
+        {
+            var item = inventory[slot];
+            if (item.IsAir || !CraftingCoreEntity.IsValidStation(item))
+                return true;
+
+            entity.EnsureSlotsInitialized();
+            for (int s = 0; s < CraftingCoreEntity.StationSlotCount; s++)
+            {
+                if (entity.StationSlots[s].IsAir)
+                {
+                    entity.StationSlots[s] = item.Clone();
+                    entity.StationSlots[s].stack = 1;
+                    item.stack--;
+                    if (item.stack <= 0)
+                        inventory[slot].TurnToAir();
+                    SoundEngine.PlaySound(SoundID.Grab);
+                    var mod = ModLoader.GetMod("TerraStorage");
+                    NetworkHandler.SendSyncStationInsert(mod, entity.ID, s, entity.StationSlots[s]);
+                    return true;
+                }
+            }
+            return true;
+        }
+
+        private static bool InsertDisk(Item[] inventory, int slot, DriveBayEntity entity)
+        {
+            var item = inventory[slot];
+            if (item.IsAir || item.ModItem is not StorageDiskBase)
+                return true;
+
+            entity.EnsureSlotsInitialized();
+            for (int s = 0; s < DriveBayEntity.DiskSlotCount; s++)
+            {
+                if (entity.DiskSlots[s].IsAir)
+                {
+                    if (!entity.InsertDisk(item, s))
+                        return true;
+                    inventory[slot].TurnToAir();
+                    SoundEngine.PlaySound(SoundID.Grab);
+                    var mod = ModLoader.GetMod("TerraStorage");
+                    NetworkHandler.SendSyncDiskInsert(mod, entity.ID, s, entity.DiskSlots[s]);
+                    return true;
+                }
+            }
+            return true;
+        }
 
         public override void SaveData(TagCompound tag)
         {

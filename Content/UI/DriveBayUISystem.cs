@@ -80,25 +80,14 @@ namespace TerraStorage.Content.UI
             _recoveryOpen = false;
         }
 
+        public DriveBayEntity OpenEntity => _isOpen ? _uiState?.Entity : null;
+
         public override void PreUpdatePlayers()
         {
             if (_isOpen && !Main.dedServ)
             {
                 if (_uiState.IsMouseOverPanel() || (_recoveryOpen && _recoveryState.IsMouseOverPanel()))
                     Main.LocalPlayer.mouseInterface = true;
-
-                bool shift = Main.keyState.IsKeyDown(Keys.LeftShift) || Main.keyState.IsKeyDown(Keys.RightShift);
-                if (shift)
-                {
-                    for (int i = 0; i < 50; i++)
-                    {
-                        if (DriveBayUIState.IsMouseOverInventorySlot(i))
-                        {
-                            Main.LocalPlayer.mouseInterface = true;
-                            break;
-                        }
-                    }
-                }
             }
         }
 

@@ -19,6 +19,7 @@ namespace TerraStorage.Content.UI
         private Point16 _entityTilePos;
 
         public bool IsOpen => _isOpen;
+        public CraftingCoreEntity OpenEntity => _isOpen ? _uiState?.Entity : null;
 
         public bool IsMouseOverPanel() => _isOpen && _uiState != null && _uiState.IsMouseOverPanel();
 
@@ -59,19 +60,6 @@ namespace TerraStorage.Content.UI
             {
                 if (_uiState.IsMouseOverPanel())
                     Main.LocalPlayer.mouseInterface = true;
-
-                bool shift = Main.keyState.IsKeyDown(Keys.LeftShift) || Main.keyState.IsKeyDown(Keys.RightShift);
-                if (shift)
-                {
-                    for (int i = 0; i < 50; i++)
-                    {
-                        if (DriveBayUIState.IsMouseOverInventorySlot(i))
-                        {
-                            Main.LocalPlayer.mouseInterface = true;
-                            break;
-                        }
-                    }
-                }
             }
         }
 

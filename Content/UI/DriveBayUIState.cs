@@ -33,6 +33,8 @@ namespace TerraStorage.Content.UI
 
         public bool IsMouseOverPanel() => _panel?.ContainsPoint(Main.MouseScreen) == true;
 
+        public DriveBayEntity Entity => _entity;
+
         public void SetEntity(DriveBayEntity entity)
         {
             _entity = entity;
@@ -128,19 +130,7 @@ namespace TerraStorage.Content.UI
             if (_panel.ContainsPoint(Main.MouseScreen))
                 Main.LocalPlayer.mouseInterface = true;
 
-            // Block Terraria's inventory handling when shift is held so we can intercept shift+click
             bool shift = Main.keyState.IsKeyDown(Keys.LeftShift) || Main.keyState.IsKeyDown(Keys.RightShift);
-            if (shift && !_panel.ContainsPoint(Main.MouseScreen))
-            {
-                for (int i = 0; i < 50; i++)
-                {
-                    if (IsMouseOverInventorySlot(i))
-                    {
-                        Main.LocalPlayer.mouseInterface = true;
-                        break;
-                    }
-                }
-            }
 
             bool justClicked = Main.mouseLeft && !_prevMouseLeft && !UIClickBlocker.IsConsumed;
             _prevMouseLeft = Main.mouseLeft;
@@ -153,10 +143,6 @@ namespace TerraStorage.Content.UI
                     var dims = _panel.GetDimensions();
                     if (Main.MouseScreen.Y >= dims.Y + 26)
                         HandleSlotClick(Main.MouseScreen, shift);
-                }
-                else if (shift)
-                {
-                    HandleInventoryShiftClick();
                 }
             }
         }
@@ -260,38 +246,6 @@ namespace TerraStorage.Content.UI
                     }
                 }
                 return;
-            }
-        }
-
-        private void HandleInventoryShiftClick()
-        {
-            if (_entity == null)
-                return;
-
-            var player = Main.LocalPlayer;
-            for (int i = 0; i < 50; i++)
-            {
-                if (player.inventory[i].IsAir || player.inventory[i].ModItem is not StorageDiskBase)
-                    continue;
-
-                if (!IsMouseOverInventorySlot(i))
-                    continue;
-
-                _entity.EnsureSlotsInitialized();
-                for (int s = 0; s < DriveBayEntity.DiskSlotCount; s++)
-                {
-                    if (_entity.DiskSlots[s].IsAir)
-                    {
-                        if (!_entity.InsertDisk(player.inventory[i], s))
-                            break;
-                        player.inventory[i].TurnToAir();
-                        SoundEngine.PlaySound(SoundID.Grab);
-                        var mod = ModLoader.GetMod("TerraStorage");
-                        NetworkHandler.SendSyncDiskInsert(mod, _entity.ID, s, _entity.DiskSlots[s]);
-                        return;
-                    }
-                }
-                break;
             }
         }
 
