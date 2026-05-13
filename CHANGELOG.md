@@ -1,4 +1,24 @@
 # Requisition Changelog
+## [0.5.0]
+
+### Added
+- **Quick Stack** — quick stack now works with the storage network
+- **Thorium mod filter support** — damage class filters now catch Thorium's custom classes (Bard, Healer, etc.)
+
+### Changed
+- Rebranded mod display name to **Requisition**
+- Source code now available on [GitHub](https://github.com/votex09/Requisition)
+
+### Fixed
+- Vanilla crafting UI no longer reappears when storage panels are open
+- Packet handling for oversized messages is now more robust
+- Shift+click behavior in the Terminal no longer causes unexpected results
+- UI appearance fixes for various buttons and padding
+- Station tooltips and disk visual state fixes
+- MP Drive Bay lights now update correctly
+- Prefixed item withdrawal now works as expected
+- You can now deselect recipes in the Crafting Tab to display available crafting stations
+
 ## [0.2.10]
 
 ### Fixed
