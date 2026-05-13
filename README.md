@@ -98,6 +98,7 @@ Claude assisted with architecture design, feature implementation, bug diagnosis,
 Disk/DriveBay sprites provided by [NonamewouldFit](https://steamcommunity.com/profiles/76561199052428514/).
 
 ## Links
-- [Change Log](https://steamcommunity.com/sharedfiles/filedetails/changelog/3687137546)
-- [Report Bugs](https://steamcommunity.com/sharedfiles/filedetails/discussions/3687137546)
+- [GitHub](https://github.com/votex09/Requisition) — source code and change log
+- [Report Bugs](https://github.com/votex09/Requisition/issues) — GitHub Issues
+- [Steam Discussions](https://steamcommunity.com/sharedfiles/filedetails/discussions/3687137546)
 - [UI Review Poll](https://docs.google.com/forms/d/e/1FAIpQLSdJOfgR8zuIduP-bBiLykIMJDc4uW_QsDpNUhRbtH5PAlK1gA/viewform?usp=header)
