@@ -303,8 +303,8 @@ namespace TerraStorage.Content.UI
             _depositAllBtn = new TSButton("Deposit All");
             _depositAllBtn.Width.Set(120, 0f);
             _depositAllBtn.Height.Set(SortBarHeight, 0f);
-            _depositAllBtn.Left.Set(-145, 1f);
-            _depositAllBtn.Top.Set(SortBarY, 0f);
+            _depositAllBtn.Left.Set(-155, 1f);
+            _depositAllBtn.Top.Set(SortBarY - 4, 0f);
             _depositAllBtn.OnLeftClick += OnDepositAll;
             _mainPanel.Append(_depositAllBtn);
 

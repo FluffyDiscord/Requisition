@@ -89,7 +89,7 @@ namespace TerraStorage.Content.UI
             _entity.EnsureSlotsInitialized();
             var panelDims = _panel.GetInnerDimensions();
             float startX = panelDims.X + 4;
-            float startY = panelDims.Y + 28;
+            float startY = panelDims.Y + 40;
 
             for (int i = 0; i < DriveBayEntity.DiskSlotCount; i++)
             {
@@ -155,7 +155,7 @@ namespace TerraStorage.Content.UI
             _entity.EnsureSlotsInitialized();
             var panelDims = _panel.GetInnerDimensions();
             float startX = panelDims.X + 4;
-            float startY = panelDims.Y + 28;
+            float startY = panelDims.Y + 40;
 
             for (int i = 0; i < DriveBayEntity.DiskSlotCount; i++)
             {
