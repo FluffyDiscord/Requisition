@@ -1,13 +1,17 @@
 using System.IO;
+using Microsoft.Xna.Framework;
 using Terraria;
+using Terraria.DataStructures;
 using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
+using TerraStorage.Content.Tiles;
+using TerraStorage.Content.UI;
 
 namespace TerraStorage.Content.Items
 {
-    // Binds to a placed Terminal and opens its full UI from anywhere in the world via middle-click.
-    // Right-click a Terminal tile while holding this to bind it.
+    // Binds to a placed Terminal and opens its full UI from anywhere in the world via left-click use,
+    // middle-click, or hotkey. Right-click a Terminal tile while holding this to bind it.
     public class RemoteTerminal : ModItem
     {
         private int _boundEntityId = -1;
@@ -20,7 +24,29 @@ namespace TerraStorage.Content.Items
             Item.maxStack = 1;
             Item.rare = ItemRarityID.Red;
             Item.value = Item.buyPrice(gold: 20);
-            Item.useStyle = ItemUseStyleID.None;
+            Item.useStyle = ItemUseStyleID.HoldUp;
+            Item.useTime = 20;
+            Item.useAnimation = 20;
+        }
+
+        public override bool? UseItem(Player player)
+        {
+            if (player.whoAmI != Main.myPlayer) return true;
+
+            if (_boundEntityId < 0)
+            {
+                Main.NewText("Remote Terminal is not bound. Right-click a Crafting Terminal to bind.", Color.Yellow);
+                return true;
+            }
+
+            if (!TileEntity.ByID.TryGetValue(_boundEntityId, out var te) || te is not TerminalEntity terminal)
+            {
+                Main.NewText("Bound Terminal not found. The Terminal may have been destroyed.", Color.OrangeRed);
+                return true;
+            }
+
+            ModContent.GetInstance<TerminalUISystem>()?.OpenTerminalRemote(terminal);
+            return true;
         }
 
         public override void SaveData(TagCompound tag)

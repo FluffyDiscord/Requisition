@@ -1,4 +1,9 @@
 # Requisition Changelog
+## [0.5.1]
+
+### Added
+- Remote Terminal can now be opened with left-click use (hold in hotbar and use like a normal item)
+
 ## [0.5.0]
 
 ### Added
