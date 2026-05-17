@@ -5,6 +5,9 @@
 - **Craft to Inventory toggle** — checkbox next to Clean Craft lets you send crafted items directly to your inventory instead of storage
 - **Remote Terminal** — can now be opened with left-click use (hold in hotbar and use like a normal item)
 
+### Fixed
+- Thorium Radiant/Symphonic weapons no longer incorrectly appear under "Other Weapons" filter
+
 ## [0.5.0]
 
 ### Added

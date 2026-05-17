@@ -47,10 +47,11 @@ namespace TerraStorage.Content.UI.Elements
         private static readonly HashSet<int> _crossModBossSummoners = new();
         private static bool _crossModInitialized;
 
-        // Thorium damage classes, resolved at init time
-        private static DamageClass _thoriumRadiant;
-        private static DamageClass _thoriumSymphonic;
+        // Thorium damage classes, resolved lazily on first classification
+        private static List<DamageClass> _thoriumRadiantClasses;
+        private static List<DamageClass> _thoriumSymphonicClasses;
         private static bool _thoriumLoaded;
+        private static bool _thoriumDamageClassesResolved;
 
         // Categories that are actually active (excludes Thorium categories when not loaded)
         private static List<ItemCategory> _activeCategories;
@@ -75,13 +76,6 @@ namespace TerraStorage.Content.UI.Elements
             if (_activeCategories != null) return;
 
             _thoriumLoaded = ModLoader.TryGetMod("ThoriumMod", out var thorium);
-            if (_thoriumLoaded)
-            {
-                if (thorium.TryFind<DamageClass>("HealerDamage", out var radiant))
-                    _thoriumRadiant = radiant;
-                if (thorium.TryFind<DamageClass>("BardDamage", out var symphonic))
-                    _thoriumSymphonic = symphonic;
-            }
 
             _activeCategories = new List<ItemCategory>();
             _activeCategoryIcons = new List<int>();
@@ -124,6 +118,24 @@ namespace TerraStorage.Content.UI.Elements
             Add(ItemCategory.BossSummoners,   ItemID.SuspiciousLookingEye, "Boss Summoning Items");
             Add(ItemCategory.Materials,       ItemID.Gel,                  "Crafting Materials");
             Add(ItemCategory.Miscellaneous,   ItemID.Torch,                "Miscellaneous");
+        }
+
+        private static void ResolveThoriumDamageClasses()
+        {
+            if (_thoriumDamageClassesResolved) return;
+            _thoriumDamageClassesResolved = true;
+            _thoriumRadiantClasses = new List<DamageClass>();
+            _thoriumSymphonicClasses = new List<DamageClass>();
+
+            if (!_thoriumLoaded || !ModLoader.TryGetMod("ThoriumMod", out var thorium))
+                return;
+
+            foreach (var name in new[] { "HealerDamage", "HealerTool", "HealerToolDamageHybrid" })
+                if (thorium.TryFind<DamageClass>(name, out var dc))
+                    _thoriumRadiantClasses.Add(dc);
+            foreach (var name in new[] { "BardDamage" })
+                if (thorium.TryFind<DamageClass>(name, out var dc))
+                    _thoriumSymphonicClasses.Add(dc);
         }
 
         public override void LeftClick(UIMouseEvent evt)
@@ -245,6 +257,8 @@ namespace TerraStorage.Content.UI.Elements
         // are consumable and would otherwise match the Potions branch.
         private static ItemCategory ClassifyItemInstance(Item item)
         {
+            ResolveThoriumDamageClasses();
+
             // Boss summoners are checked before consumables/potions to avoid misclassification.
             // SortingPriorityBossSpawns is NOT used directly — vanilla puts Life/Mana Crystals
             // in that set even though they don't spawn bosses.
@@ -276,10 +290,12 @@ namespace TerraStorage.Content.UI.Elements
                     return ItemCategory.SummonerWeapons;
                 if (item.DamageType.CountsAsClass(DamageClass.Throwing))
                     return ItemCategory.ThrowingWeapons;
-                if (_thoriumRadiant != null && item.DamageType.CountsAsClass(_thoriumRadiant))
-                    return ItemCategory.RadiantWeapons;
-                if (_thoriumSymphonic != null && item.DamageType.CountsAsClass(_thoriumSymphonic))
-                    return ItemCategory.SymphonicWeapons;
+                foreach (var dc in _thoriumRadiantClasses)
+                    if (item.DamageType == dc || item.DamageType.CountsAsClass(dc))
+                        return ItemCategory.RadiantWeapons;
+                foreach (var dc in _thoriumSymphonicClasses)
+                    if (item.DamageType == dc || item.DamageType.CountsAsClass(dc))
+                        return ItemCategory.SymphonicWeapons;
                 return ItemCategory.OtherWeapons;
             }
 
