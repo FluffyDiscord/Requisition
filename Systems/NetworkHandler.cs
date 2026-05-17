@@ -519,7 +519,7 @@ namespace TerraStorage.Systems
         // ─── Crafting ───────────────────────────────────────────────────
 
         public static void SendCraftRequest(Mod mod, List<Guid> diskIds, int recipeItemType,
-            int craftAmount, HashSet<int> stations, HashSet<CraftingCondition> conditions, bool cleanCraft)
+            int craftAmount, HashSet<int> stations, HashSet<CraftingCondition> conditions, bool cleanCraft, bool craftToInventory)
         {
             if (Main.netMode != NetmodeID.MultiplayerClient)
                 return;
@@ -539,6 +539,7 @@ namespace TerraStorage.Systems
             foreach (var c in conditions)
                 packet.Write((byte)c);
             packet.Write(cleanCraft);
+            packet.Write(craftToInventory);
             packet.Send();
         }
 
@@ -558,6 +559,7 @@ namespace TerraStorage.Systems
             for (int i = 0; i < condCount; i++)
                 conditions.Add((CraftingCondition)reader.ReadByte());
             bool cleanCraft = reader.ReadBoolean();
+            bool craftToInventory = reader.ReadBoolean();
 
             if (Main.netMode == NetmodeID.Server)
             {
@@ -575,22 +577,36 @@ namespace TerraStorage.Systems
                     resultPreview.stack = plan.FinalItemCount;
 
                     var player = Main.player[whoAmI];
-                    bool storageHasRoom = StorageWorldSystem.Instance.HasRoomFor(diskIds, resultPreview);
-                    bool canCraft = storageHasRoom || PlayerHasRoomFor(player, resultPreview);
+                    bool canCraft;
+                    if (craftToInventory)
+                        canCraft = PlayerHasRoomFor(player, resultPreview);
+                    else
+                    {
+                        bool storageHasRoom = StorageWorldSystem.Instance.HasRoomFor(diskIds, resultPreview);
+                        canCraft = storageHasRoom || PlayerHasRoomFor(player, resultPreview);
+                    }
 
                     if (canCraft)
                     {
                         var result = RecipeResolver.ExecutePlan(plan, diskIds, cleanCraft);
                         if (!result.IsAir)
                         {
-                            int leftover = StorageWorldSystem.Instance.InsertItem(diskIds, result);
-                            if (leftover > 0)
+                            if (craftToInventory)
                             {
-                                // Storage is full — send the remainder to the client so it
-                                // can add it to its own inventory directly. Calling GetItem
-                                // server-side does not reliably sync to the client.
-                                result.stack = leftover;
+                                // Send entire result to client's inventory.
                                 SendGiveItemToClient(mod, whoAmI, result);
+                            }
+                            else
+                            {
+                                int leftover = StorageWorldSystem.Instance.InsertItem(diskIds, result);
+                                if (leftover > 0)
+                                {
+                                    // Storage is full — send the remainder to the client so it
+                                    // can add it to its own inventory directly. Calling GetItem
+                                    // server-side does not reliably sync to the client.
+                                    result.stack = leftover;
+                                    SendGiveItemToClient(mod, whoAmI, result);
+                                }
                             }
                             success = true;
                         }

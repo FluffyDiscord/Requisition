@@ -72,6 +72,8 @@ namespace TerraStorage.Content.UI.Elements
         private Rectangle _amountFieldRect; // screen-space rect, updated each draw
         private bool _cleanCraft; // When true, skip vanilla prefix rolling and mod craft hooks
         private Rectangle _cleanCraftCheckRect; // screen-space rect for the checkbox
+        private bool _craftToInventory; // When true, craft result goes to player inventory instead of storage
+        private Rectangle _craftToInvCheckRect; // screen-space rect for the checkbox
 
         // Detail panel scroll
         private float _detailScrollOffset = 0f;
@@ -942,6 +944,14 @@ namespace TerraStorage.Content.UI.Elements
                 return;
             }
 
+            // Craft to Inventory checkbox (right of Clean Craft)
+            if (_craftToInvCheckRect.Contains(mousePoint))
+            {
+                _craftToInventory = !_craftToInventory;
+                Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.MenuTick);
+                return;
+            }
+
             // Input field row (middle row) — left-click focuses text input
             if (relY >= dims.Height - 70 && relY < dims.Height - 45)
             {
@@ -1061,7 +1071,7 @@ namespace TerraStorage.Content.UI.Elements
                 {
                     var mod = Terraria.ModLoader.ModLoader.GetMod("TerraStorage");
                     NetworkHandler.SendCraftRequest(mod, _diskIds, _selectedRecipe.createItem.type,
-                        _craftAmount * _selectedRecipe.createItem.stack, _availableStations, _availableConditions, _cleanCraft);
+                        _craftAmount * _selectedRecipe.createItem.stack, _availableStations, _availableConditions, _cleanCraft, _craftToInventory);
                     Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.Grab);
                 }
                 return;
@@ -1084,19 +1094,35 @@ namespace TerraStorage.Content.UI.Elements
             resultPreview.SetDefaults(planToUse.FinalItemType);
             resultPreview.stack = planToUse.FinalItemCount;
 
-            bool storageHasRoom = StorageWorldSystem.Instance.HasRoomFor(_diskIds, resultPreview);
-            if (!storageHasRoom && !PlayerHasRoomFor(Main.LocalPlayer, resultPreview))
-                return;
+            if (_craftToInventory)
+            {
+                if (!PlayerHasRoomFor(Main.LocalPlayer, resultPreview))
+                    return;
+            }
+            else
+            {
+                bool storageHasRoom = StorageWorldSystem.Instance.HasRoomFor(_diskIds, resultPreview);
+                if (!storageHasRoom && !PlayerHasRoomFor(Main.LocalPlayer, resultPreview))
+                    return;
+            }
 
             var result = RecipeResolver.ExecutePlan(planToUse, _diskIds, _cleanCraft);
             if (!result.IsAir)
             {
-                int leftover = StorageWorldSystem.Instance.InsertItem(_diskIds, result);
-                if (leftover > 0)
+                if (_craftToInventory)
                 {
-                    // Storage is full — give remainder to player.
-                    result.stack = leftover;
+                    // Send crafted item directly to player inventory.
                     Main.LocalPlayer.GetItem(Main.myPlayer, result, GetItemSettings.GetItemInDropItemCheck);
+                }
+                else
+                {
+                    int leftover = StorageWorldSystem.Instance.InsertItem(_diskIds, result);
+                    if (leftover > 0)
+                    {
+                        // Storage is full — give remainder to player.
+                        result.stack = leftover;
+                        Main.LocalPlayer.GetItem(Main.myPlayer, result, GetItemSettings.GetItemInDropItemCheck);
+                    }
                 }
                 Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.Grab);
             }
@@ -1406,7 +1432,7 @@ namespace TerraStorage.Content.UI.Elements
             float fieldOffsetX = amtLabelSize.X + 10;
             int checkboxSize = 18;
             int checkboxGap = 6;
-            var fieldRect = new Rectangle((int)(dims.X + 5 + fieldOffsetX), (int)craftMaxBtnY, (int)(dims.Width - 14 - fieldOffsetX - checkboxSize - checkboxGap), 25);
+            var fieldRect = new Rectangle((int)(dims.X + 5 + fieldOffsetX), (int)craftMaxBtnY, (int)(dims.Width - 14 - fieldOffsetX - 2 * (checkboxSize + checkboxGap)), 25);
             _amountFieldRect = fieldRect; // expose to Update for raw mouse detection
             Color fieldBg = _amountFieldFocused  ? new Color(45, 55, 100)
                           : _amountDragActive    ? new Color(60, 45, 110)
@@ -1426,21 +1452,34 @@ namespace TerraStorage.Content.UI.Elements
             var cbRect = new Rectangle(cbX, cbY, checkboxSize, checkboxSize);
             _cleanCraftCheckRect = cbRect;
             bool cbHover = cbRect.Contains(Main.MouseScreen.ToPoint());
-            Color cbBg = cbHover ? new Color(83, 104, 181) : new Color(53, 74, 141);
+            Color cbBg = cbHover ? new Color(83, 104, 181)
+                       : _cleanCraft ? new Color(80, 130, 60)
+                       : new Color(53, 74, 141);
             Utils.DrawInvBG(spriteBatch, cbRect, cbBg);
-            if (_cleanCraft)
-            {
-                var checkSize = FontAssets.MouseText.Value.MeasureString("x") * 0.7f;
-                Utils.DrawBorderString(spriteBatch, "x",
-                    new Vector2(cbX + checkboxSize / 2f - checkSize.X / 2f, cbY + checkboxSize / 2f - checkSize.Y / 2f - 1),
-                    Color.White, 0.7f);
-            }
             if (cbHover)
             {
                 Main.LocalPlayer.mouseInterface = true;
                 Main.hoverItemName = _cleanCraft
                     ? "Clean Craft: ON\nCrafts items with no prefixes or other modifiers.\nClick to disable."
                     : "Clean Craft: OFF\nItems receive vanilla prefixes and mod modifiers.\nClick to enable.";
+            }
+
+            // Craft to Inventory checkbox (right of Clean Craft)
+            int invCbX = cbRect.Right + checkboxGap;
+            int invCbY = cbY;
+            var invCbRect = new Rectangle(invCbX, invCbY, checkboxSize, checkboxSize);
+            _craftToInvCheckRect = invCbRect;
+            bool invCbHover = invCbRect.Contains(Main.MouseScreen.ToPoint());
+            Color invCbBg = invCbHover ? new Color(83, 104, 181)
+                          : _craftToInventory ? new Color(80, 130, 60)
+                          : new Color(53, 74, 141);
+            Utils.DrawInvBG(spriteBatch, invCbRect, invCbBg);
+            if (invCbHover)
+            {
+                Main.LocalPlayer.mouseInterface = true;
+                Main.hoverItemName = _craftToInventory
+                    ? "Craft to Inventory: ON\nCrafted items go to your inventory.\nClick to disable."
+                    : "Craft to Inventory: OFF\nCrafted items go to storage.\nClick to enable.";
             }
 
             // Craft button + output slot row
