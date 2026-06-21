@@ -788,8 +788,11 @@ namespace TerraStorage.Content.UI.Elements
                 int needed = ingredient.stack * _craftAmount;
                 if (hasRecipe && totalHave < needed)
                 {
-                    int deficit = needed - totalHave;
-                    var subPlan = RecipeResolver.Resolve(ingredient.type, deficit, _diskIds, _availableStations, _availableConditions);
+                    // Resolve the full needed amount, not the shortfall: Resolve consumes stock
+                    // first, so resolving the shortfall would be satisfied by the very stock already
+                    // counted in totalHave (double-count). Resolving needed nets that stock out once
+                    // and reports feasible only if the rest is covered by other materials.
+                    var subPlan = RecipeResolver.Resolve(ingredient.type, needed, _diskIds, _availableStations, _availableConditions);
                     if (subPlan != null && subPlan.IsFeasible)
                         totalHave = needed;
                 }
