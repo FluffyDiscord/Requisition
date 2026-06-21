@@ -79,6 +79,16 @@ namespace TerraStorage.Helpers
             return false;
         }
 
+        // True if every crafting-station tile a recipe requires is satisfied by the available
+        // stations. Used to prefer fully-craftable recipes when several produce the same item.
+        private static bool StationsAllSatisfied(Recipe recipe, HashSet<int> availableStations)
+        {
+            foreach (int t in recipe.requiredTile)
+                if (t >= 0 && !IsStationSatisfied(t, availableStations))
+                    return false;
+            return true;
+        }
+
         // Resolve a recipe recursively, determining what base materials are needed
         // and what intermediate crafting steps must be performed.
         // Checks crafting station requirements against available stations.
@@ -774,7 +784,16 @@ namespace TerraStorage.Helpers
             var cache = RecipeCacheSystem.Instance;
             var recipes = cache.GetRecipesFor(itemType);
 
-            foreach (var recipe in recipes)
+            // Prefer recipes whose required stations are all available, so a station-missing recipe
+            // never wins over a fully craftable variant of the same item (which produced a false
+            // "missing stations" when an available-station recipe existed). This is a stable REORDER,
+            // not a filter: station-missing recipes stay at the end as fallback so a genuinely
+            // station-missing item still resolves and reports its missing station.
+            IEnumerable<Recipe> ordered = recipes;
+            if (recipes.Count > 1)
+                ordered = recipes.OrderByDescending(r => StationsAllSatisfied(r, availableStations));
+
+            foreach (var recipe in ordered)
             {
                 // Check for special conditions against both player and network
                 if (!CheckRecipeConditions(recipe, availableConditions))
