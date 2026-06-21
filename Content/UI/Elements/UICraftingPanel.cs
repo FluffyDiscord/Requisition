@@ -128,6 +128,17 @@ namespace TerraStorage.Content.UI.Elements
         private Dictionary<(int type, int stack), bool> _deferredIngCache;
         private const int RecursiveBatchSize = 200;
 
+        // Single-owner model: while recursive mode is on, the deferred pass owns every list
+        // canCraft flag (promotions and demotions). A storage change requests a debounced HARD
+        // restart of the pass (fresh snapshot) rather than letting the direct-only update clobber
+        // recursive flags. Debounce coalesces bursts of storage mutations into one restart.
+        private bool _recursiveRestartPending;
+        private uint _recursiveRestartTick;
+        private const uint RecursiveRestartDebounceFrames = 6; // ~100ms @60fps
+        // Throttle for surfacing in-progress recursive results to the visible list mid-pass.
+        private uint _lastRecursiveSyncTick;
+        private const uint RecursiveSyncThrottleFrames = 12; // ~200ms @60fps
+
         // Precomputed per-ingredient data for draw (avoids per-frame CountItem + Any calls)
         private readonly Dictionary<int, (int totalHave, bool hasRecipe, bool isGroup)> _ingredientCache = new();
 
@@ -272,15 +283,42 @@ namespace TerraStorage.Content.UI.Elements
             // Phase 2: kick off deferred recursive craftability pass (if enabled)
             if (_recursiveCraft)
             {
-                _deferredAvailable = new Dictionary<int, int>(_cachedAvailable);
-                _deferredReachable = null; // computed on first deferred frame
-                _deferredIngCache = new Dictionary<(int type, int stack), bool>();
-                _deferredRecursiveIndex = 0;
-                _deferredRecursiveActive = true;
+                StartRecursivePass();
             }
             else
             {
                 _deferredRecursiveActive = false;
+                _recursiveRestartPending = false;
+            }
+        }
+
+        // (Re)starts the deferred recursive craftability pass from a fresh storage snapshot.
+        // A hard restart, not a resume: snapshot, reachable set, ingredient cache and resume
+        // index are all reset so the pass recomputes authoritative flags against current storage.
+        // This is the single writer of list canCraft flags while recursive mode is on.
+        private void StartRecursivePass()
+        {
+            RecipeResolver.MaxDepth = _recursionDepth;
+            _deferredAvailable = new Dictionary<int, int>(_cachedAvailable);
+            _deferredReachable = null; // computed on the first deferred frame
+            _deferredIngCache = new Dictionary<(int type, int stack), bool>();
+            _deferredRecursiveIndex = 0;
+            _deferredRecursiveActive = true;
+            _recursiveRestartPending = false;
+        }
+
+        // Syncs the selected recipe's cached craftability from the master list. Used after the
+        // recursive pass updates flags, since that pass owns them while recursive mode is on.
+        private void RefreshSelectedCanCraftFromList()
+        {
+            if (_selectedRecipe == null) return;
+            foreach (var entry in _allRecipes)
+            {
+                if (entry.recipe == _selectedRecipe)
+                {
+                    _selectedCanCraft = entry.canCraft;
+                    return;
+                }
             }
         }
 
@@ -846,18 +884,13 @@ namespace TerraStorage.Content.UI.Elements
                         _recursiveCraft = !_recursiveCraft;
                         if (_recursiveCraft)
                         {
-                            // Kick off deferred recursive pass
-                            RecipeResolver.MaxDepth = _recursionDepth;
-                            _deferredAvailable = new Dictionary<int, int>(_cachedAvailable);
-                            _deferredReachable = null;
-                            _deferredIngCache = new Dictionary<(int type, int stack), bool>();
-                            _deferredRecursiveIndex = 0;
-                            _deferredRecursiveActive = true;
+                            StartRecursivePass();
                         }
                         else
                         {
                             // Cancel any in-progress deferred pass and strip recursive flags
                             _deferredRecursiveActive = false;
+                            _recursiveRestartPending = false;
                             StripRecursiveCraftFlags();
                             FilterRecipes();
                         }
@@ -1127,9 +1160,21 @@ namespace TerraStorage.Content.UI.Elements
                 Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.Grab);
             }
 
-            // Update item counts and craftability without resetting scroll or resorting.
-            _cachedAvailable = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
-            UpdateCanCraftFlags();
+            // Refresh craftability after the craft, without resetting scroll or resorting.
+            // While recursive mode is on, the deferred pass owns the list flags — request a hard
+            // restart rather than running the direct-only update (which would clobber recursive
+            // flags). When off, the targeted direct update maintains them (it diffs against the
+            // pre-craft snapshot, so do not refresh _cachedAvailable first).
+            if (_recursiveCraft)
+            {
+                _cachedAvailable = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
+                _recursiveRestartPending = true;
+                _recursiveRestartTick = Main.GameUpdateCount;
+            }
+            else
+            {
+                UpdateCanCraftFlags();
+            }
             if (_selectedRecipe != null)
                 UpdatePlan();
         }
@@ -2121,11 +2166,7 @@ private void DrawItemIcon(SpriteBatch spriteBatch, int itemType, Vector2 center,
                     RecipeResolver.MaxDepth = _recursionDepth;
                     if (_recursiveCraft)
                     {
-                        _deferredAvailable = new Dictionary<int, int>(_cachedAvailable);
-                        _deferredReachable = null;
-                        _deferredIngCache = new Dictionary<(int type, int stack), bool>();
-                        _deferredRecursiveIndex = 0;
-                        _deferredRecursiveActive = true;
+                        StartRecursivePass();
                     }
                 }
             }
@@ -2196,11 +2237,21 @@ private void DrawItemIcon(SpriteBatch spriteBatch, int itemType, Vector2 center,
             }
 
             // Recipe refresh strategy:
-            // - Full rebuild (_needsRecipeRefresh): topology changes (stations/disks/conditions added/removed).
+            // - Full rebuild (_needsRecipeRefresh): topology changes (stations/disks/conditions).
             //   Expensive — rebuilds the entire recipe list with BFS reachability. Throttled.
-            // - Lightweight canCraft update: item quantities changed (StorageVersion bump).
-            //   Cheap — only re-checks ingredient counts against the existing recipe list.
+            // - Storage content change (StorageVersion bump): when recursive mode is on, the
+            //   deferred pass owns all list flags, so request a debounced hard restart of it; when
+            //   off, a cheap targeted direct-only update maintains the flags.
             uint tickNow = Main.GameUpdateCount;
+
+            // Fire a pending debounced restart of the recursive pass (storage changed while
+            // recursive is on). Skipped when a full refresh is pending — that will restart it anyway.
+            if (_recursiveRestartPending && !_needsRecipeRefresh
+                && (tickNow - _recursiveRestartTick) >= RecursiveRestartDebounceFrames)
+            {
+                StartRecursivePass();
+            }
+
             if (_needsRecipeRefresh)
             {
                 if ((tickNow - _lastRecipeRefreshTick) >= RecipeRefreshIntervalTicks)
@@ -2211,58 +2262,77 @@ private void DrawItemIcon(SpriteBatch spriteBatch, int itemType, Vector2 center,
                     UpdatePlan();
                     _needsRecipeRefresh = false;
                 }
+                return;
             }
-            else if (_deferredRecursiveActive)
+
+            // React to storage content changes.
+            long currentVersion = StorageWorldSystem.Instance.StorageVersion;
+            if (currentVersion != _lastStorageVersion)
             {
-                // Still handle version changes for direct-craftability during the deferred pass
-                long currentVersion = StorageWorldSystem.Instance.StorageVersion;
-                if (currentVersion != _lastStorageVersion)
+                _lastStorageVersion = currentVersion;
+                if (_recursiveCraft)
                 {
-                    _lastStorageVersion = currentVersion;
+                    // Single-owner model: the recursive pass owns every list flag. Keep the item
+                    // snapshot fresh and request a debounced hard restart so flags are recomputed
+                    // (promote AND demote) from current storage. Do NOT run UpdateCanCraftFlags —
+                    // its direct-only result would wrongly demote recursively-craftable recipes.
+                    _cachedAvailable = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
+                    _recursiveRestartPending = true;
+                    _recursiveRestartTick = tickNow;
+                }
+                else
+                {
+                    // Direct-only mode: targeted update — re-checks only recipes whose ingredients changed.
                     UpdateCanCraftFlags();
                 }
+                // Debounce the heavy plan resolve (authoritative; gates the craft button via
+                // _currentPlan.IsFeasible regardless of recursive mode).
+                _planDirty = true;
+                _planDirtyTick = tickNow;
+            }
 
-                // First deferred frame: compute BFS reachability
+            // Advance the deferred recursive pass. Skip while a restart is pending — its in-flight
+            // results are about to be discarded (they were computed against a now-stale snapshot).
+            if (_deferredRecursiveActive && !_recursiveRestartPending)
+            {
+                // First deferred frame: compute BFS reachability for the current snapshot.
                 if (_deferredReachable == null)
                 {
                     _deferredReachable = RecipeResolver.ComputeReachableTypesPublic(
                         _deferredAvailable, _availableStations, _availableConditions);
                 }
 
-                // Process a batch of the recursive craftability pass each frame
                 _deferredRecursiveIndex = RecipeResolver.ApplyRecursiveCraftabilityBatch(
                     _allRecipes, _deferredRecursiveIndex, RecursiveBatchSize,
                     _deferredReachable, _deferredAvailable, _availableStations,
-                    _availableConditions, _deferredIngCache, out _);
+                    _availableConditions, _deferredIngCache, out bool anyFlipped);
 
-                if (_deferredRecursiveIndex < 0)
+                bool complete = _deferredRecursiveIndex < 0;
+
+                // Surface results to the visible list as they are discovered (throttled), and
+                // always at completion — so craftable recipes appear during the pass instead of
+                // only at the end, and demoted recipes leave the list.
+                if (complete || (anyFlipped && (tickNow - _lastRecursiveSyncTick) >= RecursiveSyncThrottleFrames))
                 {
-                    // Deferred pass complete — sync incrementally to avoid resorting/jumping
                     SyncFilteredRecipesIncremental();
+                    RefreshSelectedCanCraftFromList();
+                    _lastRecursiveSyncTick = tickNow;
+                }
+
+                if (complete)
+                {
                     _deferredRecursiveActive = false;
                     _deferredReachable = null;
                     _deferredAvailable = null;
                     _deferredIngCache = null;
                 }
             }
-            else
-            {
-                long currentVersion = StorageWorldSystem.Instance.StorageVersion;
-                if (currentVersion != _lastStorageVersion)
-                {
-                    _lastStorageVersion = currentVersion;
-                    // Targeted canCraft update — only re-checks recipes whose ingredients changed
-                    UpdateCanCraftFlags();
-                    // Debounce the heavy plan resolve
-                    _planDirty = true;
-                    _planDirtyTick = tickNow;
-                }
 
-                if (_planDirty && (tickNow - _planDirtyTick) >= PlanDebounceFrames)
-                {
-                    _planDirty = false;
-                    UpdatePlan();
-                }
+            // Debounced heavy plan resolve.
+            if (_planDirty && (tickNow - _planDirtyTick) >= PlanDebounceFrames)
+            {
+                _planDirty = false;
+                UpdatePlan();
             }
         }
     }

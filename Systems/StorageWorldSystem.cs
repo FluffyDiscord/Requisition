@@ -634,7 +634,11 @@ namespace TerraStorage.Systems
         public void UpgradeDisk(Guid diskId, DiskTier newTier)
         {
             if (_allDiskData.TryGetValue(diskId, out var data))
+            {
                 data.Tier = newTier;
+                StorageVersion++;
+                BackupSystem.MarkDirty();
+            }
         }
 
         // Assign an existing disk's data to a new Guid (for disk restoration).
@@ -647,6 +651,8 @@ namespace TerraStorage.Systems
             // (which carries targetDiskId) now points to the correct stored items
             _allDiskData[targetDiskId] = data;
             data.DiskId = targetDiskId;
+            StorageVersion++;
+            BackupSystem.MarkDirty();
             return true;
         }
 
