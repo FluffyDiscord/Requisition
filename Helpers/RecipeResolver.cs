@@ -356,10 +356,11 @@ namespace TerraStorage.Helpers
             return results;
         }
 
-        // Second pass: upgrades non-craftable recipes to craftable if their output is
-        // transitively reachable via BFS and all ingredients are recursively feasible.
-        // Call this after <see cref="GetAllRecipesDirect"/> to add recursive craftability.
-        // Can be called incrementally via <see cref="ApplyRecursiveCraftabilityBatch"/>.
+        // Second pass: recomputes each recipe's craftability authoritatively (direct OR recursive),
+        // promoting recipes whose ingredients are recursively feasible and demoting ones that are
+        // no longer craftable. Call this after <see cref="GetAllRecipesDirect"/>; re-running it over
+        // a fresh snapshot fully corrects stale flags. Can be driven incrementally across frames via
+        // <see cref="ApplyRecursiveCraftabilityBatch"/>.
         public static void ApplyRecursiveCraftability(
             List<(Recipe recipe, bool canCraft)> results,
             Dictionary<int, int> available,
@@ -394,7 +395,9 @@ namespace TerraStorage.Helpers
             {
                 bool wasCraftable = results[i].canCraft;
                 CheckRecursiveAt(results, i, reachable, available, availableStations, availableConditions, ingCache);
-                if (!wasCraftable && results[i].canCraft)
+                // The check is authoritative (it can demote as well as promote), so surface any
+                // change — a recipe that became uncraftable must leave the list too.
+                if (wasCraftable != results[i].canCraft)
                     anyFlipped = true;
             }
             return end >= results.Count ? -1 : end;
@@ -405,6 +408,69 @@ namespace TerraStorage.Helpers
             Dictionary<int, int> available, HashSet<int> availableStations, HashSet<CraftingCondition> availableConditions)
             => ComputeReachableTypes(available, availableStations, availableConditions);
 
+        // True if a single ingredient is satisfied directly from stock — its own type or a
+        // recipe-group substitute — ignoring any sub-crafting. Shared by the direct and
+        // recursive craftability checks so the two passes agree on what "in stock" means.
+        // <paramref name="viaGroup"/> is set true when satisfaction relied on a recipe-group
+        // substitute (not the ingredient's own type) — the only way two directly-stocked
+        // ingredients can contend for the same base stock, so the caller knows to confirm.
+        private static bool IngredientSatisfiedDirectly(Recipe recipe, int ingredientType, int needed, Dictionary<int, int> available, out bool viaGroup)
+        {
+            viaGroup = false;
+            if (available.TryGetValue(ingredientType, out int have) && have >= needed)
+                return true;
+
+            foreach (int groupId in recipe.acceptedGroups)
+            {
+                var group = RecipeGroup.recipeGroups[groupId];
+                if (!group.ContainsItem(ingredientType)) continue;
+                foreach (int validItem in group.ValidItems)
+                {
+                    if (available.TryGetValue(validItem, out int groupHave) && groupHave >= needed)
+                    {
+                        viaGroup = true;
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        // Confirms a recipe is craftable by simulating ALL of its ingredients against ONE
+        // shared, deducting clone of the snapshot — so two ingredients that draw on the same
+        // base material cannot each be counted against the full stock (the overcount that made
+        // two-way / shared-material recipes show as craftable when they are not). Mirrors the
+        // per-recipe block inside ResolveRecursive; returns false as soon as an ingredient cannot
+        // be met once earlier ingredients have taken their share of the pool.
+        private static bool IsRecipeFeasibleShared(Recipe recipe, Dictionary<int, int> availableSnapshot,
+            HashSet<int> availableStations, HashSet<CraftingCondition> availableConditions)
+        {
+            var available = new Dictionary<int, int>(availableSnapshot);
+            var steps = new List<CraftingStep>();
+            // Seed the cycle guard with the output type so a recipe cannot consume its own
+            // product to make itself (matches ResolveRecursive's per-type guard).
+            var resolving = new HashSet<int> { recipe.createItem.type };
+
+            foreach (var ingredient in recipe.requiredItem)
+            {
+                if (ingredient.type <= ItemID.None) continue;
+                int resolvedType = ResolveIngredientType(recipe, ingredient.type, available);
+                if (!ResolveRecursive(resolvedType, ingredient.stack, available, steps, resolving, 1,
+                        availableStations, availableConditions))
+                    return false;
+            }
+            return true;
+        }
+
+        // Computes the AUTHORITATIVE craftability of results[i] — direct OR recursive — and
+        // stores it. Both promotes newly-craftable recipes and demotes ones no longer craftable,
+        // so re-running the pass over a fresh storage snapshot fully corrects stale flags.
+        //
+        // Recursive feasibility is two-stage: a cheap per-ingredient "feasible in isolation from
+        // full stock" pre-filter (memoized in ingCache, shared across the pass), then — only when
+        // a recipe has 2+ ingredients that could compete for a shared base material — a single
+        // shared-pool confirm (IsRecipeFeasibleShared). The pre-filter alone over-counts shared
+        // materials; the confirm is what makes the list flag match what an actual craft would do.
         private static void CheckRecursiveAt(
             List<(Recipe recipe, bool canCraft)> results, int i,
             HashSet<int> reachable,
@@ -413,46 +479,58 @@ namespace TerraStorage.Helpers
             HashSet<CraftingCondition> availableConditions,
             Dictionary<(int type, int stack), bool> ingCache)
         {
-            var (recipe, canCraft) = results[i];
-            if (canCraft || !reachable.Contains(recipe.createItem.type)) return;
+            var recipe = results[i].recipe;
+
+            // The reachable set (closed over in-stock items) is a superset of every directly- and
+            // recursively-craftable output, so an unreachable output is craftable by neither.
+            if (!reachable.Contains(recipe.createItem.type)) { results[i] = (recipe, false); return; }
 
             bool stationsMet = true;
             foreach (int t in recipe.requiredTile)
                 if (t >= 0 && !IsStationSatisfied(t, availableStations)) { stationsMet = false; break; }
-            if (!stationsMet || !CheckRecipeConditions(recipe, availableConditions)) return;
+            if (!stationsMet || !CheckRecipeConditions(recipe, availableConditions)) { results[i] = (recipe, false); return; }
 
-            bool allMet = true;
+            bool allDirect = true;
+            bool usedGroupSubstitute = false;
+            int realIngredients = 0;
             foreach (var ing in recipe.requiredItem)
             {
                 if (ing.type <= ItemID.None) continue;
-                int have = available.TryGetValue(ing.type, out int h) ? h : 0;
-                if (have >= ing.stack) continue;
+                realIngredients++;
 
-                bool groupOk = false;
-                foreach (int gid in recipe.acceptedGroups)
+                if (IngredientSatisfiedDirectly(recipe, ing.type, ing.stack, available, out bool viaGroup))
                 {
-                    var grp = RecipeGroup.recipeGroups[gid];
-                    if (!grp.ContainsItem(ing.type)) continue;
-                    foreach (int v in grp.ValidItems)
-                    {
-                        int vh = available.TryGetValue(v, out int vv) ? vv : 0;
-                        if (vh >= ing.stack) { groupOk = true; break; }
-                    }
-                    if (groupOk) break;
+                    if (viaGroup) usedGroupSubstitute = true;
+                    continue;
                 }
-                if (groupOk) continue;
 
+                allDirect = false;
+
+                // Pre-filter: this ingredient must be feasible in isolation from full stock.
+                // If it fails alone it cannot pass while sharing — reject cheaply.
                 var key = (ing.type, ing.stack);
                 if (!ingCache.TryGetValue(key, out bool ok))
                 {
                     ok = IsFeasibleFromSnapshot(ing.type, ing.stack, available, availableStations, availableConditions);
                     ingCache[key] = ok;
                 }
-                if (!ok) { allMet = false; break; }
+                if (!ok) { results[i] = (recipe, false); return; }
             }
 
-            if (allMet)
-                results[i] = (recipe, true);
+            // No double-count is possible without a sibling to contend with, so a lone ingredient
+            // (or a single real ingredient) is craftable as soon as it is satisfiable. With 2+
+            // ingredients, confirm against a shared deducting pool whenever they could compete for
+            // the same stock: either a sub-craft is involved (!allDirect) OR an ingredient was met
+            // via a recipe-group substitute (two group slots can drain one shared pool).
+            bool needsSharedConfirm = realIngredients >= 2 && (!allDirect || usedGroupSubstitute);
+            if (needsSharedConfirm &&
+                !IsRecipeFeasibleShared(recipe, available, availableStations, availableConditions))
+            {
+                results[i] = (recipe, false);
+                return;
+            }
+
+            results[i] = (recipe, true);
         }
 
         // Computes the set of item types that are transitively producible given the items
