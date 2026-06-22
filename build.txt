@@ -1,4 +1,4 @@
 displayName = Requisition
 author = _/Stixx
-version = 0.5.4
+version = 0.5.5
 buildIgnore = Sources/*, Tests/*, .gitignore, .git/*, .claude/*, *.md, *.kra, *.kra~, *.png~, Backup_*.zip, SS/*, *.aseprite, *.code-workspace

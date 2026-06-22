@@ -77,6 +77,10 @@ namespace TerraStorage.Content.UI.Elements
         private Rectangle _craftToInvCheckRect; // screen-space rect for the checkbox
         private bool _lockRecipe; // Global: when on, craft uses exactly the selected recipe variant (persists across recipes)
         private Rectangle _lockCheckRect; // screen-space rect for the lock checkbox
+        // True when the selected item is only available as existing stock and cannot actually be
+        // crafted from your other materials (e.g. a recipe that loops back into itself). Clicking
+        // craft would be a no-op, so the button says so in red instead of looking craftable.
+        private bool _craftIsNoOp;
 
         // Detail panel scroll
         private float _detailScrollOffset = 0f;
@@ -669,8 +673,7 @@ namespace TerraStorage.Content.UI.Elements
 
             if (recipe != null)
             {
-                _currentPlan = ResolvePlan(recipe, _craftAmount * recipe.createItem.stack);
-                RebuildIngredientCache();
+                SetPlan(recipe);
             }
             else
             {
@@ -718,8 +721,7 @@ namespace TerraStorage.Content.UI.Elements
             _amountFieldFocused = false;
             _amountInput.Deactivate();
             _detailScrollOffset = 0f;
-            _currentPlan = ResolvePlan(recipe, _craftAmount * recipe.createItem.stack);
-            RebuildIngredientCache();
+            SetPlan(recipe);
         }
 
         private void SetCraftAmount(int amount)
@@ -762,13 +764,31 @@ namespace TerraStorage.Content.UI.Elements
                 ? RecipeResolver.ResolveRecipe(recipe, quantity, _diskIds, _availableStations, _availableConditions)
                 : RecipeResolver.Resolve(recipe.createItem.type, quantity, _diskIds, _availableStations, _availableConditions);
 
+        // Resolves the plan for a recipe and refreshes the ingredient preview. Also flags the
+        // no-op case: the craft button force-crafts, so when the item is only available as existing
+        // stock (direct extract) and cannot actually be crafted from your other materials, clicking
+        // would do nothing — the button shows that instead of looking craftable.
+        private void SetPlan(Recipe recipe)
+        {
+            int quantity = _craftAmount * recipe.createItem.stack;
+            _currentPlan = ResolvePlan(recipe, quantity);
+
+            _craftIsNoOp = false;
+            if (!_lockRecipe && _currentPlan is { IsDirectExtract: true })
+            {
+                // We have it in stock; clicking force-crafts. If no recipe can actually produce it
+                // from the other materials (e.g. it loops back into itself), the craft is a no-op.
+                _craftIsNoOp = RecipeResolver.ResolveForceCraft(
+                    recipe.createItem.type, quantity, _diskIds, _availableStations, _availableConditions) == null;
+            }
+
+            RebuildIngredientCache();
+        }
+
         private void UpdatePlan()
         {
             if (_selectedRecipe != null)
-            {
-                _currentPlan = ResolvePlan(_selectedRecipe, _craftAmount * _selectedRecipe.createItem.stack);
-                RebuildIngredientCache();
-            }
+                SetPlan(_selectedRecipe);
         }
 
         // Precomputes per-ingredient storage counts and recipe-existence flags so
@@ -1098,7 +1118,7 @@ namespace TerraStorage.Content.UI.Elements
         // inserted back into storage.
         private void ExecuteCraft()
         {
-            if (_currentPlan == null || !_currentPlan.IsFeasible) return;
+            if (_currentPlan == null || !_currentPlan.IsFeasible || _craftIsNoOp) return;
 
             if (Main.netMode == Terraria.ID.NetmodeID.MultiplayerClient)
             {
@@ -1578,9 +1598,12 @@ namespace TerraStorage.Content.UI.Elements
             }
             bool feasible = _currentPlan is { IsFeasible: true };
             bool directExtract = _currentPlan is { IsDirectExtract: true };
+            bool noOp = _craftIsNoOp;
 
             Color craftColor;
-            if (directExtract)
+            if (noOp)
+                craftColor = new Color(150, 50, 50);   // red: clicking would change nothing
+            else if (directExtract)
                 craftColor = new Color(40, 80, 160);
             else if (feasible)
                 craftColor = new Color(50, 150, 50);
@@ -1589,7 +1612,9 @@ namespace TerraStorage.Content.UI.Elements
             Utils.DrawInvBG(spriteBatch, craftRect, craftColor);
 
             string craftText;
-            if (directExtract)
+            if (noOp)
+                craftText = "Nothing to Craft";
+            else if (directExtract)
                 craftText = $"CRAFT x{_craftAmount} ({totalOutput} items)";
             else if (_currentPlan != null && _currentPlan.MissingStations.Count > 0)
                 craftText = "Missing Stations";
@@ -1602,6 +1627,13 @@ namespace TerraStorage.Content.UI.Elements
             float craftTextX = craftRect.X + craftRect.Width / 2f - textSize.X / 2f;
             Utils.DrawBorderString(spriteBatch, craftText,
                 new Vector2(craftTextX, craftBtnY + 6), Color.White, 0.75f);
+
+            // Explain the no-op on hover so it's obvious why the button won't do anything.
+            if (noOp && craftRect.Contains(Main.MouseScreen.ToPoint()))
+            {
+                Main.LocalPlayer.mouseInterface = true;
+                Main.hoverItemName = "You already have these in storage, and they can't be made from your\nother items — this recipe just loops back into itself. Nothing would change.";
+            }
         }
 
         //Calculates total height of the scrollable detail content without drawing it.
