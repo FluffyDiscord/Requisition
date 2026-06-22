@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>ResolverTests</AssemblyName>
+    <RootNamespace>TerraStorage.Tests</RootNamespace>
+    <!-- Compile ONLY the pure resolver core + these tests: no Terraria, no rest of the mod. -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Link the shipped core source directly, so the tests exercise the exact code, not a copy. -->
+    <Compile Include="..\Helpers\Resolver\CoreModels.cs" />
+    <Compile Include="..\Helpers\Resolver\CoreResolver.cs" />
+    <Compile Include="FakeEnvironment.cs" />
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+
+</Project>

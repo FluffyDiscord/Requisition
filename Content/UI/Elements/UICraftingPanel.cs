@@ -15,6 +15,7 @@ using TerraStorage.Common;
 using TerraStorage.Content.UI;
 using TerraStorage.Content.UI.CraftingTree;
 using TerraStorage.Helpers;
+using TerraStorage.Helpers.Resolver;
 using TerraStorage.Systems;
 
 namespace TerraStorage.Content.UI.Elements
@@ -74,6 +75,8 @@ namespace TerraStorage.Content.UI.Elements
         private Rectangle _cleanCraftCheckRect; // screen-space rect for the checkbox
         private bool _craftToInventory; // When true, craft result goes to player inventory instead of storage
         private Rectangle _craftToInvCheckRect; // screen-space rect for the checkbox
+        private bool _lockRecipe; // Global: when on, craft uses exactly the selected recipe variant (persists across recipes)
+        private Rectangle _lockCheckRect; // screen-space rect for the lock checkbox
 
         // Detail panel scroll
         private float _detailScrollOffset = 0f;
@@ -666,8 +669,7 @@ namespace TerraStorage.Content.UI.Elements
 
             if (recipe != null)
             {
-                _currentPlan = RecipeResolver.Resolve(recipe.createItem.type,
-                    _craftAmount * recipe.createItem.stack, _diskIds, _availableStations, _availableConditions);
+                _currentPlan = ResolvePlan(recipe, _craftAmount * recipe.createItem.stack);
                 RebuildIngredientCache();
             }
             else
@@ -716,8 +718,7 @@ namespace TerraStorage.Content.UI.Elements
             _amountFieldFocused = false;
             _amountInput.Deactivate();
             _detailScrollOffset = 0f;
-            _currentPlan = RecipeResolver.Resolve(recipe.createItem.type,
-                _craftAmount * recipe.createItem.stack, _diskIds, _availableStations, _availableConditions);
+            _currentPlan = ResolvePlan(recipe, _craftAmount * recipe.createItem.stack);
             RebuildIngredientCache();
         }
 
@@ -731,26 +732,41 @@ namespace TerraStorage.Content.UI.Elements
         private int ComputeMaxCraftAmount()
         {
             if (_selectedRecipe == null) return 1;
+            // Max craftable from directly-held stock (own type plus recipe-group substitutes). Reads
+            // storage rather than the ingredient cache, whose TotalHave is capped at the current
+            // amount for the honest X/Y display. The craft button still gates the actual craft, so a
+            // shared-material overestimate here is harmless.
             int max = 9999;
             foreach (var ingredient in _selectedRecipe.requiredItem)
             {
                 if (ingredient.type <= ItemID.None || ingredient.stack <= 0) continue;
-                _ingredientCache.TryGetValue(ingredient.type, out var cached);
-                max = Math.Min(max, cached.totalHave / ingredient.stack);
+                int have = StorageWorldSystem.Instance.CountItem(_diskIds, ingredient.type);
+                foreach (int gid in _selectedRecipe.acceptedGroups)
+                {
+                    var grp = RecipeGroup.recipeGroups[gid];
+                    if (!grp.ContainsItem(ingredient.type)) continue;
+                    foreach (int v in grp.ValidItems)
+                        if (v != ingredient.type)
+                            have += StorageWorldSystem.Instance.CountItem(_diskIds, v);
+                    break;
+                }
+                max = Math.Min(max, have / ingredient.stack);
             }
             return Math.Max(1, max);
         }
+
+        // Resolves the plan for a recipe, honoring the global recipe-lock: when locked, forces the
+        // exact selected recipe variant; otherwise auto-selects the best recipe for the item (default).
+        private CraftingPlan ResolvePlan(Recipe recipe, int quantity)
+            => _lockRecipe
+                ? RecipeResolver.ResolveRecipe(recipe, quantity, _diskIds, _availableStations, _availableConditions)
+                : RecipeResolver.Resolve(recipe.createItem.type, quantity, _diskIds, _availableStations, _availableConditions);
 
         private void UpdatePlan()
         {
             if (_selectedRecipe != null)
             {
-                _currentPlan = RecipeResolver.Resolve(
-                    _selectedRecipe.createItem.type,
-                    _craftAmount * _selectedRecipe.createItem.stack,
-                    _diskIds,
-                    _availableStations,
-                    _availableConditions);
+                _currentPlan = ResolvePlan(_selectedRecipe, _craftAmount * _selectedRecipe.createItem.stack);
                 RebuildIngredientCache();
             }
         }
@@ -763,42 +779,17 @@ namespace TerraStorage.Content.UI.Elements
             _ingredientCache.Clear();
             if (_selectedRecipe == null) return;
 
-            var cache = RecipeCacheSystem.Instance;
-            foreach (var ingredient in _selectedRecipe.requiredItem)
-            {
-                if (ingredient.type <= ItemID.None) continue;
-                if (_ingredientCache.ContainsKey(ingredient.type)) continue;
-
-                int directHave = StorageWorldSystem.Instance.CountItem(_diskIds, ingredient.type);
-                bool hasRecipe = cache.GetRecipesFor(ingredient.type).Count > 0;
-
-                bool isGroup = false;
-                int totalHave = directHave;
-                foreach (int gid in _selectedRecipe.acceptedGroups)
-                {
-                    var grp = RecipeGroup.recipeGroups[gid];
-                    if (!grp.ContainsItem(ingredient.type)) continue;
-                    isGroup = true;
-                    foreach (int v in grp.ValidItems)
-                        if (v != ingredient.type)
-                            totalHave += StorageWorldSystem.Instance.CountItem(_diskIds, v);
-                    break;
-                }
-
-                int needed = ingredient.stack * _craftAmount;
-                if (hasRecipe && totalHave < needed)
-                {
-                    // Resolve the full needed amount, not the shortfall: Resolve consumes stock
-                    // first, so resolving the shortfall would be satisfied by the very stock already
-                    // counted in totalHave (double-count). Resolving needed nets that stock out once
-                    // and reports feasible only if the rest is covered by other materials.
-                    var subPlan = RecipeResolver.Resolve(ingredient.type, needed, _diskIds, _availableStations, _availableConditions);
-                    if (subPlan != null && subPlan.IsFeasible)
-                        totalHave = needed;
-                }
-
-                _ingredientCache[ingredient.type] = (totalHave, hasRecipe, isGroup);
-            }
+            // Ingredient availability is computed by the unit-tested resolver core against ONE shared,
+            // deducting pool — so a base material usable for two slots (a recipe-group substitute, or
+            // an ore behind two sub-crafts) is never counted twice, and the preview cannot show an
+            // ingredient as satisfied when the recipe as a whole is not craftable. Recursive
+            // craftability is conveyed by the "has recipe" flag and the craft button, NOT by inflating
+            // the stock count.
+            var available = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
+            var core = new CoreResolver(new TerrariaRecipeEnvironment(_availableStations, _availableConditions));
+            var coreRecipe = TerrariaRecipeEnvironment.ToCore(_selectedRecipe);
+            foreach (var view in core.ComputeIngredientPreview(coreRecipe, available, _craftAmount))
+                _ingredientCache[view.Type] = (view.TotalHave, view.HasRecipe, view.IsGroup);
         }
 
         public override void LeftClick(UIMouseEvent evt)
@@ -988,6 +979,15 @@ namespace TerraStorage.Content.UI.Elements
                 return;
             }
 
+            // Lock Recipe checkbox (global toggle — recompute the plan so the craft button updates)
+            if (_lockCheckRect.Contains(mousePoint))
+            {
+                _lockRecipe = !_lockRecipe;
+                UpdatePlan();
+                Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.MenuTick);
+                return;
+            }
+
             // Input field row (middle row) — left-click focuses text input
             if (relY >= dims.Height - 70 && relY < dims.Height - 45)
             {
@@ -1107,19 +1107,20 @@ namespace TerraStorage.Content.UI.Elements
                 {
                     var mod = Terraria.ModLoader.ModLoader.GetMod("TerraStorage");
                     NetworkHandler.SendCraftRequest(mod, _diskIds, _selectedRecipe.createItem.type,
-                        _craftAmount * _selectedRecipe.createItem.stack, _availableStations, _availableConditions, _cleanCraft, _craftToInventory);
+                        _craftAmount * _selectedRecipe.createItem.stack, _availableStations, _availableConditions, _cleanCraft, _craftToInventory,
+                        _lockRecipe ? _selectedRecipe.RecipeIndex : -1);
                     Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.Grab);
                 }
                 return;
             }
 
-            // Always force-craft: the user explicitly wants to produce new items,
-            // not extract existing stock. ResolveForceCraft ignores existing copies
-            // of the target item so all demand is met via actual crafting.
-            var planToUse = RecipeResolver.ResolveForceCraft(
-                _selectedRecipe.createItem.type,
-                _craftAmount * _selectedRecipe.createItem.stack,
-                _diskIds, _availableStations, _availableConditions);
+            // Always force-craft: the user explicitly wants to produce new items, not extract existing
+            // stock. When the recipe is locked, force exactly the selected variant; otherwise
+            // ResolveForceCraft auto-selects the best recipe for the item.
+            int craftQty = _craftAmount * _selectedRecipe.createItem.stack;
+            var planToUse = _lockRecipe
+                ? RecipeResolver.ResolveRecipe(_selectedRecipe, craftQty, _diskIds, _availableStations, _availableConditions)
+                : RecipeResolver.ResolveForceCraft(_selectedRecipe.createItem.type, craftQty, _diskIds, _availableStations, _availableConditions);
 
             if (planToUse == null || !planToUse.IsFeasible)
                 return;
@@ -1480,7 +1481,14 @@ namespace TerraStorage.Content.UI.Elements
             float fieldOffsetX = amtLabelSize.X + 10;
             int checkboxSize = 18;
             int checkboxGap = 6;
-            var fieldRect = new Rectangle((int)(dims.X + 5 + fieldOffsetX), (int)craftMaxBtnY, (int)(dims.Width - 14 - fieldOffsetX - 2 * (checkboxSize + checkboxGap)), 25);
+            int cbY = (int)craftMaxBtnY + (25 - checkboxSize) / 2;
+            // Right-anchor the three option checkboxes (Clean Craft, Craft to Inventory, Lock Recipe);
+            // the amount field fills the space to their left so they never overlap, even on a narrow panel.
+            int lockCbX = (int)(dims.X + dims.Width - 9 - checkboxSize);
+            int invCbX = lockCbX - checkboxGap - checkboxSize;
+            int cbX = invCbX - checkboxGap - checkboxSize;
+            int fieldLeft = (int)(dims.X + 5 + fieldOffsetX);
+            var fieldRect = new Rectangle(fieldLeft, (int)craftMaxBtnY, Math.Max(24, cbX - checkboxGap - fieldLeft), 25);
             _amountFieldRect = fieldRect; // expose to Update for raw mouse detection
             Color fieldBg = _amountFieldFocused  ? new Color(45, 55, 100)
                           : _amountDragActive    ? new Color(60, 45, 110)
@@ -1494,9 +1502,7 @@ namespace TerraStorage.Content.UI.Elements
             if (!_amountFieldFocused && !_amountDragActive && fieldRect.Contains(Main.MouseScreen.ToPoint()))
                 Main.hoverItemName = "Left-click to type  |  Right-drag to adjust  |  Middle-click to reset";
 
-            // Clean Craft checkbox (right of amount field)
-            int cbX = fieldRect.Right + checkboxGap;
-            int cbY = (int)craftMaxBtnY + (25 - checkboxSize) / 2;
+            // Clean Craft checkbox (leftmost of the three right-anchored options)
             var cbRect = new Rectangle(cbX, cbY, checkboxSize, checkboxSize);
             _cleanCraftCheckRect = cbRect;
             bool cbHover = cbRect.Contains(Main.MouseScreen.ToPoint());
@@ -1512,10 +1518,8 @@ namespace TerraStorage.Content.UI.Elements
                     : "Clean Craft: OFF\nItems receive vanilla prefixes and mod modifiers.\nClick to enable.";
             }
 
-            // Craft to Inventory checkbox (right of Clean Craft)
-            int invCbX = cbRect.Right + checkboxGap;
-            int invCbY = cbY;
-            var invCbRect = new Rectangle(invCbX, invCbY, checkboxSize, checkboxSize);
+            // Craft to Inventory checkbox (middle of the three)
+            var invCbRect = new Rectangle(invCbX, cbY, checkboxSize, checkboxSize);
             _craftToInvCheckRect = invCbRect;
             bool invCbHover = invCbRect.Contains(Main.MouseScreen.ToPoint());
             Color invCbBg = invCbHover ? new Color(83, 104, 181)
@@ -1528,6 +1532,23 @@ namespace TerraStorage.Content.UI.Elements
                 Main.hoverItemName = _craftToInventory
                     ? "Craft to Inventory: ON\nCrafted items go to your inventory.\nClick to disable."
                     : "Craft to Inventory: OFF\nCrafted items go to storage.\nClick to enable.";
+            }
+
+            // Lock Recipe checkbox (rightmost) — global toggle: when on, crafting uses exactly the
+            // selected recipe variant instead of auto-picking one for the item.
+            var lockCbRect = new Rectangle(lockCbX, cbY, checkboxSize, checkboxSize);
+            _lockCheckRect = lockCbRect;
+            bool lockHover = lockCbRect.Contains(Main.MouseScreen.ToPoint());
+            Color lockBg = lockHover ? new Color(83, 104, 181)
+                         : _lockRecipe ? new Color(80, 130, 60)
+                         : new Color(53, 74, 141);
+            Utils.DrawInvBG(spriteBatch, lockCbRect, lockBg);
+            if (lockHover)
+            {
+                Main.LocalPlayer.mouseInterface = true;
+                Main.hoverItemName = _lockRecipe
+                    ? "Lock Recipe: ON\nCrafting uses exactly the selected recipe variant.\nStays on for every recipe until disabled.\nClick to disable."
+                    : "Lock Recipe: OFF\nCrafting auto-picks any working recipe for the item.\nClick to enable.";
             }
 
             // Craft button + output slot row

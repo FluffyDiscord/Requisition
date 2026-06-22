@@ -9,6 +9,7 @@ using Terraria.ModLoader;
 using Terraria.Map;
 using TerraStorage.Common;
 using TerraStorage.Content.Items;
+using TerraStorage.Helpers.Resolver;
 using TerraStorage.Systems;
 
 namespace TerraStorage.Helpers
@@ -56,6 +57,22 @@ namespace TerraStorage.Helpers
         // Limits recursive ingredient expansion to prevent infinite loops in circular recipe graphs
         public static int MaxDepth { get; set; } = 10;
 
+        // Builds the pure resolver bound to the live recipe world for this request. All recursive
+        // decisions are delegated here; the same CoreResolver is exercised directly by the unit tests.
+        private static CoreResolver Core(HashSet<int> availableStations, HashSet<CraftingCondition> availableConditions)
+            => new CoreResolver(new TerrariaRecipeEnvironment(availableStations, availableConditions)) { MaxDepth = MaxDepth };
+
+        // Maps a resolved core step back to the Terraria-facing step (re-attaching the concrete Recipe).
+        private static CraftingStep MapStep(CoreStep s) => new CraftingStep
+        {
+            Recipe = (Recipe)s.Recipe.Source,
+            CraftCount = s.CraftCount,
+            Consumed = s.Consumed,
+            ProducedType = s.ProducedType,
+            ProducedCount = s.ProducedCount,
+            RequiredStations = s.RequiredStations
+        };
+
         // Cache for tile name lookups (populated lazily, or pre-warmed via WarmTileCaches)
         private static readonly Dictionary<int, string> _tileNameCache = new();
 
@@ -79,16 +96,6 @@ namespace TerraStorage.Helpers
             return false;
         }
 
-        // True if every crafting-station tile a recipe requires is satisfied by the available
-        // stations. Used to prefer fully-craftable recipes when several produce the same item.
-        private static bool StationsAllSatisfied(Recipe recipe, HashSet<int> availableStations)
-        {
-            foreach (int t in recipe.requiredTile)
-                if (t >= 0 && !IsStationSatisfied(t, availableStations))
-                    return false;
-            return true;
-        }
-
         // Resolve a recipe recursively, determining what base materials are needed
         // and what intermediate crafting steps must be performed.
         // Checks crafting station requirements against available stations.
@@ -102,8 +109,12 @@ namespace TerraStorage.Helpers
                 FinalItemCount = quantity
             };
 
+            var coreSteps = new List<CoreStep>();
             var resolving = new HashSet<int>(); // cycle detection
-            bool feasible = ResolveRecursive(targetItemType, quantity, available, plan.Steps, resolving, 0, availableStations, availableConditions);
+            bool feasible = Core(availableStations, availableConditions)
+                .ResolveRecursive(targetItemType, quantity, available, coreSteps, resolving, 0);
+            foreach (var s in coreSteps)
+                plan.Steps.Add(MapStep(s));
 
             // Collect required stations from successful steps only
             foreach (var step in plan.Steps)
@@ -377,16 +388,18 @@ namespace TerraStorage.Helpers
             HashSet<int> availableStations,
             HashSet<CraftingCondition> availableConditions)
         {
-            var reachable = ComputeReachableTypes(available, availableStations, availableConditions);
+            var core = Core(availableStations, availableConditions);
+            var reachable = core.ComputeReachableTypes(available);
             var ingCache = new Dictionary<(int type, int stack), bool>();
             for (int i = 0; i < results.Count; i++)
-                CheckRecursiveAt(results, i, reachable, available, availableStations, availableConditions, ingCache);
+                results[i] = (results[i].recipe,
+                    core.IsRecipeCraftable(TerrariaRecipeEnvironment.ToCore(results[i].recipe), reachable, available, ingCache));
         }
 
         // Processes a batch of the recursive craftability pass. Returns the index to resume from
         // next frame, or -1 if complete. Caller should pass startIndex=0 on first call, then
         // feed the returned value back on subsequent frames.
-        // <param name="reachable">Pre-computed reachable set from <see cref="ComputeReachableTypes"/>.</param>
+        // <param name="reachable">Pre-computed reachable set from <see cref="ComputeReachableTypesPublic"/>.</param>
         // <param name="ingCache">Shared ingredient cache — pass the same instance across batches.</param>
         // <param name="anyFlipped">Set to true if any recipe's canCraft changed in this batch.</param>
         public static int ApplyRecursiveCraftabilityBatch(
@@ -401,13 +414,16 @@ namespace TerraStorage.Helpers
         {
             anyFlipped = false;
             int end = Math.Min(startIndex + batchSize, results.Count);
+            var core = Core(availableStations, availableConditions);
             for (int i = startIndex; i < end; i++)
             {
                 bool wasCraftable = results[i].canCraft;
-                CheckRecursiveAt(results, i, reachable, available, availableStations, availableConditions, ingCache);
+                bool nowCraftable = core.IsRecipeCraftable(
+                    TerrariaRecipeEnvironment.ToCore(results[i].recipe), reachable, available, ingCache);
+                results[i] = (results[i].recipe, nowCraftable);
                 // The check is authoritative (it can demote as well as promote), so surface any
                 // change — a recipe that became uncraftable must leave the list too.
-                if (wasCraftable != results[i].canCraft)
+                if (wasCraftable != nowCraftable)
                     anyFlipped = true;
             }
             return end >= results.Count ? -1 : end;
@@ -416,200 +432,7 @@ namespace TerraStorage.Helpers
         //Expose BFS reachability computation for deferred use.
         public static HashSet<int> ComputeReachableTypesPublic(
             Dictionary<int, int> available, HashSet<int> availableStations, HashSet<CraftingCondition> availableConditions)
-            => ComputeReachableTypes(available, availableStations, availableConditions);
-
-        // True if a single ingredient is satisfied directly from stock — its own type or a
-        // recipe-group substitute — ignoring any sub-crafting. Shared by the direct and
-        // recursive craftability checks so the two passes agree on what "in stock" means.
-        // <paramref name="viaGroup"/> is set true when satisfaction relied on a recipe-group
-        // substitute (not the ingredient's own type) — the only way two directly-stocked
-        // ingredients can contend for the same base stock, so the caller knows to confirm.
-        private static bool IngredientSatisfiedDirectly(Recipe recipe, int ingredientType, int needed, Dictionary<int, int> available, out bool viaGroup)
-        {
-            viaGroup = false;
-            if (available.TryGetValue(ingredientType, out int have) && have >= needed)
-                return true;
-
-            foreach (int groupId in recipe.acceptedGroups)
-            {
-                var group = RecipeGroup.recipeGroups[groupId];
-                if (!group.ContainsItem(ingredientType)) continue;
-                foreach (int validItem in group.ValidItems)
-                {
-                    if (available.TryGetValue(validItem, out int groupHave) && groupHave >= needed)
-                    {
-                        viaGroup = true;
-                        return true;
-                    }
-                }
-            }
-            return false;
-        }
-
-        // Confirms a recipe is craftable by simulating ALL of its ingredients against ONE
-        // shared, deducting clone of the snapshot — so two ingredients that draw on the same
-        // base material cannot each be counted against the full stock (the overcount that made
-        // two-way / shared-material recipes show as craftable when they are not). Mirrors the
-        // per-recipe block inside ResolveRecursive; returns false as soon as an ingredient cannot
-        // be met once earlier ingredients have taken their share of the pool.
-        private static bool IsRecipeFeasibleShared(Recipe recipe, Dictionary<int, int> availableSnapshot,
-            HashSet<int> availableStations, HashSet<CraftingCondition> availableConditions)
-        {
-            var available = new Dictionary<int, int>(availableSnapshot);
-            var steps = new List<CraftingStep>();
-            // Seed the cycle guard with the output type so a recipe cannot consume its own
-            // product to make itself (matches ResolveRecursive's per-type guard).
-            var resolving = new HashSet<int> { recipe.createItem.type };
-
-            foreach (var ingredient in recipe.requiredItem)
-            {
-                if (ingredient.type <= ItemID.None) continue;
-                int resolvedType = ResolveIngredientType(recipe, ingredient.type, available);
-                if (!ResolveRecursive(resolvedType, ingredient.stack, available, steps, resolving, 1,
-                        availableStations, availableConditions))
-                    return false;
-            }
-            return true;
-        }
-
-        // Computes the AUTHORITATIVE craftability of results[i] — direct OR recursive — and
-        // stores it. Both promotes newly-craftable recipes and demotes ones no longer craftable,
-        // so re-running the pass over a fresh storage snapshot fully corrects stale flags.
-        //
-        // Recursive feasibility is two-stage: a cheap per-ingredient "feasible in isolation from
-        // full stock" pre-filter (memoized in ingCache, shared across the pass), then — only when
-        // a recipe has 2+ ingredients that could compete for a shared base material — a single
-        // shared-pool confirm (IsRecipeFeasibleShared). The pre-filter alone over-counts shared
-        // materials; the confirm is what makes the list flag match what an actual craft would do.
-        private static void CheckRecursiveAt(
-            List<(Recipe recipe, bool canCraft)> results, int i,
-            HashSet<int> reachable,
-            Dictionary<int, int> available,
-            HashSet<int> availableStations,
-            HashSet<CraftingCondition> availableConditions,
-            Dictionary<(int type, int stack), bool> ingCache)
-        {
-            var recipe = results[i].recipe;
-
-            // The reachable set (closed over in-stock items) is a superset of every directly- and
-            // recursively-craftable output, so an unreachable output is craftable by neither.
-            if (!reachable.Contains(recipe.createItem.type)) { results[i] = (recipe, false); return; }
-
-            bool stationsMet = true;
-            foreach (int t in recipe.requiredTile)
-                if (t >= 0 && !IsStationSatisfied(t, availableStations)) { stationsMet = false; break; }
-            if (!stationsMet || !CheckRecipeConditions(recipe, availableConditions)) { results[i] = (recipe, false); return; }
-
-            bool allDirect = true;
-            bool usedGroupSubstitute = false;
-            int realIngredients = 0;
-            foreach (var ing in recipe.requiredItem)
-            {
-                if (ing.type <= ItemID.None) continue;
-                realIngredients++;
-
-                if (IngredientSatisfiedDirectly(recipe, ing.type, ing.stack, available, out bool viaGroup))
-                {
-                    if (viaGroup) usedGroupSubstitute = true;
-                    continue;
-                }
-
-                allDirect = false;
-
-                // Pre-filter: this ingredient must be feasible in isolation from full stock.
-                // If it fails alone it cannot pass while sharing — reject cheaply.
-                var key = (ing.type, ing.stack);
-                if (!ingCache.TryGetValue(key, out bool ok))
-                {
-                    ok = IsFeasibleFromSnapshot(ing.type, ing.stack, available, availableStations, availableConditions);
-                    ingCache[key] = ok;
-                }
-                if (!ok) { results[i] = (recipe, false); return; }
-            }
-
-            // No double-count is possible without a sibling to contend with, so a lone ingredient
-            // (or a single real ingredient) is craftable as soon as it is satisfiable. With 2+
-            // ingredients, confirm against a shared deducting pool whenever they could compete for
-            // the same stock: either a sub-craft is involved (!allDirect) OR an ingredient was met
-            // via a recipe-group substitute (two group slots can drain one shared pool).
-            bool needsSharedConfirm = realIngredients >= 2 && (!allDirect || usedGroupSubstitute);
-            if (needsSharedConfirm &&
-                !IsRecipeFeasibleShared(recipe, available, availableStations, availableConditions))
-            {
-                results[i] = (recipe, false);
-                return;
-            }
-
-            results[i] = (recipe, true);
-        }
-
-        // Computes the set of item types that are transitively producible given the items
-        // currently in storage, by running a BFS fixpoint over the recipe graph.
-        // Ignores exact quantities — suitable for recipe-list visibility only.
-        private static HashSet<int> ComputeReachableTypes(
-            Dictionary<int, int> available,
-            HashSet<int> availableStations,
-            HashSet<CraftingCondition> availableConditions)
-        {
-            // Pre-filter to recipes whose stations and conditions are met — these don't change
-            // between BFS iterations so checking them once here avoids repeating the work.
-            var eligible = new List<Recipe>();
-            for (int i = 0; i < Recipe.numRecipes; i++)
-            {
-                var r = Main.recipe[i];
-                if (r?.createItem == null || r.createItem.type <= ItemID.None) continue;
-
-                bool ok = true;
-                foreach (int t in r.requiredTile)
-                    if (t >= 0 && !IsStationSatisfied(t, availableStations)) { ok = false; break; }
-                if (!ok) continue;
-
-                if (!CheckRecipeConditions(r, availableConditions)) continue;
-
-                eligible.Add(r);
-            }
-
-            // Seed only with item types actually in stock (count > 0) — the available dict can
-            // contain zero-count entries from partial consumption in ResolveRecursive, and seeding
-            // those in would cause false positives in the BFS ingredient checks.
-            var reachable = new HashSet<int>();
-            foreach (var kvp in available)
-                if (kvp.Value > 0) reachable.Add(kvp.Key);
-            bool changed = true;
-            while (changed)
-            {
-                changed = false;
-                foreach (var r in eligible)
-                {
-                    if (reachable.Contains(r.createItem.type)) continue;
-
-                    bool ingredientsMet = true;
-                    foreach (var ing in r.requiredItem)
-                    {
-                        if (ing.type <= ItemID.None) continue;
-                        if (reachable.Contains(ing.type)) continue;
-
-                        bool foundInGroup = false;
-                        foreach (int groupId in r.acceptedGroups)
-                        {
-                            var group = RecipeGroup.recipeGroups[groupId];
-                            if (!group.ContainsItem(ing.type)) continue;
-                            foreach (int valid in group.ValidItems)
-                                if (reachable.Contains(valid)) { foundInGroup = true; break; }
-                            if (foundInGroup) break;
-                        }
-                        if (!foundInGroup) { ingredientsMet = false; break; }
-                    }
-
-                    if (ingredientsMet)
-                    {
-                        reachable.Add(r.createItem.type);
-                        changed = true;
-                    }
-                }
-            }
-            return reachable;
-        }
+            => Core(availableStations, availableConditions).ComputeReachableTypes(available);
 
         // Get the item type that places a given tile type. Returns -1 if not found.
         // Cached for performance. Use <see cref="RegisterTileDisplay"/> to map vanilla
@@ -700,8 +523,12 @@ namespace TerraStorage.Helpers
                 FinalItemCount = quantity
             };
 
+            var coreSteps = new List<CoreStep>();
             var resolving = new HashSet<int>();
-            bool feasible = ResolveRecursive(targetItemType, quantity, available, plan.Steps, resolving, 0, availableStations, availableConditions);
+            bool feasible = Core(availableStations, availableConditions)
+                .ResolveRecursive(targetItemType, quantity, available, coreSteps, resolving, 0);
+            foreach (var s in coreSteps)
+                plan.Steps.Add(MapStep(s));
 
             foreach (var step in plan.Steps)
             {
@@ -722,180 +549,53 @@ namespace TerraStorage.Helpers
             return plan.IsFeasible ? plan : null;
         }
 
-        // Given an ingredient type and the recipe's accepted groups, returns the best item type
-        // to actually consume — preferring the ingredient's own type, falling back to any recipe
-        // group substitute that is already in <paramref name="available"/>. 
-        private static int ResolveIngredientType(Recipe recipe, int ingredientType, Dictionary<int, int> available)
+        // Like Resolve, but forces a SPECIFIC recipe for the target item instead of auto-selecting the
+        // best one. Used by the crafting panel's "lock recipe" option so the plan and the actual craft
+        // use exactly the recipe the player selected. Ignores existing stock of the output (force-craft),
+        // sub-resolving ingredients via the normal station-preferring ResolveRecursive. Returns the plan
+        // ALWAYS (with MissingStations populated), like Resolve — a recipe that cannot be satisfied yields
+        // a plan with IsFeasible == false.
+        public static CraftingPlan ResolveRecipe(Recipe recipe, int quantity, IEnumerable<Guid> diskIds,
+            HashSet<int> availableStations, HashSet<CraftingCondition> availableConditions = null)
         {
-            // If we already have enough of the exact type, use it
-            if (available.TryGetValue(ingredientType, out int have) && have > 0)
-                return ingredientType;
-
-            // Look for a recipe-group substitute that is already in stock
-            foreach (int groupId in recipe.acceptedGroups)
+            availableConditions ??= new HashSet<CraftingCondition>();
+            var plan = new CraftingPlan
             {
-                var group = RecipeGroup.recipeGroups[groupId];
-                if (!group.ContainsItem(ingredientType))
-                    continue;
+                FinalItemType = recipe?.createItem?.type ?? 0,
+                FinalItemCount = quantity
+            };
+            if (recipe?.createItem == null || recipe.createItem.type <= ItemID.None)
+                return plan; // null/invalid recipe → infeasible empty plan
 
-                foreach (int validItem in group.ValidItems)
-                {
-                    if (validItem == ingredientType) continue;
-                    if (available.TryGetValue(validItem, out int altHave) && altHave > 0)
-                        return validItem;
-                }
-            }
+            int itemType = recipe.createItem.type;
+            var available = GetAvailableItems(diskIds);
+            available.Remove(itemType); // force crafting via this recipe; don't direct-extract the output
 
-            return ingredientType;
-        }
+            var coreRecipe = TerrariaRecipeEnvironment.ToCore(recipe);
+            var coreSteps = new List<CoreStep>();
+            var resolving = new HashSet<int> { itemType };
+            bool feasible = CheckRecipeConditions(recipe, availableConditions)
+                && Core(availableStations, availableConditions)
+                    .TryResolveRecipe(coreRecipe, itemType, quantity, available, coreSteps, resolving, 0);
+            foreach (var s in coreSteps)
+                plan.Steps.Add(MapStep(s));
 
-        // Recursively attempts to satisfy a demand for <paramref name="needed"/> units of
-        // <paramref name="itemType"/> using the mutable <paramref name="available"/> dictionary.
-        // On success the required quantities are deducted from <paramref name="available"/> and
-        // the necessary <see cref="CraftingStep"/>s are appended to <paramref name="steps"/>.
-        // Returns false if the demand cannot be met with the current stock or recipes.
-        private static bool ResolveRecursive(int itemType, int needed, Dictionary<int, int> available,
-            List<CraftingStep> steps, HashSet<int> resolving, int depth,
-            HashSet<int> availableStations, HashSet<CraftingCondition> availableConditions)
-        {
-            if (depth > MaxDepth)
-                return false;
-
-            // Check if we already have enough in the simulated available pool
-            if (available.TryGetValue(itemType, out int have) && have >= needed)
-            {
-                available[itemType] -= needed;
-                return true;
-            }
-
-            // Partially consume existing stock; only craft enough to cover the deficit
-            int deficit = needed;
-            if (have > 0)
-            {
-                deficit -= have;
-                available[itemType] = 0;
-            }
-
-            // Cycle detection: if we're already in the process of resolving this type,
-            // attempting it again would loop forever
-            if (!resolving.Add(itemType))
-                return false;
-
-            var cache = RecipeCacheSystem.Instance;
-            var recipes = cache.GetRecipesFor(itemType);
-
-            // Prefer recipes whose required stations are all available, so a station-missing recipe
-            // never wins over a fully craftable variant of the same item (which produced a false
-            // "missing stations" when an available-station recipe existed). This is a stable REORDER,
-            // not a filter: station-missing recipes stay at the end as fallback so a genuinely
-            // station-missing item still resolves and reports its missing station.
-            IEnumerable<Recipe> ordered = recipes;
-            if (recipes.Count > 1)
-                ordered = recipes.OrderByDescending(r => StationsAllSatisfied(r, availableStations));
-
-            foreach (var recipe in ordered)
-            {
-                // Check for special conditions against both player and network
-                if (!CheckRecipeConditions(recipe, availableConditions))
-                    continue;
-
-                // Collect station requirements for this recipe
-                var stepStations = new List<int>();
-                foreach (int tileType in recipe.requiredTile)
-                {
-                    if (tileType < 0)
-                        continue;
-                    stepStations.Add(tileType);
-                }
-
-                // Ceiling division: if the recipe produces 3 per craft and we need 7, we must craft 3 times
-                int craftsNeeded = (int)Math.Ceiling((double)deficit / recipe.createItem.stack);
-
-                // Snapshot available inventory before trying this recipe so we can roll back on failure
-                var availBackup = new Dictionary<int, int>(available);
-                var tempSteps = new List<CraftingStep>();
-                bool allResolved = true;
-                var consumed = new Dictionary<int, int>();
-
-                foreach (var ingredient in recipe.requiredItem)
-                {
-                    if (ingredient.type <= ItemID.None)
-                        continue;
-
-                    // Resolve to the best available type, respecting recipe groups
-                    int resolvedType = ResolveIngredientType(recipe, ingredient.type, available);
-                    int ingredientNeeded = ingredient.stack * craftsNeeded;
-                    consumed[resolvedType] = ingredientNeeded;
-
-                    if (!ResolveRecursive(resolvedType, ingredientNeeded, available, tempSteps, resolving, depth + 1,
-                        availableStations, availableConditions))
-                    {
-                        // This recipe path failed — restore the availability snapshot and try the next recipe
-                        allResolved = false;
-                        available.Clear();
-                        foreach (var kvp in availBackup)
-                            available[kvp.Key] = kvp.Value;
-                        break;
-                    }
-                }
-
-                if (allResolved)
-                {
-                    steps.AddRange(tempSteps);
-
-                    int produced = craftsNeeded * recipe.createItem.stack;
-                    steps.Add(new CraftingStep
-                    {
-                        Recipe = recipe,
-                        CraftCount = craftsNeeded,
-                        Consumed = consumed,
-                        ProducedType = itemType,
-                        ProducedCount = produced,
-                        RequiredStations = stepStations
-                    });
-
-                    // Any overproduction (recipe yields more than needed) is added back to the available pool
-                    // so subsequent steps can use it as free materials
-                    int excess = produced - deficit;
-                    if (excess > 0)
-                    {
-                        if (!available.ContainsKey(itemType))
-                            available[itemType] = 0;
-                        available[itemType] += excess;
-                    }
-
-                    resolving.Remove(itemType);
-                    return true;
-                }
-            }
-
-            resolving.Remove(itemType);
-            return false;
-        }
-
-        // Checks feasibility using an already-computed item snapshot rather than re-scanning
-        // disk data. The snapshot is cloned before use so the original is not consumed.
-        // Used by <see cref="GetAllRecipesWithStations"/> to avoid redundant disk scans in
-        // the second pass.
-        private static bool IsFeasibleFromSnapshot(int targetItemType, int quantity,
-            Dictionary<int, int> availableSnapshot, HashSet<int> availableStations,
-            HashSet<CraftingCondition> availableConditions)
-        {
-            var available = new Dictionary<int, int>(availableSnapshot);
-            var steps = new List<CraftingStep>();
-            var resolving = new HashSet<int>();
-            bool feasible = ResolveRecursive(targetItemType, quantity, available, steps, resolving, 0, availableStations, availableConditions);
-            if (!feasible) return false;
-
-            foreach (var step in steps)
+            foreach (var step in plan.Steps)
                 foreach (int s in step.RequiredStations)
-                    if (!IsStationSatisfied(s, availableStations)) return false;
+                    plan.RequiredStations.Add(s);
+            foreach (int stationType in plan.RequiredStations)
+                if (!IsStationSatisfied(stationType, availableStations))
+                    plan.MissingStations.Add(stationType);
 
-            return true;
+            plan.IsFeasible = feasible && plan.MissingStations.Count == 0 && plan.Steps.Count > 0;
+            if (feasible)
+                CalculateBaseMaterials(plan, diskIds);
+
+            return plan;
         }
 
         // Builds a mutable snapshot of all items available for crafting from the given disks.
-        // This snapshot is modified in-place by <see cref="ResolveRecursive"/> to simulate consumption. 
+        // This snapshot is modified in-place by the resolver to simulate consumption.
         // Builds a dictionary of itemType → total count across all given disks.
         // Public so the crafting panel can use it for lightweight canCraft updates. 
         public static Dictionary<int, int> GetAvailableItemsPublic(IEnumerable<Guid> diskIds)

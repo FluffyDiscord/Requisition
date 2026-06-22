@@ -9,5 +9,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="Sources\**" />
+    <Compile Remove="Tests\**" />
   </ItemGroup>
 </Project>

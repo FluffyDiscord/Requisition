@@ -519,7 +519,8 @@ namespace TerraStorage.Systems
         // ─── Crafting ───────────────────────────────────────────────────
 
         public static void SendCraftRequest(Mod mod, List<Guid> diskIds, int recipeItemType,
-            int craftAmount, HashSet<int> stations, HashSet<CraftingCondition> conditions, bool cleanCraft, bool craftToInventory)
+            int craftAmount, HashSet<int> stations, HashSet<CraftingCondition> conditions, bool cleanCraft, bool craftToInventory,
+            int recipeIndex)
         {
             if (Main.netMode != NetmodeID.MultiplayerClient)
                 return;
@@ -531,6 +532,7 @@ namespace TerraStorage.Systems
             foreach (var id in diskIds)
                 packet.Write(id.ToByteArray());
             packet.Write(recipeItemType);
+            packet.Write(recipeIndex);
             packet.Write(craftAmount);
             packet.Write(stations.Count);
             foreach (int s in stations)
@@ -549,6 +551,7 @@ namespace TerraStorage.Systems
             int diskCount = reader.ReadInt32();
             var diskIds = ReadGuidList(reader, diskCount);
             int recipeItemType = reader.ReadInt32();
+            int recipeIndex = reader.ReadInt32();
             int craftAmount = reader.ReadInt32();
             int stationCount = reader.ReadInt32();
             var stations = new HashSet<int>();
@@ -563,9 +566,12 @@ namespace TerraStorage.Systems
 
             if (Main.netMode == NetmodeID.Server)
             {
-                // Server re-resolves with ResolveForceCraft so existing stock of the
-                // target item is ignored — the client explicitly requested new crafts.
-                var plan = RecipeResolver.ResolveForceCraft(recipeItemType, craftAmount, diskIds, stations, conditions);
+                // Server re-resolves so existing stock of the target item is ignored — the client
+                // explicitly requested new crafts. When the client locked a specific recipe variant
+                // (recipeIndex >= 0), force exactly that recipe; otherwise auto-select the best one.
+                var plan = recipeIndex >= 0 && recipeIndex < Recipe.numRecipes
+                    ? RecipeResolver.ResolveRecipe(Main.recipe[recipeIndex], craftAmount, diskIds, stations, conditions)
+                    : RecipeResolver.ResolveForceCraft(recipeItemType, craftAmount, diskIds, stations, conditions);
                 StorageWorldSystem.Instance.BeginModificationTracking();
                 bool success = false;
                 if (plan != null && plan.IsFeasible)
