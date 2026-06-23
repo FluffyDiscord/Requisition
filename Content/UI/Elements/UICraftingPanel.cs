@@ -120,6 +120,9 @@ namespace TerraStorage.Content.UI.Elements
         private Dictionary<int, int> _cachedAvailable = new();
         // Reverse index: itemType → indices into _allRecipes that use it as an ingredient
         private Dictionary<int, List<int>> _ingredientToRecipeIndex = new();
+        // Reverse index: output item type -> indices into _allRecipes that produce it. Used to
+        // re-check the result recipe(s) after a craft without scanning the whole list.
+        private Dictionary<int, List<int>> _outputToRecipeIndex = new();
         // Per-recipe: whether stations+conditions are satisfied (set during full RefreshRecipes, stable between refreshes)
         private bool[] _stationsConditionsMet = Array.Empty<bool>();
         // Debounce for UpdatePlan (heavy recursive resolve) — only run after stability
@@ -249,6 +252,7 @@ namespace TerraStorage.Content.UI.Elements
                 _filteredRecipes.Clear();
                 _cachedAvailable.Clear();
                 _ingredientToRecipeIndex.Clear();
+                _outputToRecipeIndex.Clear();
                 return;
             }
 
@@ -374,9 +378,19 @@ namespace TerraStorage.Content.UI.Elements
         private void RebuildIngredientIndex()
         {
             _ingredientToRecipeIndex.Clear();
+            _outputToRecipeIndex.Clear();
             for (int i = 0; i < _allRecipes.Count; i++)
             {
                 var recipe = _allRecipes[i].recipe;
+
+                // Index this recipe under the item it produces (for re-checking result recipes).
+                if (!_outputToRecipeIndex.TryGetValue(recipe.createItem.type, out var outList))
+                {
+                    outList = new List<int>();
+                    _outputToRecipeIndex[recipe.createItem.type] = outList;
+                }
+                outList.Add(i);
+
                 foreach (var ing in recipe.requiredItem)
                 {
                     if (ing.type <= ItemID.None) continue;
@@ -494,6 +508,83 @@ namespace TerraStorage.Content.UI.Elements
                     if (match != default)
                         _selectedCanCraft = match.canCraft;
                 }
+            }
+        }
+
+        // Recursive mode, storage content changed (a craft/deposit/withdraw): re-validate ONLY the
+        // recipes that the change can actually affect, instead of restarting a full re-validation of
+        // every recipe. If a full deferred pass is still in flight (rare — e.g. crafting during the
+        // initial pass after opening the Terminal), fall back to the existing hard-restart, since it
+        // owns the flags until it finishes.
+        private void OnStorageChangedRecursive()
+        {
+            if (_deferredRecursiveActive)
+            {
+                _cachedAvailable = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
+                _recursiveRestartPending = true;
+                _recursiveRestartTick = Main.GameUpdateCount;
+                return;
+            }
+
+            RecursiveTargetedUpdate();
+        }
+
+        // Re-checks recursive craftability for only the recipes a storage change can flip:
+        //   • a CONSUMED item can only DEMOTE a currently-craftable recipe that uses it;
+        //   • a PRODUCED item can only PROMOTE a currently-uncraftable recipe that uses it;
+        //   • the result recipe(s) that produce a produced item.
+        // Everything else keeps its flag. This is the recursive analogue of UpdateCanCraftFlags.
+        private void RecursiveTargetedUpdate()
+        {
+            var current = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
+            if (_diskIds.Count == 0 || _allRecipes.Count == 0) { _cachedAvailable = current; return; }
+
+            var increased = new HashSet<int>();
+            var decreased = new HashSet<int>();
+            foreach (var kvp in current)
+            {
+                _cachedAvailable.TryGetValue(kvp.Key, out int old);
+                if (kvp.Value > old) increased.Add(kvp.Key);
+                else if (kvp.Value < old) decreased.Add(kvp.Key);
+            }
+            foreach (var kvp in _cachedAvailable)
+                if (!current.ContainsKey(kvp.Key)) decreased.Add(kvp.Key);
+
+            _cachedAvailable = current;
+            if (increased.Count == 0 && decreased.Count == 0) return;
+
+            var affected = new HashSet<int>();
+            foreach (int t in decreased)
+                if (_ingredientToRecipeIndex.TryGetValue(t, out var users))
+                    foreach (int i in users) if (_allRecipes[i].canCraft) affected.Add(i);
+            foreach (int t in increased)
+                if (_ingredientToRecipeIndex.TryGetValue(t, out var users))
+                    foreach (int i in users) if (!_allRecipes[i].canCraft) affected.Add(i);
+            foreach (int t in increased)
+                if (_outputToRecipeIndex.TryGetValue(t, out var producers))
+                    affected.UnionWith(producers);
+
+            if (affected.Count == 0) return;
+
+            var core = new CoreResolver(new TerrariaRecipeEnvironment(_availableStations, _availableConditions)) { MaxDepth = _recursionDepth };
+            var reachable = core.ComputeReachableTypes(current);
+            var ingCache = new Dictionary<(int type, int stack), bool>();
+            bool anyChanged = false;
+            foreach (int i in affected)
+            {
+                var (recipe, was) = _allRecipes[i];
+                bool now = core.IsRecipeCraftable(TerrariaRecipeEnvironment.ToCore(recipe), reachable, current, ingCache);
+                if (now != was)
+                {
+                    _allRecipes[i] = (recipe, now);
+                    anyChanged = true;
+                }
+            }
+
+            if (anyChanged)
+            {
+                SyncFilteredRecipesIncremental();
+                RefreshSelectedCanCraftFromList();
             }
         }
 
@@ -1190,15 +1281,9 @@ namespace TerraStorage.Content.UI.Elements
             // flags). When off, the targeted direct update maintains them (it diffs against the
             // pre-craft snapshot, so do not refresh _cachedAvailable first).
             if (_recursiveCraft)
-            {
-                _cachedAvailable = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
-                _recursiveRestartPending = true;
-                _recursiveRestartTick = Main.GameUpdateCount;
-            }
+                OnStorageChangedRecursive();
             else
-            {
                 UpdateCanCraftFlags();
-            }
             if (_selectedRecipe != null)
                 UpdatePlan();
         }
@@ -2328,13 +2413,10 @@ private void DrawItemIcon(SpriteBatch spriteBatch, int itemType, Vector2 center,
                 _lastStorageVersion = currentVersion;
                 if (_recursiveCraft)
                 {
-                    // Single-owner model: the recursive pass owns every list flag. Keep the item
-                    // snapshot fresh and request a debounced hard restart so flags are recomputed
-                    // (promote AND demote) from current storage. Do NOT run UpdateCanCraftFlags —
-                    // its direct-only result would wrongly demote recursively-craftable recipes.
-                    _cachedAvailable = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
-                    _recursiveRestartPending = true;
-                    _recursiveRestartTick = tickNow;
+                    // Re-check only the recipes this storage change can flip (a consumed item can
+                    // only demote, a produced item only promote), instead of restarting a full
+                    // re-validation of every recipe.
+                    OnStorageChangedRecursive();
                 }
                 else
                 {
