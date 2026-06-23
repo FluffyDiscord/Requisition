@@ -93,6 +93,12 @@ namespace TerraStorage.Content.UI
 
         private bool _prevMouseLeft;
         private bool _prevMouseRight;
+        // False until a fresh left-press occurs AFTER the UI opens, so the click that opened the
+        // Terminal can't bleed through into the storage grid as a grab or deposit.
+        private bool _sawPressSinceOpen;
+        // Same, for right-click. The Terminal opens on a right-press; without this, holding that
+        // press over a slot triggers the right-click held-repeat grab. Require a release + fresh press.
+        private bool _sawRightPressSinceOpen;
         private int _rightHoldTimer;
         private int _rightHoldNextFire;
 
@@ -116,6 +122,14 @@ namespace TerraStorage.Content.UI
 
         public void SetTerminal(TerminalEntity terminal)
         {
+            // The click that opens the Terminal must not bleed into the grid. Require a fresh press
+            // after open before accepting clicks, and seed the previous-button state to the current
+            // one so the opening hold isn't itself counted as that fresh press.
+            _sawPressSinceOpen = false;
+            _sawRightPressSinceOpen = false;
+            _prevMouseLeft = Main.mouseLeft;
+            _prevMouseRight = Main.mouseRight;
+
             _terminal = terminal;
             RefreshDiskConnections();
 
@@ -620,6 +634,9 @@ namespace TerraStorage.Content.UI
         // Any overflow that doesn't fit in the inventory is re-inserted into storage. 
         private void OnItemClicked(ConsolidatedItem item)
         {
+            // Ignore the click that opened the Terminal — only act once a fresh press has occurred.
+            if (!_sawPressSinceOpen)
+                return;
             if (item == null || _connectedDiskIds.Count == 0)
                 return;
 
@@ -853,14 +870,22 @@ namespace TerraStorage.Content.UI
             bool shift = Main.keyState.IsKeyDown(Keys.LeftShift) || Main.keyState.IsKeyDown(Keys.RightShift);
             bool justClicked = Main.mouseLeft && !UIClickBlocker.IsConsumed;
 
+            // Arm clicks only after a genuine press that began while the Terminal was already open.
+            if (Main.mouseLeft && !_prevMouseLeft)
+                _sawPressSinceOpen = true;
+
             if (justClicked)
             {
                 if (_mainPanel.ContainsPoint(Main.MouseScreen))
                 {
                     UIClickBlocker.Consume();
 
-                    if (_activeTab == ActiveTab.Storage && Main.mouseItem != null && !Main.mouseItem.IsAir
-                        && !_itemGrid.ContainsPoint(Main.MouseScreen))
+                    // Deposit the held item anywhere in the Storage tab — outside the grid OR over an
+                    // empty grid slot. Clicks on an occupied slot are deposited by OnItemClicked, so
+                    // they're excluded here to avoid depositing twice.
+                    if (_sawPressSinceOpen && _activeTab == ActiveTab.Storage
+                        && Main.mouseItem != null && !Main.mouseItem.IsAir
+                        && (!_itemGrid.ContainsPoint(Main.MouseScreen) || _itemGrid.GetHoveredItem() == null))
                     {
                         DepositCursorItem();
                     }
@@ -939,7 +964,11 @@ namespace TerraStorage.Content.UI
             // Right-click: pick up 1 item on press; hold repeats at vanilla-like intervals.
             bool mouseRight = Main.mouseRight;
             bool justRightPressed = mouseRight && !_prevMouseRight;
-            if (_activeTab == ActiveTab.Storage && _itemGrid.ContainsPoint(Main.MouseScreen))
+            // The right-press that opened the Terminal must be released before it can grab: arm only
+            // on a genuine right-press after open, so holding the open-click never picks up an item.
+            if (justRightPressed)
+                _sawRightPressSinceOpen = true;
+            if (_sawRightPressSinceOpen && _activeTab == ActiveTab.Storage && _itemGrid.ContainsPoint(Main.MouseScreen))
             {
                 var hoveredItem = _itemGrid.GetHoveredItem();
                 if (justRightPressed)
