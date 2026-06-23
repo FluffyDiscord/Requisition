@@ -14,6 +14,13 @@ namespace TerraStorage.Helpers.Resolver
         private readonly IRecipeEnvironment _env;
         public int MaxDepth = 10;
 
+        // Reusable scratch for the allocation-free feasibility path (CanProduce). Each feasibility
+        // query mutates the caller's snapshot and rolls it back fully before returning, recording
+        // every change here — so one instance is reused across all recipes in a pass instead of
+        // cloning a dictionary (and building throwaway step lists) on every recursive call.
+        private readonly List<(int type, int amount)> _undo = new();
+        private readonly HashSet<int> _feasibilityResolving = new();
+
         public CoreResolver(IRecipeEnvironment env)
         {
             _env = env;
@@ -209,44 +216,134 @@ namespace TerraStorage.Helpers.Resolver
             return true;
         }
 
-        // Confirms a recipe by simulating ALL its ingredients against ONE shared, deducting clone of
-        // the snapshot — so two ingredients drawing on the same base material cannot each be counted
-        // against the full stock. Mirrors the per-recipe block in ResolveRecursive.
+        // Confirms a recipe by simulating ALL its ingredients against ONE shared, deducting pool — so
+        // two ingredients drawing on the same base material cannot each be counted against the full
+        // stock. Allocation-free: deducts directly from the caller's snapshot and rolls it back before
+        // returning, instead of cloning it and building a throwaway step list.
         private bool IsRecipeFeasibleShared(CoreRecipe recipe, Dictionary<int, int> availableSnapshot)
         {
-            var available = new Dictionary<int, int>(availableSnapshot);
-            var steps = new List<CoreStep>();
-            var resolving = new HashSet<int> { recipe.OutputType };
+            int mark = _undo.Count;
+            _feasibilityResolving.Clear();
+            _feasibilityResolving.Add(recipe.OutputType);
 
+            bool ok = true;
             foreach (var ingredient in recipe.Ingredients)
             {
-                int resolvedType = ResolveIngredientType(recipe, ingredient.Type, available);
-                if (!ResolveRecursive(resolvedType, ingredient.Stack, available, steps, resolving, 1))
-                    return false;
+                int resolvedType = ResolveIngredientType(recipe, ingredient.Type, availableSnapshot);
+                if (!CanProduce(resolvedType, ingredient.Stack, availableSnapshot))
+                {
+                    ok = false;
+                    break;
+                }
             }
-            return true;
+
+            Rollback(availableSnapshot, mark);
+            return ok;
         }
 
-        // Feasibility of producing `quantity` of `targetItemType` from a cloned snapshot, including
-        // a station check on every resulting step. Does not mutate the caller's snapshot.
+        // Feasibility of producing `quantity` of `targetItemType`. Allocation-free: deducts directly
+        // from the caller's snapshot and rolls it back before returning (no clone, no step list).
+        // CanProduce only ever uses station-satisfied recipes, so a feasible result is automatically
+        // fully station-satisfied — no separate post-check needed.
         public bool IsFeasibleFromSnapshot(int targetItemType, int quantity, Dictionary<int, int> availableSnapshot)
         {
-            var available = new Dictionary<int, int>(availableSnapshot);
-            var steps = new List<CoreStep>();
-            var resolving = new HashSet<int>();
-            bool feasible = ResolveRecursive(targetItemType, quantity, available, steps, resolving, 0);
-            if (!feasible) return false;
-
-            foreach (var step in steps)
-                foreach (int s in step.RequiredStations)
-                    if (!_env.IsStationSatisfied(s)) return false;
-
-            return true;
+            int mark = _undo.Count;
+            _feasibilityResolving.Clear();
+            bool ok = CanProduce(targetItemType, quantity, availableSnapshot);
+            Rollback(availableSnapshot, mark);
+            return ok;
         }
 
-        // Item types transitively producible from current stock (BFS fixpoint, quantities ignored).
+        // Allocation-free recursive feasibility: can `needed` units of `itemType` be obtained from
+        // `avail` (directly, or by sub-crafting through station-satisfied recipes)? Deducts what it
+        // consumes from `avail` and records every change in _undo so a caller can roll back to a mark.
+        // Returns true/false only — no steps. Mirrors ResolveRecursive's feasibility decisions
+        // (cycle guard, deficit handling, overproduction credit) with zero allocation.
+        private bool CanProduce(int itemType, int needed, Dictionary<int, int> avail)
+        {
+            avail.TryGetValue(itemType, out int have);
+            if (have >= needed)
+            {
+                avail[itemType] = have - needed;
+                _undo.Add((itemType, needed));
+                return true;
+            }
+
+            int deficit = needed;
+            if (have > 0)
+            {
+                avail[itemType] = 0;
+                _undo.Add((itemType, have));
+                deficit -= have;
+            }
+
+            if (!_feasibilityResolving.Add(itemType))
+                return false; // cycle
+
+            foreach (var recipe in _env.RecipesProducing(itemType))
+            {
+                if (!StationsAllSatisfied(recipe)) continue;   // feasibility requires available stations
+                if (!_env.ConditionsMet(recipe)) continue;
+
+                int mark = _undo.Count;
+                int craftsNeeded = (int)Math.Ceiling((double)deficit / recipe.OutputStack);
+
+                bool ok = true;
+                foreach (var ingredient in recipe.Ingredients)
+                {
+                    int resolvedType = ResolveIngredientType(recipe, ingredient.Type, avail);
+                    if (!CanProduce(resolvedType, ingredient.Stack * craftsNeeded, avail))
+                    {
+                        ok = false;
+                        break;
+                    }
+                }
+
+                if (ok)
+                {
+                    int excess = craftsNeeded * recipe.OutputStack - deficit;
+                    if (excess > 0)
+                    {
+                        avail.TryGetValue(itemType, out int cur);
+                        avail[itemType] = cur + excess;
+                        _undo.Add((itemType, -excess)); // rollback subtracts the credited overproduction
+                    }
+                    _feasibilityResolving.Remove(itemType);
+                    return true;
+                }
+
+                Rollback(avail, mark); // this recipe failed — undo its sub-deductions and try the next
+            }
+
+            _feasibilityResolving.Remove(itemType);
+            return false;
+        }
+
+        // Restores `avail` by replaying _undo back to `mark` (each entry's amount is added back:
+        // positive un-deducts a consumption, negative un-credits an overproduction), then trims the log.
+        private void Rollback(Dictionary<int, int> avail, int mark)
+        {
+            for (int i = _undo.Count - 1; i >= mark; i--)
+            {
+                var (type, amount) = _undo[i];
+                avail.TryGetValue(type, out int cur);
+                avail[type] = cur + amount;
+            }
+            _undo.RemoveRange(mark, _undo.Count - mark);
+        }
+
+        // Item types transitively producible from current stock (least fixpoint, quantities ignored).
+        //
+        // Worklist propagation, not a re-scan-everything fixpoint: each recipe's unmet ingredient
+        // slots register a reverse edge from every item type that could fill them (own type plus
+        // recipe-group substitutes). When a type becomes reachable, only the slots waiting on it are
+        // revisited; a recipe's output is published the moment its last slot is filled. Each ingredient
+        // edge is processed at most once, so the cost is linear in the number of edges rather than the
+        // naive O(passes × recipes) — which degraded to quadratic on long dependency chains (one new
+        // item per pass, every pass re-scanning every recipe) and was the source of the open-terminal hitch.
         public HashSet<int> ComputeReachableTypes(Dictionary<int, int> available)
         {
+            // Station/condition gate — only these recipes can ever contribute.
             var eligible = new List<CoreRecipe>();
             foreach (var r in _env.AllRecipes)
             {
@@ -262,38 +359,94 @@ namespace TerraStorage.Helpers.Resolver
             foreach (var kvp in available)
                 if (kvp.Value > 0) reachable.Add(kvp.Key);
 
-            bool changed = true;
-            while (changed)
+            int n = eligible.Count;
+            var remaining = new int[n];                       // unmet ingredient slots per recipe (-1 = retired)
+            var slotSatisfied = new bool[n][];                // per recipe, which slots are already met
+            var triggers = new Dictionary<int, List<(int recipe, int slot)>>();
+            var queue = new Queue<int>();
+
+            for (int ri = 0; ri < n; ri++)
             {
-                changed = false;
-                foreach (var r in eligible)
+                var recipe = eligible[ri];
+
+                // Output already in stock: downstream recipes see it via the seed set, and there is
+                // nothing to derive — skip building its edges.
+                if (reachable.Contains(recipe.OutputType))
                 {
-                    if (reachable.Contains(r.OutputType)) continue;
+                    remaining[ri] = -1;
+                    slotSatisfied[ri] = Array.Empty<bool>();
+                    continue;
+                }
 
-                    bool ingredientsMet = true;
-                    foreach (var ing in r.Ingredients)
+                var ings = recipe.Ingredients;
+                var sat = new bool[ings.Count];
+                slotSatisfied[ri] = sat;
+                int unmet = 0;
+
+                for (int si = 0; si < ings.Count; si++)
+                {
+                    int type = ings[si].Type;
+                    if (SlotMetBySeed(recipe, type, reachable))
                     {
-                        if (reachable.Contains(ing.Type)) continue;
-
-                        bool foundInGroup = false;
-                        foreach (int groupId in r.AcceptedGroups)
-                        {
-                            if (!_env.GroupContains(groupId, ing.Type)) continue;
-                            foreach (int valid in _env.GroupValidItems(groupId))
-                                if (reachable.Contains(valid)) { foundInGroup = true; break; }
-                            if (foundInGroup) break;
-                        }
-                        if (!foundInGroup) { ingredientsMet = false; break; }
+                        sat[si] = true;
+                        continue;
                     }
 
-                    if (ingredientsMet)
+                    unmet++;
+                    AddTrigger(triggers, type, ri, si);
+                    foreach (int gid in recipe.AcceptedGroups)
                     {
-                        reachable.Add(r.OutputType);
-                        changed = true;
+                        if (!_env.GroupContains(gid, type)) continue;
+                        foreach (int v in _env.GroupValidItems(gid))
+                            AddTrigger(triggers, v, ri, si);
                     }
                 }
+
+                remaining[ri] = unmet;
+                if (unmet == 0 && reachable.Add(recipe.OutputType))
+                    queue.Enqueue(recipe.OutputType);
             }
+
+            while (queue.Count > 0)
+            {
+                int type = queue.Dequeue();
+                if (!triggers.TryGetValue(type, out var slots)) continue;
+                foreach (var (ri, si) in slots)
+                {
+                    if (remaining[ri] <= 0) continue;          // recipe complete or retired
+                    var sat = slotSatisfied[ri];
+                    if (sat[si]) continue;                     // slot already filled by another type
+                    sat[si] = true;
+                    if (--remaining[ri] == 0 && reachable.Add(eligible[ri].OutputType))
+                        queue.Enqueue(eligible[ri].OutputType);
+                }
+            }
+
             return reachable;
+        }
+
+        // True if ingredient `type` is satisfied by the seed reachable set — directly or via a
+        // recipe-group substitute this recipe accepts. Mirrors the per-ingredient test below.
+        private bool SlotMetBySeed(CoreRecipe recipe, int type, HashSet<int> reachable)
+        {
+            if (reachable.Contains(type)) return true;
+            foreach (int gid in recipe.AcceptedGroups)
+            {
+                if (!_env.GroupContains(gid, type)) continue;
+                foreach (int v in _env.GroupValidItems(gid))
+                    if (reachable.Contains(v)) return true;
+            }
+            return false;
+        }
+
+        private static void AddTrigger(Dictionary<int, List<(int recipe, int slot)>> triggers, int type, int ri, int si)
+        {
+            if (!triggers.TryGetValue(type, out var list))
+            {
+                list = new List<(int recipe, int slot)>();
+                triggers[type] = list;
+            }
+            list.Add((ri, si));
         }
 
         // Authoritative craftability of one recipe — direct OR recursive. Mirrors the list-flag pass:
@@ -302,8 +455,19 @@ namespace TerraStorage.Helpers.Resolver
         public bool IsRecipeCraftable(CoreRecipe recipe, HashSet<int> reachable,
             Dictionary<int, int> available, Dictionary<(int type, int stack), bool> ingCache)
         {
+            // Fast reject using the precomputed reachable set — worthwhile when sweeping ALL recipes.
             if (!reachable.Contains(recipe.OutputType)) return false;
+            return RecheckRecipeCraftable(recipe, available, ingCache);
+        }
 
+        // Authoritative craftability of one recipe (direct OR recursive) WITHOUT the reachable
+        // pre-filter. For targeted revalidation of a small set of recipes after a storage change,
+        // where iterating all recipes (so the reachable fast-reject would pay off) is unnecessary.
+        // Result is identical to IsRecipeCraftable: a recipe whose output is not reachable is not
+        // craftable, so the omitted fast-reject only changes speed, never the answer.
+        public bool RecheckRecipeCraftable(CoreRecipe recipe,
+            Dictionary<int, int> available, Dictionary<(int type, int stack), bool> ingCache)
+        {
             foreach (int t in recipe.RequiredTiles)
                 if (!_env.IsStationSatisfied(t)) return false;
             if (!_env.ConditionsMet(recipe)) return false;
