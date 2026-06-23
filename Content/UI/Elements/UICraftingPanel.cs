@@ -1954,8 +1954,13 @@ namespace TerraStorage.Content.UI.Elements
                 bool hasRecipe = cached.hasRecipe;
                 bool isGroup = cached.isGroup;
 
+                // Short on this ingredient, but it gets sub-crafted as part of a feasible craft:
+                // show it as satisfiable (orange need/need) instead of a blocking red shortfall.
+                bool craftableShortfall = totalHave < needed && hasRecipe && _currentPlan is { IsFeasible: true };
+
                 Color countColor;
                 if (totalHave >= needed)      countColor = Color.LightGreen;
+                else if (craftableShortfall)  countColor = Color.Orange;
                 else if (totalHave > 0)       countColor = Color.Yellow;
                 else                          countColor = Color.IndianRed;
 
@@ -1964,7 +1969,7 @@ namespace TerraStorage.Content.UI.Elements
                 Utils.DrawInvBG(spriteBatch, ingRect, new Color(63, 82, 151) * 0.4f);
                 DrawCellItem(spriteBatch, ingredient.type, 0, ingRect);
 
-                string countText = $"{totalHave}/{needed}";
+                string countText = craftableShortfall ? $"{needed}/{needed}" : $"{totalHave}/{needed}";
                 Utils.DrawBorderString(spriteBatch, countText,
                     new Vector2(ingRect.Right - 4, ingRect.Bottom - 4),
                     countColor, 0.6f, 1f, 1f);
@@ -1988,7 +1993,7 @@ namespace TerraStorage.Content.UI.Elements
                     {
                         string groupName  = RecipeResolver.GetGroupName(foundGid);
                         string groupItems = RecipeResolver.GetGroupItemNames(foundGid);
-                        _scratchItem.SetNameOverride($"{groupName} ({totalHave}/{needed})");
+                        _scratchItem.SetNameOverride($"{groupName} ({(craftableShortfall ? needed : totalHave)}/{needed})");
                         Main.HoverItem    = _scratchItem.Clone();
                         Main.hoverItemName = $"{groupItems}";
                     }
