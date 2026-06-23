@@ -15,6 +15,7 @@ using TerraStorage.Common;
 using TerraStorage.Content.UI;
 using TerraStorage.Content.UI.CraftingTree;
 using TerraStorage.Helpers;
+using TerraStorage.Helpers.Resolver;
 using TerraStorage.Systems;
 
 namespace TerraStorage.Content.UI.Elements
@@ -74,6 +75,12 @@ namespace TerraStorage.Content.UI.Elements
         private Rectangle _cleanCraftCheckRect; // screen-space rect for the checkbox
         private bool _craftToInventory; // When true, craft result goes to player inventory instead of storage
         private Rectangle _craftToInvCheckRect; // screen-space rect for the checkbox
+        private bool _lockRecipe; // Global: when on, craft uses exactly the selected recipe variant (persists across recipes)
+        private Rectangle _lockCheckRect; // screen-space rect for the lock checkbox
+        // True when the selected item is only available as existing stock and cannot actually be
+        // crafted from your other materials (e.g. a recipe that loops back into itself). Clicking
+        // craft would be a no-op, so the button says so in red instead of looking craftable.
+        private bool _craftIsNoOp;
 
         // Detail panel scroll
         private float _detailScrollOffset = 0f;
@@ -113,6 +120,9 @@ namespace TerraStorage.Content.UI.Elements
         private Dictionary<int, int> _cachedAvailable = new();
         // Reverse index: itemType → indices into _allRecipes that use it as an ingredient
         private Dictionary<int, List<int>> _ingredientToRecipeIndex = new();
+        // Reverse index: output item type -> indices into _allRecipes that produce it. Used to
+        // re-check the result recipe(s) after a craft without scanning the whole list.
+        private Dictionary<int, List<int>> _outputToRecipeIndex = new();
         // Per-recipe: whether stations+conditions are satisfied (set during full RefreshRecipes, stable between refreshes)
         private bool[] _stationsConditionsMet = Array.Empty<bool>();
         // Debounce for UpdatePlan (heavy recursive resolve) — only run after stability
@@ -127,6 +137,17 @@ namespace TerraStorage.Content.UI.Elements
         private Dictionary<int, int> _deferredAvailable;
         private Dictionary<(int type, int stack), bool> _deferredIngCache;
         private const int RecursiveBatchSize = 200;
+
+        // Single-owner model: while recursive mode is on, the deferred pass owns every list
+        // canCraft flag (promotions and demotions). A storage change requests a debounced HARD
+        // restart of the pass (fresh snapshot) rather than letting the direct-only update clobber
+        // recursive flags. Debounce coalesces bursts of storage mutations into one restart.
+        private bool _recursiveRestartPending;
+        private uint _recursiveRestartTick;
+        private const uint RecursiveRestartDebounceFrames = 6; // ~100ms @60fps
+        // Throttle for surfacing in-progress recursive results to the visible list mid-pass.
+        private uint _lastRecursiveSyncTick;
+        private const uint RecursiveSyncThrottleFrames = 12; // ~200ms @60fps
 
         // Precomputed per-ingredient data for draw (avoids per-frame CountItem + Any calls)
         private readonly Dictionary<int, (int totalHave, bool hasRecipe, bool isGroup)> _ingredientCache = new();
@@ -231,6 +252,7 @@ namespace TerraStorage.Content.UI.Elements
                 _filteredRecipes.Clear();
                 _cachedAvailable.Clear();
                 _ingredientToRecipeIndex.Clear();
+                _outputToRecipeIndex.Clear();
                 return;
             }
 
@@ -272,15 +294,42 @@ namespace TerraStorage.Content.UI.Elements
             // Phase 2: kick off deferred recursive craftability pass (if enabled)
             if (_recursiveCraft)
             {
-                _deferredAvailable = new Dictionary<int, int>(_cachedAvailable);
-                _deferredReachable = null; // computed on first deferred frame
-                _deferredIngCache = new Dictionary<(int type, int stack), bool>();
-                _deferredRecursiveIndex = 0;
-                _deferredRecursiveActive = true;
+                StartRecursivePass();
             }
             else
             {
                 _deferredRecursiveActive = false;
+                _recursiveRestartPending = false;
+            }
+        }
+
+        // (Re)starts the deferred recursive craftability pass from a fresh storage snapshot.
+        // A hard restart, not a resume: snapshot, reachable set, ingredient cache and resume
+        // index are all reset so the pass recomputes authoritative flags against current storage.
+        // This is the single writer of list canCraft flags while recursive mode is on.
+        private void StartRecursivePass()
+        {
+            RecipeResolver.MaxDepth = _recursionDepth;
+            _deferredAvailable = new Dictionary<int, int>(_cachedAvailable);
+            _deferredReachable = null; // computed on the first deferred frame
+            _deferredIngCache = new Dictionary<(int type, int stack), bool>();
+            _deferredRecursiveIndex = 0;
+            _deferredRecursiveActive = true;
+            _recursiveRestartPending = false;
+        }
+
+        // Syncs the selected recipe's cached craftability from the master list. Used after the
+        // recursive pass updates flags, since that pass owns them while recursive mode is on.
+        private void RefreshSelectedCanCraftFromList()
+        {
+            if (_selectedRecipe == null) return;
+            foreach (var entry in _allRecipes)
+            {
+                if (entry.recipe == _selectedRecipe)
+                {
+                    _selectedCanCraft = entry.canCraft;
+                    return;
+                }
             }
         }
 
@@ -329,9 +378,19 @@ namespace TerraStorage.Content.UI.Elements
         private void RebuildIngredientIndex()
         {
             _ingredientToRecipeIndex.Clear();
+            _outputToRecipeIndex.Clear();
             for (int i = 0; i < _allRecipes.Count; i++)
             {
                 var recipe = _allRecipes[i].recipe;
+
+                // Index this recipe under the item it produces (for re-checking result recipes).
+                if (!_outputToRecipeIndex.TryGetValue(recipe.createItem.type, out var outList))
+                {
+                    outList = new List<int>();
+                    _outputToRecipeIndex[recipe.createItem.type] = outList;
+                }
+                outList.Add(i);
+
                 foreach (var ing in recipe.requiredItem)
                 {
                     if (ing.type <= ItemID.None) continue;
@@ -449,6 +508,83 @@ namespace TerraStorage.Content.UI.Elements
                     if (match != default)
                         _selectedCanCraft = match.canCraft;
                 }
+            }
+        }
+
+        // Recursive mode, storage content changed (a craft/deposit/withdraw): re-validate ONLY the
+        // recipes that the change can actually affect, instead of restarting a full re-validation of
+        // every recipe. If a full deferred pass is still in flight (rare — e.g. crafting during the
+        // initial pass after opening the Terminal), fall back to the existing hard-restart, since it
+        // owns the flags until it finishes.
+        private void OnStorageChangedRecursive()
+        {
+            if (_deferredRecursiveActive)
+            {
+                _cachedAvailable = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
+                _recursiveRestartPending = true;
+                _recursiveRestartTick = Main.GameUpdateCount;
+                return;
+            }
+
+            RecursiveTargetedUpdate();
+        }
+
+        // Re-checks recursive craftability for only the recipes a storage change can flip:
+        //   • a CONSUMED item can only DEMOTE a currently-craftable recipe that uses it;
+        //   • a PRODUCED item can only PROMOTE a currently-uncraftable recipe that uses it;
+        //   • the result recipe(s) that produce a produced item.
+        // Everything else keeps its flag. This is the recursive analogue of UpdateCanCraftFlags.
+        private void RecursiveTargetedUpdate()
+        {
+            var current = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
+            if (_diskIds.Count == 0 || _allRecipes.Count == 0) { _cachedAvailable = current; return; }
+
+            var increased = new HashSet<int>();
+            var decreased = new HashSet<int>();
+            foreach (var kvp in current)
+            {
+                _cachedAvailable.TryGetValue(kvp.Key, out int old);
+                if (kvp.Value > old) increased.Add(kvp.Key);
+                else if (kvp.Value < old) decreased.Add(kvp.Key);
+            }
+            foreach (var kvp in _cachedAvailable)
+                if (!current.ContainsKey(kvp.Key)) decreased.Add(kvp.Key);
+
+            _cachedAvailable = current;
+            if (increased.Count == 0 && decreased.Count == 0) return;
+
+            var affected = new HashSet<int>();
+            foreach (int t in decreased)
+                if (_ingredientToRecipeIndex.TryGetValue(t, out var users))
+                    foreach (int i in users) if (_allRecipes[i].canCraft) affected.Add(i);
+            foreach (int t in increased)
+                if (_ingredientToRecipeIndex.TryGetValue(t, out var users))
+                    foreach (int i in users) if (!_allRecipes[i].canCraft) affected.Add(i);
+            foreach (int t in increased)
+                if (_outputToRecipeIndex.TryGetValue(t, out var producers))
+                    affected.UnionWith(producers);
+
+            if (affected.Count == 0) return;
+
+            var core = new CoreResolver(new TerrariaRecipeEnvironment(_availableStations, _availableConditions)) { MaxDepth = _recursionDepth };
+            var reachable = core.ComputeReachableTypes(current);
+            var ingCache = new Dictionary<(int type, int stack), bool>();
+            bool anyChanged = false;
+            foreach (int i in affected)
+            {
+                var (recipe, was) = _allRecipes[i];
+                bool now = core.IsRecipeCraftable(TerrariaRecipeEnvironment.ToCore(recipe), reachable, current, ingCache);
+                if (now != was)
+                {
+                    _allRecipes[i] = (recipe, now);
+                    anyChanged = true;
+                }
+            }
+
+            if (anyChanged)
+            {
+                SyncFilteredRecipesIncremental();
+                RefreshSelectedCanCraftFromList();
             }
         }
 
@@ -628,9 +764,7 @@ namespace TerraStorage.Content.UI.Elements
 
             if (recipe != null)
             {
-                _currentPlan = RecipeResolver.Resolve(recipe.createItem.type,
-                    _craftAmount * recipe.createItem.stack, _diskIds, _availableStations, _availableConditions);
-                RebuildIngredientCache();
+                SetPlan(recipe);
             }
             else
             {
@@ -678,9 +812,7 @@ namespace TerraStorage.Content.UI.Elements
             _amountFieldFocused = false;
             _amountInput.Deactivate();
             _detailScrollOffset = 0f;
-            _currentPlan = RecipeResolver.Resolve(recipe.createItem.type,
-                _craftAmount * recipe.createItem.stack, _diskIds, _availableStations, _availableConditions);
-            RebuildIngredientCache();
+            SetPlan(recipe);
         }
 
         private void SetCraftAmount(int amount)
@@ -693,28 +825,61 @@ namespace TerraStorage.Content.UI.Elements
         private int ComputeMaxCraftAmount()
         {
             if (_selectedRecipe == null) return 1;
+            // Max craftable from directly-held stock (own type plus recipe-group substitutes). Reads
+            // storage rather than the ingredient cache, whose TotalHave is capped at the current
+            // amount for the honest X/Y display. The craft button still gates the actual craft, so a
+            // shared-material overestimate here is harmless.
             int max = 9999;
             foreach (var ingredient in _selectedRecipe.requiredItem)
             {
                 if (ingredient.type <= ItemID.None || ingredient.stack <= 0) continue;
-                _ingredientCache.TryGetValue(ingredient.type, out var cached);
-                max = Math.Min(max, cached.totalHave / ingredient.stack);
+                int have = StorageWorldSystem.Instance.CountItem(_diskIds, ingredient.type);
+                foreach (int gid in _selectedRecipe.acceptedGroups)
+                {
+                    var grp = RecipeGroup.recipeGroups[gid];
+                    if (!grp.ContainsItem(ingredient.type)) continue;
+                    foreach (int v in grp.ValidItems)
+                        if (v != ingredient.type)
+                            have += StorageWorldSystem.Instance.CountItem(_diskIds, v);
+                    break;
+                }
+                max = Math.Min(max, have / ingredient.stack);
             }
             return Math.Max(1, max);
+        }
+
+        // Resolves the plan for a recipe, honoring the global recipe-lock: when locked, forces the
+        // exact selected recipe variant; otherwise auto-selects the best recipe for the item (default).
+        private CraftingPlan ResolvePlan(Recipe recipe, int quantity)
+            => _lockRecipe
+                ? RecipeResolver.ResolveRecipe(recipe, quantity, _diskIds, _availableStations, _availableConditions)
+                : RecipeResolver.Resolve(recipe.createItem.type, quantity, _diskIds, _availableStations, _availableConditions);
+
+        // Resolves the plan for a recipe and refreshes the ingredient preview. Also flags the
+        // no-op case: the craft button force-crafts, so when the item is only available as existing
+        // stock (direct extract) and cannot actually be crafted from your other materials, clicking
+        // would do nothing — the button shows that instead of looking craftable.
+        private void SetPlan(Recipe recipe)
+        {
+            int quantity = _craftAmount * recipe.createItem.stack;
+            _currentPlan = ResolvePlan(recipe, quantity);
+
+            _craftIsNoOp = false;
+            if (!_lockRecipe && _currentPlan is { IsDirectExtract: true })
+            {
+                // We have it in stock; clicking force-crafts. If no recipe can actually produce it
+                // from the other materials (e.g. it loops back into itself), the craft is a no-op.
+                _craftIsNoOp = RecipeResolver.ResolveForceCraft(
+                    recipe.createItem.type, quantity, _diskIds, _availableStations, _availableConditions) == null;
+            }
+
+            RebuildIngredientCache();
         }
 
         private void UpdatePlan()
         {
             if (_selectedRecipe != null)
-            {
-                _currentPlan = RecipeResolver.Resolve(
-                    _selectedRecipe.createItem.type,
-                    _craftAmount * _selectedRecipe.createItem.stack,
-                    _diskIds,
-                    _availableStations,
-                    _availableConditions);
-                RebuildIngredientCache();
-            }
+                SetPlan(_selectedRecipe);
         }
 
         // Precomputes per-ingredient storage counts and recipe-existence flags so
@@ -725,39 +890,17 @@ namespace TerraStorage.Content.UI.Elements
             _ingredientCache.Clear();
             if (_selectedRecipe == null) return;
 
-            var cache = RecipeCacheSystem.Instance;
-            foreach (var ingredient in _selectedRecipe.requiredItem)
-            {
-                if (ingredient.type <= ItemID.None) continue;
-                if (_ingredientCache.ContainsKey(ingredient.type)) continue;
-
-                int directHave = StorageWorldSystem.Instance.CountItem(_diskIds, ingredient.type);
-                bool hasRecipe = cache.GetRecipesFor(ingredient.type).Count > 0;
-
-                bool isGroup = false;
-                int totalHave = directHave;
-                foreach (int gid in _selectedRecipe.acceptedGroups)
-                {
-                    var grp = RecipeGroup.recipeGroups[gid];
-                    if (!grp.ContainsItem(ingredient.type)) continue;
-                    isGroup = true;
-                    foreach (int v in grp.ValidItems)
-                        if (v != ingredient.type)
-                            totalHave += StorageWorldSystem.Instance.CountItem(_diskIds, v);
-                    break;
-                }
-
-                int needed = ingredient.stack * _craftAmount;
-                if (hasRecipe && totalHave < needed)
-                {
-                    int deficit = needed - totalHave;
-                    var subPlan = RecipeResolver.Resolve(ingredient.type, deficit, _diskIds, _availableStations, _availableConditions);
-                    if (subPlan != null && subPlan.IsFeasible)
-                        totalHave = needed;
-                }
-
-                _ingredientCache[ingredient.type] = (totalHave, hasRecipe, isGroup);
-            }
+            // Ingredient availability is computed by the unit-tested resolver core against ONE shared,
+            // deducting pool — so a base material usable for two slots (a recipe-group substitute, or
+            // an ore behind two sub-crafts) is never counted twice, and the preview cannot show an
+            // ingredient as satisfied when the recipe as a whole is not craftable. Recursive
+            // craftability is conveyed by the "has recipe" flag and the craft button, NOT by inflating
+            // the stock count.
+            var available = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
+            var core = new CoreResolver(new TerrariaRecipeEnvironment(_availableStations, _availableConditions));
+            var coreRecipe = TerrariaRecipeEnvironment.ToCore(_selectedRecipe);
+            foreach (var view in core.ComputeIngredientPreview(coreRecipe, available, _craftAmount))
+                _ingredientCache[view.Type] = (view.TotalHave, view.HasRecipe, view.IsGroup);
         }
 
         public override void LeftClick(UIMouseEvent evt)
@@ -846,18 +989,13 @@ namespace TerraStorage.Content.UI.Elements
                         _recursiveCraft = !_recursiveCraft;
                         if (_recursiveCraft)
                         {
-                            // Kick off deferred recursive pass
-                            RecipeResolver.MaxDepth = _recursionDepth;
-                            _deferredAvailable = new Dictionary<int, int>(_cachedAvailable);
-                            _deferredReachable = null;
-                            _deferredIngCache = new Dictionary<(int type, int stack), bool>();
-                            _deferredRecursiveIndex = 0;
-                            _deferredRecursiveActive = true;
+                            StartRecursivePass();
                         }
                         else
                         {
                             // Cancel any in-progress deferred pass and strip recursive flags
                             _deferredRecursiveActive = false;
+                            _recursiveRestartPending = false;
                             StripRecursiveCraftFlags();
                             FilterRecipes();
                         }
@@ -948,6 +1086,15 @@ namespace TerraStorage.Content.UI.Elements
             if (_craftToInvCheckRect.Contains(mousePoint))
             {
                 _craftToInventory = !_craftToInventory;
+                Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.MenuTick);
+                return;
+            }
+
+            // Lock Recipe checkbox (global toggle — recompute the plan so the craft button updates)
+            if (_lockCheckRect.Contains(mousePoint))
+            {
+                _lockRecipe = !_lockRecipe;
+                UpdatePlan();
                 Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.MenuTick);
                 return;
             }
@@ -1062,7 +1209,7 @@ namespace TerraStorage.Content.UI.Elements
         // inserted back into storage.
         private void ExecuteCraft()
         {
-            if (_currentPlan == null || !_currentPlan.IsFeasible) return;
+            if (_currentPlan == null || !_currentPlan.IsFeasible || _craftIsNoOp) return;
 
             if (Main.netMode == Terraria.ID.NetmodeID.MultiplayerClient)
             {
@@ -1071,19 +1218,20 @@ namespace TerraStorage.Content.UI.Elements
                 {
                     var mod = Terraria.ModLoader.ModLoader.GetMod("TerraStorage");
                     NetworkHandler.SendCraftRequest(mod, _diskIds, _selectedRecipe.createItem.type,
-                        _craftAmount * _selectedRecipe.createItem.stack, _availableStations, _availableConditions, _cleanCraft, _craftToInventory);
+                        _craftAmount * _selectedRecipe.createItem.stack, _availableStations, _availableConditions, _cleanCraft, _craftToInventory,
+                        _lockRecipe ? _selectedRecipe.RecipeIndex : -1);
                     Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.Grab);
                 }
                 return;
             }
 
-            // Always force-craft: the user explicitly wants to produce new items,
-            // not extract existing stock. ResolveForceCraft ignores existing copies
-            // of the target item so all demand is met via actual crafting.
-            var planToUse = RecipeResolver.ResolveForceCraft(
-                _selectedRecipe.createItem.type,
-                _craftAmount * _selectedRecipe.createItem.stack,
-                _diskIds, _availableStations, _availableConditions);
+            // Always force-craft: the user explicitly wants to produce new items, not extract existing
+            // stock. When the recipe is locked, force exactly the selected variant; otherwise
+            // ResolveForceCraft auto-selects the best recipe for the item.
+            int craftQty = _craftAmount * _selectedRecipe.createItem.stack;
+            var planToUse = _lockRecipe
+                ? RecipeResolver.ResolveRecipe(_selectedRecipe, craftQty, _diskIds, _availableStations, _availableConditions)
+                : RecipeResolver.ResolveForceCraft(_selectedRecipe.createItem.type, craftQty, _diskIds, _availableStations, _availableConditions);
 
             if (planToUse == null || !planToUse.IsFeasible)
                 return;
@@ -1127,9 +1275,15 @@ namespace TerraStorage.Content.UI.Elements
                 Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.Grab);
             }
 
-            // Update item counts and craftability without resetting scroll or resorting.
-            _cachedAvailable = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
-            UpdateCanCraftFlags();
+            // Refresh craftability after the craft, without resetting scroll or resorting.
+            // While recursive mode is on, the deferred pass owns the list flags — request a hard
+            // restart rather than running the direct-only update (which would clobber recursive
+            // flags). When off, the targeted direct update maintains them (it diffs against the
+            // pre-craft snapshot, so do not refresh _cachedAvailable first).
+            if (_recursiveCraft)
+                OnStorageChangedRecursive();
+            else
+                UpdateCanCraftFlags();
             if (_selectedRecipe != null)
                 UpdatePlan();
         }
@@ -1432,7 +1586,14 @@ namespace TerraStorage.Content.UI.Elements
             float fieldOffsetX = amtLabelSize.X + 10;
             int checkboxSize = 18;
             int checkboxGap = 6;
-            var fieldRect = new Rectangle((int)(dims.X + 5 + fieldOffsetX), (int)craftMaxBtnY, (int)(dims.Width - 14 - fieldOffsetX - 2 * (checkboxSize + checkboxGap)), 25);
+            int cbY = (int)craftMaxBtnY + (25 - checkboxSize) / 2;
+            // Right-anchor the three option checkboxes (Clean Craft, Craft to Inventory, Lock Recipe);
+            // the amount field fills the space to their left so they never overlap, even on a narrow panel.
+            int lockCbX = (int)(dims.X + dims.Width - 9 - checkboxSize);
+            int invCbX = lockCbX - checkboxGap - checkboxSize;
+            int cbX = invCbX - checkboxGap - checkboxSize;
+            int fieldLeft = (int)(dims.X + 5 + fieldOffsetX);
+            var fieldRect = new Rectangle(fieldLeft, (int)craftMaxBtnY, Math.Max(24, cbX - checkboxGap - fieldLeft), 25);
             _amountFieldRect = fieldRect; // expose to Update for raw mouse detection
             Color fieldBg = _amountFieldFocused  ? new Color(45, 55, 100)
                           : _amountDragActive    ? new Color(60, 45, 110)
@@ -1446,9 +1607,7 @@ namespace TerraStorage.Content.UI.Elements
             if (!_amountFieldFocused && !_amountDragActive && fieldRect.Contains(Main.MouseScreen.ToPoint()))
                 Main.hoverItemName = "Left-click to type  |  Right-drag to adjust  |  Middle-click to reset";
 
-            // Clean Craft checkbox (right of amount field)
-            int cbX = fieldRect.Right + checkboxGap;
-            int cbY = (int)craftMaxBtnY + (25 - checkboxSize) / 2;
+            // Clean Craft checkbox (leftmost of the three right-anchored options)
             var cbRect = new Rectangle(cbX, cbY, checkboxSize, checkboxSize);
             _cleanCraftCheckRect = cbRect;
             bool cbHover = cbRect.Contains(Main.MouseScreen.ToPoint());
@@ -1464,10 +1623,8 @@ namespace TerraStorage.Content.UI.Elements
                     : "Clean Craft: OFF\nItems receive vanilla prefixes and mod modifiers.\nClick to enable.";
             }
 
-            // Craft to Inventory checkbox (right of Clean Craft)
-            int invCbX = cbRect.Right + checkboxGap;
-            int invCbY = cbY;
-            var invCbRect = new Rectangle(invCbX, invCbY, checkboxSize, checkboxSize);
+            // Craft to Inventory checkbox (middle of the three)
+            var invCbRect = new Rectangle(invCbX, cbY, checkboxSize, checkboxSize);
             _craftToInvCheckRect = invCbRect;
             bool invCbHover = invCbRect.Contains(Main.MouseScreen.ToPoint());
             Color invCbBg = invCbHover ? new Color(83, 104, 181)
@@ -1480,6 +1637,23 @@ namespace TerraStorage.Content.UI.Elements
                 Main.hoverItemName = _craftToInventory
                     ? "Craft to Inventory: ON\nCrafted items go to your inventory.\nClick to disable."
                     : "Craft to Inventory: OFF\nCrafted items go to storage.\nClick to enable.";
+            }
+
+            // Lock Recipe checkbox (rightmost) — global toggle: when on, crafting uses exactly the
+            // selected recipe variant instead of auto-picking one for the item.
+            var lockCbRect = new Rectangle(lockCbX, cbY, checkboxSize, checkboxSize);
+            _lockCheckRect = lockCbRect;
+            bool lockHover = lockCbRect.Contains(Main.MouseScreen.ToPoint());
+            Color lockBg = lockHover ? new Color(83, 104, 181)
+                         : _lockRecipe ? new Color(80, 130, 60)
+                         : new Color(53, 74, 141);
+            Utils.DrawInvBG(spriteBatch, lockCbRect, lockBg);
+            if (lockHover)
+            {
+                Main.LocalPlayer.mouseInterface = true;
+                Main.hoverItemName = _lockRecipe
+                    ? "Lock Recipe: ON\nCrafting uses exactly the selected recipe variant.\nStays on for every recipe until disabled.\nClick to disable."
+                    : "Lock Recipe: OFF\nCrafting auto-picks any working recipe for the item.\nClick to enable.";
             }
 
             // Craft button + output slot row
@@ -1509,9 +1683,12 @@ namespace TerraStorage.Content.UI.Elements
             }
             bool feasible = _currentPlan is { IsFeasible: true };
             bool directExtract = _currentPlan is { IsDirectExtract: true };
+            bool noOp = _craftIsNoOp;
 
             Color craftColor;
-            if (directExtract)
+            if (noOp)
+                craftColor = new Color(150, 50, 50);   // red: clicking would change nothing
+            else if (directExtract)
                 craftColor = new Color(40, 80, 160);
             else if (feasible)
                 craftColor = new Color(50, 150, 50);
@@ -1520,7 +1697,9 @@ namespace TerraStorage.Content.UI.Elements
             Utils.DrawInvBG(spriteBatch, craftRect, craftColor);
 
             string craftText;
-            if (directExtract)
+            if (noOp)
+                craftText = "Nothing to Craft";
+            else if (directExtract)
                 craftText = $"CRAFT x{_craftAmount} ({totalOutput} items)";
             else if (_currentPlan != null && _currentPlan.MissingStations.Count > 0)
                 craftText = "Missing Stations";
@@ -1533,6 +1712,13 @@ namespace TerraStorage.Content.UI.Elements
             float craftTextX = craftRect.X + craftRect.Width / 2f - textSize.X / 2f;
             Utils.DrawBorderString(spriteBatch, craftText,
                 new Vector2(craftTextX, craftBtnY + 6), Color.White, 0.75f);
+
+            // Explain the no-op on hover so it's obvious why the button won't do anything.
+            if (noOp && craftRect.Contains(Main.MouseScreen.ToPoint()))
+            {
+                Main.LocalPlayer.mouseInterface = true;
+                Main.hoverItemName = "You already have these in storage, and they can't be made from your\nother items — this recipe just loops back into itself. Nothing would change.";
+            }
         }
 
         //Calculates total height of the scrollable detail content without drawing it.
@@ -1768,8 +1954,13 @@ namespace TerraStorage.Content.UI.Elements
                 bool hasRecipe = cached.hasRecipe;
                 bool isGroup = cached.isGroup;
 
+                // Short on this ingredient, but it gets sub-crafted as part of a feasible craft:
+                // show it as satisfiable (orange need/need) instead of a blocking red shortfall.
+                bool craftableShortfall = totalHave < needed && hasRecipe && _currentPlan is { IsFeasible: true };
+
                 Color countColor;
                 if (totalHave >= needed)      countColor = Color.LightGreen;
+                else if (craftableShortfall)  countColor = Color.Orange;
                 else if (totalHave > 0)       countColor = Color.Yellow;
                 else                          countColor = Color.IndianRed;
 
@@ -1778,7 +1969,7 @@ namespace TerraStorage.Content.UI.Elements
                 Utils.DrawInvBG(spriteBatch, ingRect, new Color(63, 82, 151) * 0.4f);
                 DrawCellItem(spriteBatch, ingredient.type, 0, ingRect);
 
-                string countText = $"{totalHave}/{needed}";
+                string countText = craftableShortfall ? $"{needed}/{needed}" : $"{totalHave}/{needed}";
                 Utils.DrawBorderString(spriteBatch, countText,
                     new Vector2(ingRect.Right - 4, ingRect.Bottom - 4),
                     countColor, 0.6f, 1f, 1f);
@@ -1802,7 +1993,7 @@ namespace TerraStorage.Content.UI.Elements
                     {
                         string groupName  = RecipeResolver.GetGroupName(foundGid);
                         string groupItems = RecipeResolver.GetGroupItemNames(foundGid);
-                        _scratchItem.SetNameOverride($"{groupName} ({totalHave}/{needed})");
+                        _scratchItem.SetNameOverride($"{groupName} ({(craftableShortfall ? needed : totalHave)}/{needed})");
                         Main.HoverItem    = _scratchItem.Clone();
                         Main.hoverItemName = $"{groupItems}";
                     }
@@ -2121,11 +2312,7 @@ private void DrawItemIcon(SpriteBatch spriteBatch, int itemType, Vector2 center,
                     RecipeResolver.MaxDepth = _recursionDepth;
                     if (_recursiveCraft)
                     {
-                        _deferredAvailable = new Dictionary<int, int>(_cachedAvailable);
-                        _deferredReachable = null;
-                        _deferredIngCache = new Dictionary<(int type, int stack), bool>();
-                        _deferredRecursiveIndex = 0;
-                        _deferredRecursiveActive = true;
+                        StartRecursivePass();
                     }
                 }
             }
@@ -2196,11 +2383,21 @@ private void DrawItemIcon(SpriteBatch spriteBatch, int itemType, Vector2 center,
             }
 
             // Recipe refresh strategy:
-            // - Full rebuild (_needsRecipeRefresh): topology changes (stations/disks/conditions added/removed).
+            // - Full rebuild (_needsRecipeRefresh): topology changes (stations/disks/conditions).
             //   Expensive — rebuilds the entire recipe list with BFS reachability. Throttled.
-            // - Lightweight canCraft update: item quantities changed (StorageVersion bump).
-            //   Cheap — only re-checks ingredient counts against the existing recipe list.
+            // - Storage content change (StorageVersion bump): when recursive mode is on, the
+            //   deferred pass owns all list flags, so request a debounced hard restart of it; when
+            //   off, a cheap targeted direct-only update maintains the flags.
             uint tickNow = Main.GameUpdateCount;
+
+            // Fire a pending debounced restart of the recursive pass (storage changed while
+            // recursive is on). Skipped when a full refresh is pending — that will restart it anyway.
+            if (_recursiveRestartPending && !_needsRecipeRefresh
+                && (tickNow - _recursiveRestartTick) >= RecursiveRestartDebounceFrames)
+            {
+                StartRecursivePass();
+            }
+
             if (_needsRecipeRefresh)
             {
                 if ((tickNow - _lastRecipeRefreshTick) >= RecipeRefreshIntervalTicks)
@@ -2211,58 +2408,74 @@ private void DrawItemIcon(SpriteBatch spriteBatch, int itemType, Vector2 center,
                     UpdatePlan();
                     _needsRecipeRefresh = false;
                 }
+                return;
             }
-            else if (_deferredRecursiveActive)
+
+            // React to storage content changes.
+            long currentVersion = StorageWorldSystem.Instance.StorageVersion;
+            if (currentVersion != _lastStorageVersion)
             {
-                // Still handle version changes for direct-craftability during the deferred pass
-                long currentVersion = StorageWorldSystem.Instance.StorageVersion;
-                if (currentVersion != _lastStorageVersion)
+                _lastStorageVersion = currentVersion;
+                if (_recursiveCraft)
                 {
-                    _lastStorageVersion = currentVersion;
+                    // Re-check only the recipes this storage change can flip (a consumed item can
+                    // only demote, a produced item only promote), instead of restarting a full
+                    // re-validation of every recipe.
+                    OnStorageChangedRecursive();
+                }
+                else
+                {
+                    // Direct-only mode: targeted update — re-checks only recipes whose ingredients changed.
                     UpdateCanCraftFlags();
                 }
+                // Debounce the heavy plan resolve (authoritative; gates the craft button via
+                // _currentPlan.IsFeasible regardless of recursive mode).
+                _planDirty = true;
+                _planDirtyTick = tickNow;
+            }
 
-                // First deferred frame: compute BFS reachability
+            // Advance the deferred recursive pass. Skip while a restart is pending — its in-flight
+            // results are about to be discarded (they were computed against a now-stale snapshot).
+            if (_deferredRecursiveActive && !_recursiveRestartPending)
+            {
+                // First deferred frame: compute BFS reachability for the current snapshot.
                 if (_deferredReachable == null)
                 {
                     _deferredReachable = RecipeResolver.ComputeReachableTypesPublic(
                         _deferredAvailable, _availableStations, _availableConditions);
                 }
 
-                // Process a batch of the recursive craftability pass each frame
                 _deferredRecursiveIndex = RecipeResolver.ApplyRecursiveCraftabilityBatch(
                     _allRecipes, _deferredRecursiveIndex, RecursiveBatchSize,
                     _deferredReachable, _deferredAvailable, _availableStations,
-                    _availableConditions, _deferredIngCache, out _);
+                    _availableConditions, _deferredIngCache, out bool anyFlipped);
 
-                if (_deferredRecursiveIndex < 0)
+                bool complete = _deferredRecursiveIndex < 0;
+
+                // Surface results to the visible list as they are discovered (throttled), and
+                // always at completion — so craftable recipes appear during the pass instead of
+                // only at the end, and demoted recipes leave the list.
+                if (complete || (anyFlipped && (tickNow - _lastRecursiveSyncTick) >= RecursiveSyncThrottleFrames))
                 {
-                    // Deferred pass complete — sync incrementally to avoid resorting/jumping
                     SyncFilteredRecipesIncremental();
+                    RefreshSelectedCanCraftFromList();
+                    _lastRecursiveSyncTick = tickNow;
+                }
+
+                if (complete)
+                {
                     _deferredRecursiveActive = false;
                     _deferredReachable = null;
                     _deferredAvailable = null;
                     _deferredIngCache = null;
                 }
             }
-            else
-            {
-                long currentVersion = StorageWorldSystem.Instance.StorageVersion;
-                if (currentVersion != _lastStorageVersion)
-                {
-                    _lastStorageVersion = currentVersion;
-                    // Targeted canCraft update — only re-checks recipes whose ingredients changed
-                    UpdateCanCraftFlags();
-                    // Debounce the heavy plan resolve
-                    _planDirty = true;
-                    _planDirtyTick = tickNow;
-                }
 
-                if (_planDirty && (tickNow - _planDirtyTick) >= PlanDebounceFrames)
-                {
-                    _planDirty = false;
-                    UpdatePlan();
-                }
+            // Debounced heavy plan resolve.
+            if (_planDirty && (tickNow - _planDirtyTick) >= PlanDebounceFrames)
+            {
+                _planDirty = false;
+                UpdatePlan();
             }
         }
     }

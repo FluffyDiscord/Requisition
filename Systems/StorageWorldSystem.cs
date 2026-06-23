@@ -634,7 +634,19 @@ namespace TerraStorage.Systems
         public void UpgradeDisk(Guid diskId, DiskTier newTier)
         {
             if (_allDiskData.TryGetValue(diskId, out var data))
+            {
+                // No-op when the tier is unchanged. This is called for every disk on every disk-
+                // connection refresh (~every 2s while a Terminal is open) to defensively sync the
+                // tier; bumping StorageVersion / marking the backup dirty here forced a full UI
+                // refresh every 2s and continuously reset the backup write timer. Only react to a
+                // real tier change.
+                if (data.Tier == newTier)
+                    return;
+
                 data.Tier = newTier;
+                StorageVersion++;
+                BackupSystem.MarkDirty();
+            }
         }
 
         // Assign an existing disk's data to a new Guid (for disk restoration).
@@ -647,6 +659,8 @@ namespace TerraStorage.Systems
             // (which carries targetDiskId) now points to the correct stored items
             _allDiskData[targetDiskId] = data;
             data.DiskId = targetDiskId;
+            StorageVersion++;
+            BackupSystem.MarkDirty();
             return true;
         }
 

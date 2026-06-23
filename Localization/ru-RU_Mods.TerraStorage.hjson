@@ -258,4 +258,9 @@ UI: {
 		ShimmeredFrom: Переливается из
 		ShimmersInto: Переливается в
 	}
+
+	VacuumBags: {
+		DepositButton: Сложить в Requisition
+		NoNetwork: Поблизости нет хранилища Requisition.
+	}
 }

@@ -258,4 +258,9 @@ UI: {
 		ShimmeredFrom: Shimmered from
 		ShimmersInto: Shimmers into
 	}
+
+	VacuumBags: {
+		DepositButton: Deposit to Requisition
+		NoNetwork: No Requisition storage in range.
+	}
 }

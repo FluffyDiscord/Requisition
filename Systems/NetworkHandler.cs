@@ -55,6 +55,11 @@ namespace TerraStorage.Systems
 
         //Server → client: chunked disk data for disks that exceed the 65 KB packet limit.
         SyncDiskDataChunked,
+
+        //Client → server: deposit one item into the network of the Terminal at a given tile
+        //position. Server resolves the network and range-checks the player (the not-open trust
+        //model, mirroring QuickStackToStorage). Appended last to keep existing byte values stable.
+        DepositItemAtPosition,
     }
 
     // Sends and receives all Requisition network packets.
@@ -145,6 +150,9 @@ namespace TerraStorage.Systems
                     break;
                 case PacketType.SyncDiskDataChunked:
                     HandleSyncDiskDataChunked(reader);
+                    break;
+                case PacketType.DepositItemAtPosition:
+                    HandleDepositItemAtPosition(mod, reader, whoAmI);
                     break;
             }
         }
@@ -453,6 +461,79 @@ namespace TerraStorage.Systems
             }
         }
 
+        // Client → server: deposit one item into the network of the Terminal at terminalPos.
+        // Used for the "nearby, no Terminal open" case — the server (not the client) resolves the
+        // network and range-checks the player, so client-sent disk GUIDs are never trusted here.
+        public static void SendDepositItemAtPosition(Mod mod, Point16 terminalPos, Item item)
+        {
+            if (Main.netMode != NetmodeID.MultiplayerClient)
+                return;
+
+            var packet = mod.GetPacket();
+            packet.Write((byte)PacketType.DepositItemAtPosition);
+            packet.Write(terminalPos.X);
+            packet.Write(terminalPos.Y);
+            ItemIO.Send(item, packet, true);
+            packet.Send();
+        }
+
+        private static void HandleDepositItemAtPosition(Mod mod, BinaryReader reader, int whoAmI)
+        {
+            short tx = reader.ReadInt16();
+            short ty = reader.ReadInt16();
+            var item = ItemIO.Receive(reader, true);
+
+            if (Main.netMode != NetmodeID.Server)
+                return;
+
+            var terminalPos = new Point16(tx, ty);
+
+            // Every failure path returns the item to the client so it can never vanish.
+            if (!TileEntity.ByPosition.TryGetValue(terminalPos, out var entity) || entity is not TerminalEntity)
+            {
+                SendReturnItemToClient(mod, whoAmI, item);
+                return;
+            }
+
+            var player = Main.player[whoAmI];
+            float dx = player.Center.X - (terminalPos.X * 16f + 24f);
+            float dy = player.Center.Y - (terminalPos.Y * 16f + 24f);
+            if (dx * dx + dy * dy > 240f * 240f) // 15 tiles in pixels
+            {
+                SendReturnItemToClient(mod, whoAmI, item);
+                return;
+            }
+
+            var diskIds = StorageNetwork.GetAllConnectedDiskIds(terminalPos);
+            if (diskIds.Count == 0)
+            {
+                SendReturnItemToClient(mod, whoAmI, item);
+                return;
+            }
+
+            StorageWorldSystem.Instance.BeginModificationTracking();
+            int leftover = StorageWorldSystem.Instance.InsertItem(diskIds, item);
+            if (leftover > 0)
+            {
+                item.stack = leftover;
+                SendReturnItemToClient(mod, whoAmI, item);
+            }
+            EndTrackingAndRespond(mod, whoAmI, leftover < item.stack, diskIds);
+        }
+
+        // Server → client: return an item to the player's inventory with full fidelity (mod data
+        // preserved). Used when a deposit is rejected or only partially accepted. Reuses the
+        // WithdrawItemResult route (shift=true) so modded items keep their data, unlike
+        // SendGiveItemToClient which only carries type/stack/prefix.
+        private static void SendReturnItemToClient(Mod mod, int toClient, Item item)
+        {
+            var packet = mod.GetPacket();
+            packet.Write((byte)PacketType.WithdrawItemResult);
+            ItemIO.Send(item, packet, true);
+            packet.Write(true); // shift=true: route into inventory, fall back to cursor
+            packet.Send(toClient);
+        }
+
         private static void HandleWithdrawItem(Mod mod, BinaryReader reader, int whoAmI)
         {
             int playerIndex = reader.ReadInt32();
@@ -519,7 +600,8 @@ namespace TerraStorage.Systems
         // ─── Crafting ───────────────────────────────────────────────────
 
         public static void SendCraftRequest(Mod mod, List<Guid> diskIds, int recipeItemType,
-            int craftAmount, HashSet<int> stations, HashSet<CraftingCondition> conditions, bool cleanCraft, bool craftToInventory)
+            int craftAmount, HashSet<int> stations, HashSet<CraftingCondition> conditions, bool cleanCraft, bool craftToInventory,
+            int recipeIndex)
         {
             if (Main.netMode != NetmodeID.MultiplayerClient)
                 return;
@@ -531,6 +613,7 @@ namespace TerraStorage.Systems
             foreach (var id in diskIds)
                 packet.Write(id.ToByteArray());
             packet.Write(recipeItemType);
+            packet.Write(recipeIndex);
             packet.Write(craftAmount);
             packet.Write(stations.Count);
             foreach (int s in stations)
@@ -549,6 +632,7 @@ namespace TerraStorage.Systems
             int diskCount = reader.ReadInt32();
             var diskIds = ReadGuidList(reader, diskCount);
             int recipeItemType = reader.ReadInt32();
+            int recipeIndex = reader.ReadInt32();
             int craftAmount = reader.ReadInt32();
             int stationCount = reader.ReadInt32();
             var stations = new HashSet<int>();
@@ -563,9 +647,12 @@ namespace TerraStorage.Systems
 
             if (Main.netMode == NetmodeID.Server)
             {
-                // Server re-resolves with ResolveForceCraft so existing stock of the
-                // target item is ignored — the client explicitly requested new crafts.
-                var plan = RecipeResolver.ResolveForceCraft(recipeItemType, craftAmount, diskIds, stations, conditions);
+                // Server re-resolves so existing stock of the target item is ignored — the client
+                // explicitly requested new crafts. When the client locked a specific recipe variant
+                // (recipeIndex >= 0), force exactly that recipe; otherwise auto-select the best one.
+                var plan = recipeIndex >= 0 && recipeIndex < Recipe.numRecipes
+                    ? RecipeResolver.ResolveRecipe(Main.recipe[recipeIndex], craftAmount, diskIds, stations, conditions)
+                    : RecipeResolver.ResolveForceCraft(recipeItemType, craftAmount, diskIds, stations, conditions);
                 StorageWorldSystem.Instance.BeginModificationTracking();
                 bool success = false;
                 if (plan != null && plan.IsFeasible)
