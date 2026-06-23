@@ -635,6 +635,14 @@ namespace TerraStorage.Systems
         {
             if (_allDiskData.TryGetValue(diskId, out var data))
             {
+                // No-op when the tier is unchanged. This is called for every disk on every disk-
+                // connection refresh (~every 2s while a Terminal is open) to defensively sync the
+                // tier; bumping StorageVersion / marking the backup dirty here forced a full UI
+                // refresh every 2s and continuously reset the backup write timer. Only react to a
+                // real tier change.
+                if (data.Tier == newTier)
+                    return;
+
                 data.Tier = newTier;
                 StorageVersion++;
                 BackupSystem.MarkDirty();
