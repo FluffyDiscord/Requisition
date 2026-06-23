@@ -1,4 +1,24 @@
 # Requisition Changelog
+## [0.5.2]
+
+### Added
+- **Lock Recipe toggle** — checkbox in the crafting panel pins crafting to the exact selected recipe variant instead of auto-picking one, so it won't switch recipes mid mass-craft
+- **androLib (Vacuum Bags) support** — optional "Deposit to Requisition" button on vacuum bag UIs that empties the bag into a Terminal's network in range (only appears when androLib is installed)
+- **`/tsdump` command** — diagnostic chat command that dumps the recipe graph and current storage to a file for performance analysis
+
+### Changed
+- Held items can now be dropped anywhere in the Storage tab, including empty grid slots
+- Ingredients you lack but can sub-craft now show in **orange** as `12/12` instead of a misleading red `0/12`
+
+### Fixed
+- Recipes no longer show as craftable when shared materials were double-counted across ingredients
+- Loop recipes (e.g. blue mushrooms) now show a red **"Nothing to Craft"** button instead of a craft button that did nothing
+- Recipe list now refreshes correctly when storage changes — no more stale or disappearing recipes after crafting or moving items
+- Fixed false "missing station" errors on recipes that were actually craftable (e.g. demonite → crimtane) — a craftable variant is now preferred over a station-missing one
+- Ingredient counts are no longer over-counted after a partial craft
+- Eliminated Terminal hitching every couple seconds while open, and heavy lag on each craft in large modpacks (allocation-free feasibility, worklist-based reachability, targeted post-craft revalidation, and removal of a spurious storage-version bump that also starved disk backups)
+- The click that opens the Terminal no longer bleeds into the item grid as a grab (left and right click)
+
 ## [0.5.1]
 
 ### Added

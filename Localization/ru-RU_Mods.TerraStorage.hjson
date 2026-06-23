@@ -260,7 +260,7 @@ UI: {
 	}
 
 	VacuumBags: {
-		// DepositButton: Deposit to Requisition
-		// NoNetwork: No Requisition storage in range.
+		DepositButton: Сложить в Requisition
+		NoNetwork: Поблизости нет хранилища Requisition.
 	}
 }
