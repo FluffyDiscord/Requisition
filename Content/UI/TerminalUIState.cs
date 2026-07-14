@@ -127,6 +127,10 @@ namespace TerraStorage.Content.UI
             // one so the opening hold isn't itself counted as that fresh press.
             _sawPressSinceOpen = false;
             _sawRightPressSinceOpen = false;
+            // Main.mouse*, NOT UIClickBlocker.Real*: this runs from the tile interaction during the
+            // player update, which is after the frame's input poll, whereas Real* was captured back
+            // in UpdateUIStates and still holds the pre-press value. Seeding from it would leave the
+            // opening right-click looking like a fresh press and grab whatever slot it landed on.
             _prevMouseLeft = Main.mouseLeft;
             _prevMouseRight = Main.mouseRight;
 
@@ -868,27 +872,39 @@ namespace TerraStorage.Content.UI
             }
 
             bool shift = Main.keyState.IsKeyDown(Keys.LeftShift) || Main.keyState.IsKeyDown(Keys.RightShift);
+
+            // Stays level-triggered: it also gates the Consume() below, and a window that stops
+            // consuming while the button is held would let the windows beneath it act mid-drag.
             bool justClicked = Main.mouseLeft && !UIClickBlocker.IsConsumed;
 
+            // The deposit, by contrast, fires once per press. Polling it while the button is held
+            // would deposit the moment a drag from an occupied slot crossed an empty cell.
+            bool pressEdge = Main.mouseLeft && !_prevMouseLeft;
+
             // Arm clicks only after a genuine press that began while the Terminal was already open.
-            if (Main.mouseLeft && !_prevMouseLeft)
+            if (pressEdge)
                 _sawPressSinceOpen = true;
 
-            if (justClicked)
-            {
-                if (_mainPanel.ContainsPoint(Main.MouseScreen))
-                {
-                    UIClickBlocker.Consume();
+            // Claim the frame's click whatever the button was. Claiming only left-clicks left every
+            // right- and middle-click to be acted on by this window AND every window beneath it --
+            // here that means withdrawing a stack from storage while the panel below acts too.
+            UIClickBlocker.ClaimIfPressed(_mainPanel.ContainsPoint(Main.MouseScreen),
+                Main.mouseLeft, Main.mouseRight, Main.mouseMiddle);
 
-                    // Deposit the held item anywhere in the Storage tab — outside the grid OR over an
-                    // empty grid slot. Clicks on an occupied slot are deposited by OnItemClicked, so
-                    // they're excluded here to avoid depositing twice.
-                    if (_sawPressSinceOpen && _activeTab == ActiveTab.Storage
-                        && Main.mouseItem != null && !Main.mouseItem.IsAir
-                        && (!_itemGrid.ContainsPoint(Main.MouseScreen) || _itemGrid.GetHoveredItem() == null))
-                    {
-                        DepositCursorItem();
-                    }
+            if (justClicked && _mainPanel.ContainsPoint(Main.MouseScreen))
+            {
+                UIClickBlocker.Consume();
+
+                if (DepositGate.ShouldDeposit(
+                        pressEdge,
+                        _sawPressSinceOpen,
+                        _activeTab == ActiveTab.Storage,
+                        Main.mouseItem != null && !Main.mouseItem.IsAir,
+                        Main.LocalPlayer.itemAnimation > 0,
+                        _itemGrid.ContainsPoint(Main.MouseScreen),
+                        _itemGrid.GetHoveredItem() != null))
+                {
+                    DepositCursorItem();
                 }
             }
 
@@ -962,6 +978,13 @@ namespace TerraStorage.Content.UI
             }
 
             // Right-click: pick up 1 item on press; hold repeats at vanilla-like intervals.
+            //
+            // mouseRight is Main.mouseRight -- the SUPPRESSED button -- and must stay that way, even
+            // though the hold-repeat below looks like a gesture continuation. Every repeat withdraws
+            // another item, so each one is a fresh act and has to honour suppression: a right-hold
+            // that strays under a window above must stop grabbing, not keep grabbing. Repointing
+            // this at UIClickBlocker.RealMouseRight would drain storage while the player holds the
+            // button over some other panel.
             bool mouseRight = Main.mouseRight;
             bool justRightPressed = mouseRight && !_prevMouseRight;
             // The right-press that opened the Terminal must be released before it can grab: arm only
@@ -1014,8 +1037,8 @@ namespace TerraStorage.Content.UI
                 _rightHoldTimer = 0;
             }
 
-            _prevMouseLeft = Main.mouseLeft;
-            _prevMouseRight = mouseRight;
+            _prevMouseLeft = UIClickBlocker.RealMouseLeft;
+            _prevMouseRight = UIClickBlocker.RealMouseRight;
         }
 
         private void RecalculateLayout()

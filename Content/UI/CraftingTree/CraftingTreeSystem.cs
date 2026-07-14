@@ -1,9 +1,7 @@
-using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
-using Terraria.UI;
 using TerraStorage.Systems;
 
 namespace TerraStorage.Content.UI.CraftingTree
@@ -24,6 +22,26 @@ namespace TerraStorage.Content.UI.CraftingTree
             OpenTreeKeybind = KeybindLoader.RegisterKeybind(Mod, "CraftingTree", "X");
             _state = new CraftingTreeState();
             _state.Activate();
+
+            // No UserInterface of its own -- the state is driven directly -- so the arbiter's
+            // click suppression is applied by RequisitionUISystem around this update callback.
+            RequisitionWindows.Register(
+                "TerraStorage: Crafting Tree",
+                isOpen: () => _isOpen,
+                isMouseOver: () => _state.IsMouseOverPanel(),
+                update: gameTime => _state.Update(gameTime),
+                draw: DrawTree);
+        }
+
+        private bool DrawTree()
+        {
+            if (_state.IsMouseOverPanel())
+            {
+                Main.HoverItem = new Item();
+                Main.hoverItemName = string.Empty;
+            }
+            _state.DrawTree(Main.spriteBatch);
+            return true;
         }
 
         public override void Unload()
@@ -80,9 +98,6 @@ namespace TerraStorage.Content.UI.CraftingTree
                     CloseTree();
                 }
             }
-
-            if (_isOpen)
-                _state.Update(gameTime);
         }
 
         private static int GetHoveredItemType()
@@ -106,26 +121,5 @@ namespace TerraStorage.Content.UI.CraftingTree
             return 0;
         }
 
-        public override void ModifyInterfaceLayers(List<GameInterfaceLayer> layers)
-        {
-            if (!_isOpen) return;
-
-            int idx = layers.FindIndex(l => l.Name.Equals("Vanilla: Inventory"));
-            if (idx == -1) return;
-
-            layers.Insert(idx + 1, new LegacyGameInterfaceLayer(
-                "TerraStorage: Crafting Tree",
-                delegate
-                {
-                    if (_state.IsMouseOverPanel())
-                    {
-                        Main.HoverItem = new Item();
-                        Main.hoverItemName = string.Empty;
-                    }
-                    _state.DrawTree(Main.spriteBatch);
-                    return true;
-                },
-                InterfaceScaleType.UI));
-        }
     }
 }

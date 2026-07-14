@@ -127,15 +127,16 @@ namespace TerraStorage.Content.UI.Elements
 
             bool leftDown   = Main.mouseLeft;
             bool justDown   = leftDown && !_prevMouseLeft && !UIClickBlocker.IsConsumed;
-            _prevMouseLeft  = leftDown;
+            _prevMouseLeft  = UIClickBlocker.RealMouseLeft;
 
             var dims = GetDimensions();
 
             // Finish resize
             if (_resizing)
             {
+                UIClickBlocker.MarkGesture();
                 Main.LocalPlayer.mouseInterface = true;
-                if (!leftDown)
+                if (!UIClickBlocker.RealMouseLeft)
                 {
                     _resizing = false;
                     SaveBounds();
@@ -157,8 +158,9 @@ namespace TerraStorage.Content.UI.Elements
             // Finish drag
             if (_dragging)
             {
+                UIClickBlocker.MarkGesture();
                 Main.LocalPlayer.mouseInterface = true;
-                if (!leftDown)
+                if (!UIClickBlocker.RealMouseLeft)
                 {
                     _dragging = false;
                     SaveBounds();
@@ -180,6 +182,7 @@ namespace TerraStorage.Content.UI.Elements
             if (Resizable && ResizeRect(dims).Contains(Main.MouseScreen.ToPoint()))
             {
                 _resizing    = true;
+                UIClickBlocker.MarkGesture();
                 _resizeStart = Main.MouseScreen;
                 _resizeOrigW = Width.Pixels;
                 _resizeOrigH = Height.Pixels;
@@ -203,6 +206,7 @@ namespace TerraStorage.Content.UI.Elements
                 dims = GetDimensions();
 
                 _dragging   = true;
+                UIClickBlocker.MarkGesture();
                 _dragOffset = Main.MouseScreen - new Vector2(dims.X, dims.Y);
                 UIClickBlocker.Consume();
             }

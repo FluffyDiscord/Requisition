@@ -608,7 +608,8 @@ namespace TerraStorage.Content.UI.CraftingTree
             // Handle window resize
             if (_resizing)
             {
-                if (!Main.mouseLeft)
+                UIClickBlocker.MarkGesture();
+                if (!UIClickBlocker.RealMouseLeft)
                 {
                     _resizing = false;
                     UIPositionStore.SaveWithSize("craftingtree", _panelX, _panelY, _panelWidth, _panelHeight);
@@ -619,14 +620,15 @@ namespace TerraStorage.Content.UI.CraftingTree
                     float maxH = Math.Min(Main.screenHeight - _panelY - 10, PanelMaxHeight);
                     _panelHeight = Math.Clamp(_resizeOrigHeight + (mouse.Y - _resizeStart.Y), PanelMinHeight, maxH);
                 }
-                _prevMouseLeft = Main.mouseLeft;
+                _prevMouseLeft = UIClickBlocker.RealMouseLeft;
                 return;
             }
 
             // Handle window drag
             if (_dragging)
             {
-                if (!Main.mouseLeft)
+                UIClickBlocker.MarkGesture();
+                if (!UIClickBlocker.RealMouseLeft)
                 {
                     _dragging = false;
                     UIPositionStore.SaveWithSize("craftingtree", _panelX, _panelY, _panelWidth, _panelHeight);
@@ -636,14 +638,15 @@ namespace TerraStorage.Content.UI.CraftingTree
                     _panelX = mouse.X - _dragOffset.X;
                     _panelY = mouse.Y - _dragOffset.Y;
                 }
-                _prevMouseLeft = Main.mouseLeft;
+                _prevMouseLeft = UIClickBlocker.RealMouseLeft;
                 return;
             }
 
             // Handle panning
             if (_panning)
             {
-                if (!Main.mouseLeft)
+                UIClickBlocker.MarkGesture();
+                if (!UIClickBlocker.RealMouseLeft)
                 {
                     _panning = false;
                 }
@@ -651,14 +654,15 @@ namespace TerraStorage.Content.UI.CraftingTree
                 {
                     _panOffset = _panOffsetStart + (mouse - _panStart) / _zoom;
                 }
-                _prevMouseLeft = Main.mouseLeft;
+                _prevMouseLeft = UIClickBlocker.RealMouseLeft;
                 return;
             }
 
             // Handle minimap dragging
             if (_minimapDragging)
             {
-                if (!Main.mouseLeft)
+                UIClickBlocker.MarkGesture();
+                if (!UIClickBlocker.RealMouseLeft)
                 {
                     _minimapDragging = false;
                 }
@@ -666,7 +670,7 @@ namespace TerraStorage.Content.UI.CraftingTree
                 {
                     CenterViewOnMinimapPoint(mouse);
                 }
-                _prevMouseLeft = Main.mouseLeft;
+                _prevMouseLeft = UIClickBlocker.RealMouseLeft;
                 return;
             }
 
@@ -743,9 +747,9 @@ namespace TerraStorage.Content.UI.CraftingTree
                 if (_minimized)
                 {
                     _minimized = false;
-                    _prevMouseLeft = Main.mouseLeft;
-                    _prevMouseRight = Main.mouseRight;
-                    _prevMouseMiddle = Main.mouseMiddle;
+                    _prevMouseLeft = UIClickBlocker.RealMouseLeft;
+                    _prevMouseRight = UIClickBlocker.RealMouseRight;
+                    _prevMouseMiddle = UIClickBlocker.RealMouseMiddle;
                     return;
                 }
 
@@ -754,9 +758,9 @@ namespace TerraStorage.Content.UI.CraftingTree
                 {
                     Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.MenuTick);
                     ModContent.GetInstance<CraftingTreeSystem>()?.CloseTree();
-                    _prevMouseLeft = Main.mouseLeft;
-                    _prevMouseRight = Main.mouseRight;
-                    _prevMouseMiddle = Main.mouseMiddle;
+                    _prevMouseLeft = UIClickBlocker.RealMouseLeft;
+                    _prevMouseRight = UIClickBlocker.RealMouseRight;
+                    _prevMouseMiddle = UIClickBlocker.RealMouseMiddle;
                     return;
                 }
 
@@ -765,9 +769,9 @@ namespace TerraStorage.Content.UI.CraftingTree
                 {
                     Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.MenuTick);
                     _minimized = true;
-                    _prevMouseLeft = Main.mouseLeft;
-                    _prevMouseRight = Main.mouseRight;
-                    _prevMouseMiddle = Main.mouseMiddle;
+                    _prevMouseLeft = UIClickBlocker.RealMouseLeft;
+                    _prevMouseRight = UIClickBlocker.RealMouseRight;
+                    _prevMouseMiddle = UIClickBlocker.RealMouseMiddle;
                     return;
                 }
 
@@ -777,9 +781,9 @@ namespace TerraStorage.Content.UI.CraftingTree
                     Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.MenuTick);
                     _autoMinimize = !_autoMinimize;
                     StoragePlayerSystem.Local.CraftingTreeAutoMinimize = _autoMinimize;
-                    _prevMouseLeft = Main.mouseLeft;
-                    _prevMouseRight = Main.mouseRight;
-                    _prevMouseMiddle = Main.mouseMiddle;
+                    _prevMouseLeft = UIClickBlocker.RealMouseLeft;
+                    _prevMouseRight = UIClickBlocker.RealMouseRight;
+                    _prevMouseMiddle = UIClickBlocker.RealMouseMiddle;
                     return;
                 }
 
@@ -787,12 +791,13 @@ namespace TerraStorage.Content.UI.CraftingTree
                 if (IsInResizeHandle(mouse))
                 {
                     _resizing = true;
+                    UIClickBlocker.MarkGesture();
                     _resizeStart = mouse;
                     _resizeOrigWidth = _panelWidth;
                     _resizeOrigHeight = _panelHeight;
-                    _prevMouseLeft = Main.mouseLeft;
-                    _prevMouseRight = Main.mouseRight;
-                    _prevMouseMiddle = Main.mouseMiddle;
+                    _prevMouseLeft = UIClickBlocker.RealMouseLeft;
+                    _prevMouseRight = UIClickBlocker.RealMouseRight;
+                    _prevMouseMiddle = UIClickBlocker.RealMouseMiddle;
                     return;
                 }
 
@@ -800,10 +805,11 @@ namespace TerraStorage.Content.UI.CraftingTree
                 if (IsInTitleBar(mouse))
                 {
                     _dragging = true;
+                    UIClickBlocker.MarkGesture();
                     _dragOffset = mouse - new Vector2(_panelX, _panelY);
-                    _prevMouseLeft = Main.mouseLeft;
-                    _prevMouseRight = Main.mouseRight;
-                    _prevMouseMiddle = Main.mouseMiddle;
+                    _prevMouseLeft = UIClickBlocker.RealMouseLeft;
+                    _prevMouseRight = UIClickBlocker.RealMouseRight;
+                    _prevMouseMiddle = UIClickBlocker.RealMouseMiddle;
                     return;
                 }
 
@@ -831,12 +837,14 @@ namespace TerraStorage.Content.UI.CraftingTree
                 {
                     // Click on minimap: start minimap drag
                     _minimapDragging = true;
+                    UIClickBlocker.MarkGesture();
                     CenterViewOnMinimapPoint(mouse);
                 }
                 else if (IsInContentArea(mouse))
                 {
                     // Click empty space: start panning
                     _panning = true;
+                    UIClickBlocker.MarkGesture();
                     _panStart = mouse;
                     _panOffsetStart = _panOffset;
                 }
@@ -887,9 +895,9 @@ namespace TerraStorage.Content.UI.CraftingTree
                 }
             }
 
-            _prevMouseLeft = Main.mouseLeft;
-            _prevMouseRight = Main.mouseRight;
-            _prevMouseMiddle = Main.mouseMiddle;
+            _prevMouseLeft = UIClickBlocker.RealMouseLeft;
+            _prevMouseRight = UIClickBlocker.RealMouseRight;
+            _prevMouseMiddle = UIClickBlocker.RealMouseMiddle;
         }
 
         private void SelectRecipeInTerminal(Recipe recipe)

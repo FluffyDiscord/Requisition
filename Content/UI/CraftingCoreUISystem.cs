@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
 using Terraria;
@@ -30,7 +29,26 @@ namespace TerraStorage.Content.UI
                 _userInterface = new UserInterface();
                 _uiState = new CraftingCoreUIState();
                 _uiState.Activate();
+
+                RequisitionWindows.Register(
+                    "TerraStorage: Crafting Core UI",
+                    isOpen: () => _isOpen,
+                    isMouseOver: () => _uiState.IsMouseOverPanel(),
+                    update: gameTime => _userInterface.Update(gameTime),
+                    draw: DrawPanel,
+                    hidesVanillaCraftingMenu: true);
             }
+        }
+
+        private bool DrawPanel()
+        {
+            if (_uiState.IsMouseOverPanel())
+            {
+                Main.HoverItem = new Item();
+                Main.hoverItemName = string.Empty;
+            }
+            _userInterface.Draw(Main.spriteBatch, new GameTime());
+            return true;
         }
 
         public void OpenCraftingCore(CraftingCoreEntity entity)
@@ -56,11 +74,8 @@ namespace TerraStorage.Content.UI
 
         public override void PreUpdatePlayers()
         {
-            if (_isOpen && !Main.dedServ)
-            {
-                if (_uiState.IsMouseOverPanel())
-                    Main.LocalPlayer.mouseInterface = true;
-            }
+            if (!Main.dedServ && IsMouseOverPanel())
+                Main.LocalPlayer.mouseInterface = true;
         }
 
         public override void UpdateUI(GameTime gameTime)
@@ -80,31 +95,6 @@ namespace TerraStorage.Content.UI
                     CloseCraftingCore();
                     return;
                 }
-
-                UIDrawHelpers.SafeUpdate(_userInterface, gameTime);
-            }
-        }
-
-        public override void ModifyInterfaceLayers(List<GameInterfaceLayer> layers)
-        {
-            int inventoryIndex = layers.FindIndex(layer => layer.Name.Equals("Vanilla: Inventory"));
-            if (inventoryIndex != -1 && _isOpen)
-            {
-                Main.hidePlayerCraftingMenu = true;
-
-                layers.Insert(inventoryIndex + 1, new LegacyGameInterfaceLayer(
-                    "TerraStorage: Crafting Core UI",
-                    delegate
-                    {
-                        if (_uiState.IsMouseOverPanel())
-                        {
-                            Main.HoverItem = new Item();
-                            Main.hoverItemName = string.Empty;
-                        }
-                        _userInterface.Draw(Main.spriteBatch, new GameTime());
-                        return true;
-                    },
-                    InterfaceScaleType.UI));
             }
         }
     }

@@ -2278,10 +2278,15 @@ private void DrawItemIcon(SpriteBatch spriteBatch, int itemType, Vector2 center,
                 }
             }
 
-            // Right-mouse tracking for both amount field drag and recursion depth drag
+            // Right-mouse tracking for both amount field drag and recursion depth drag.
+            // rightDown starts a drag, so it reads the suppressed button -- a click another window
+            // consumed must not start one here. rightHeld continues a drag already in progress, so
+            // it reads the real button: a gesture ends when the player releases, not when some other
+            // window happens to consume a click.
             bool rightDown = Main.mouseRight;
+            bool rightHeld = UIClickBlocker.RealMouseRight;
             bool rightJustPressed = rightDown && !_prevMouseRight;
-            _prevMouseRight = rightDown;
+            _prevMouseRight = UIClickBlocker.RealMouseRight;
 
             // Recursion depth drag: right-drag on the Recursive checkbox (vertical)
             if (rightJustPressed && _recursiveCheckRect.Contains(Main.MouseScreen.ToPoint()) && !_amountFieldMouseDown)
@@ -2293,7 +2298,7 @@ private void DrawItemIcon(SpriteBatch spriteBatch, int itemType, Vector2 center,
 
             if (_recursionDragActive)
             {
-                if (rightDown)
+                if (rightHeld)
                 {
                     // Drag up = increase depth, drag down = decrease
                     float deltaY = _recursionDragStartY - Main.MouseScreen.Y;
@@ -2333,7 +2338,7 @@ private void DrawItemIcon(SpriteBatch spriteBatch, int itemType, Vector2 center,
 
             if (_amountFieldMouseDown)
             {
-                if (rightDown)
+                if (rightHeld)
                 {
                     float deltaX = Main.MouseScreen.X - _amountDragStartX;
                     if (!_amountDragActive && Math.Abs(deltaX) > 4f)

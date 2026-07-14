@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
@@ -32,6 +31,24 @@ namespace TerraStorage.Content.UI.Encyclopedia
             _userInterface = new UserInterface();
             _state = new EncyclopediaState();
             _state.Activate();
+
+            RequisitionWindows.Register(
+                "TerraStorage: Encyclopedia",
+                isOpen: () => _isOpen,
+                isMouseOver: () => _state.IsMouseOverPanel(),
+                update: gameTime => _userInterface.Update(gameTime),
+                draw: DrawPanel);
+        }
+
+        private bool DrawPanel()
+        {
+            if (_state.IsMouseOverPanel())
+            {
+                Main.HoverItem = new Item();
+                Main.hoverItemName = string.Empty;
+            }
+            _userInterface.Draw(Main.spriteBatch, new GameTime());
+            return true;
         }
 
         public override void Unload()
@@ -95,9 +112,6 @@ namespace TerraStorage.Content.UI.Encyclopedia
                 else
                     OpenEncyclopedia();
             }
-
-            if (_isOpen)
-                UIDrawHelpers.SafeUpdate(_userInterface, gameTime);
         }
 
         private int GetHoveredItemType()
@@ -124,26 +138,5 @@ namespace TerraStorage.Content.UI.Encyclopedia
             return 0;
         }
 
-        public override void ModifyInterfaceLayers(List<GameInterfaceLayer> layers)
-        {
-            if (!_isOpen) return;
-
-            int idx = layers.FindIndex(l => l.Name.Equals("Vanilla: Inventory"));
-            if (idx == -1) return;
-
-            layers.Insert(idx + 1, new LegacyGameInterfaceLayer(
-                "TerraStorage: Encyclopedia",
-                delegate
-                {
-                    if (_state.IsMouseOverPanel())
-                    {
-                        Main.HoverItem = new Item();
-                        Main.hoverItemName = string.Empty;
-                    }
-                    _userInterface.Draw(Main.spriteBatch, new GameTime());
-                    return true;
-                },
-                InterfaceScaleType.UI));
-        }
     }
 }
