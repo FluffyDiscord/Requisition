@@ -34,6 +34,7 @@ namespace TerraStorage.Tests
             StationShadowingSubCraft();
             StationFallbackOrderIndependent();
             DirectAndSimpleSanity();
+            NoOpRecipesAreUncraftable();
             ReachabilityEquivalence();
             ReachabilityScaleBenchmark();
             ReachabilityRealisticScaleBenchmark();
@@ -112,6 +113,58 @@ namespace TerraStorage.Tests
             // 5 ore is not enough for 2 demonite (needs 6).
             var fiveOre = new Dictionary<int, int> { [DEMO_ORE] = 5 };
             IsFalse(r.IsFeasibleFromSnapshot(CRIM, 2, fiveOre), "S2 resolver: 2 CRIM NOT craftable from 5 DEMO_ORE");
+        }
+
+        // ---- Scenario: "Nothing to Craft" recipes must not show as craftable in the list ----
+        // The craft button force-crafts (ResolveForceCraft ignores existing stock of the output), so a
+        // recipe whose ingredients are only reachable by looping back through its own output does
+        // nothing when clicked. The list flag used to count that stock and advertise it as craftable,
+        // which is the mismatch the user reported: green in the list, "Nothing to Craft" on the button.
+        private static void NoOpRecipesAreUncraftable()
+        {
+            Section("No-op recipes are uncraftable in the list");
+            const int DEMO_ORE = 20, DEMO = 21, CRIM = 22, FURNACE = 100;
+
+            var env = new FakeEnvironment().WithStations(FURNACE);
+            env.AddRecipe(DEMO, 1, new[] { (DEMO_ORE, 3) }, tiles: new[] { FURNACE });
+            var crimRecipe = env.AddRecipe(CRIM, 1, new[] { (DEMO, 1) }, tiles: new[] { FURNACE });
+            env.AddRecipe(DEMO, 1, new[] { (CRIM, 1) }, tiles: new[] { FURNACE }); // reverse: CRIM -> DEMO
+            var r = new CoreResolver(env);
+
+            // Hold ONLY crimtane. CRIM's recipe needs DEMO, and the only way to get DEMO is to convert
+            // the crimtane we already hold — force-crafting removes it, so the craft is a pure no-op.
+            var onlyCrim = new Dictionary<int, int> { [CRIM] = 5 };
+            IsFalse(ListCraftable(r, crimRecipe, onlyCrim),
+                "NC-001 CRIM recipe NOT craftable when only its own output is in stock (no-op loop)");
+
+            // Same stock, but the ore for a real demonite bar is present -> a genuine craft exists.
+            var crimAndOre = new Dictionary<int, int> { [CRIM] = 5, [DEMO_ORE] = 3 };
+            IsTrue(ListCraftable(r, crimRecipe, crimAndOre),
+                "NC-002 CRIM recipe craftable when DEMO is reachable without consuming CRIM");
+
+            // Holding the output must not suppress an otherwise-real craft.
+            var crimAndDemo = new Dictionary<int, int> { [CRIM] = 5, [DEMO] = 1 };
+            IsTrue(ListCraftable(r, crimRecipe, crimAndDemo),
+                "NC-003 holding the output does not block a recipe whose ingredients are really in stock");
+
+            // A recipe that consumes its own output is a no-op under force-craft, even with stock.
+            var env2 = new FakeEnvironment();
+            var selfRecipe = env2.AddRecipe(CRIM, 2, new[] { (CRIM, 1), (DEMO_ORE, 1) });
+            var r2 = new CoreResolver(env2);
+            var selfStock = new Dictionary<int, int> { [CRIM] = 5, [DEMO_ORE] = 5 };
+            IsFalse(ListCraftable(r2, selfRecipe, selfStock),
+                "NC-004 recipe consuming its own output is NOT craftable (force-craft drops the stock)");
+
+            // Every recipe for an item being a no-op => the item is uncraftable outright.
+            var env3 = new FakeEnvironment();
+            var a = env3.AddRecipe(CRIM, 1, new[] { (DEMO, 1) });
+            var b = env3.AddRecipe(CRIM, 1, new[] { (DEMO_ORE, 1) });
+            env3.AddRecipe(DEMO, 1, new[] { (CRIM, 1) });
+            env3.AddRecipe(DEMO_ORE, 1, new[] { (CRIM, 1) });
+            var r3 = new CoreResolver(env3);
+            var loopOnly = new Dictionary<int, int> { [CRIM] = 5 };
+            IsFalse(ListCraftable(r3, a, loopOnly), "NC-005 variant A is a no-op loop");
+            IsFalse(ListCraftable(r3, b, loopOnly), "NC-006 variant B is a no-op loop");
         }
 
         // ---- Scenario 3: recipe-group contention (copper/tin bars share a group) ----
@@ -375,7 +428,7 @@ namespace TerraStorage.Tests
             var reachable = core.ComputeReachableTypes(available);
             long reachMs = sw.ElapsedMilliseconds;
             var canCraft = new bool[recipes.Count];
-            var ingCacheFull = new Dictionary<(int, int), bool>();
+            var ingCacheFull = new Dictionary<(int ctx, int type, int stack), bool>();
             for (int i = 0; i < recipes.Count; i++)
                 canCraft[i] = core.IsRecipeCraftable(recipes[i], reachable, available, ingCacheFull);
             sw.Stop();
@@ -400,7 +453,7 @@ namespace TerraStorage.Tests
             // Oracle: a FULL recompute after the craft (the authoritative result every variant is checked against).
             var reachableAfter = core.ComputeReachableTypes(after);
             var fullAfter = new bool[recipes.Count];
-            var ingCacheO = new Dictionary<(int, int), bool>();
+            var ingCacheO = new Dictionary<(int ctx, int type, int stack), bool>();
             for (int i = 0; i < recipes.Count; i++)
                 fullAfter[i] = core.IsRecipeCraftable(recipes[i], reachableAfter, after, ingCacheO);
 
@@ -450,7 +503,7 @@ namespace TerraStorage.Tests
             long aF = GC.GetAllocatedBytesForCurrentThread();
             int gF = GC.CollectionCount(0);
             var rchF = core.ComputeReachableTypes(available);
-            var icF = new Dictionary<(int, int), bool>();
+            var icF = new Dictionary<(int ctx, int type, int stack), bool>();
             for (int i = 0; i < recipes.Count; i++) core.IsRecipeCraftable(recipes[i], rchF, available, icF);
             double fullMB = (GC.GetAllocatedBytesForCurrentThread() - aF) / 1048576.0;
             int fullGen0 = GC.CollectionCount(0) - gF;
@@ -459,7 +512,7 @@ namespace TerraStorage.Tests
             long aT = GC.GetAllocatedBytesForCurrentThread();
             int gT = GC.CollectionCount(0);
             var rchT = core.ComputeReachableTypes(after);
-            var icT = new Dictionary<(int, int), bool>();
+            var icT = new Dictionary<(int ctx, int type, int stack), bool>();
             foreach (int i in affectedB) core.IsRecipeCraftable(recipes[i], rchT, after, icT);
             double targMB = (GC.GetAllocatedBytesForCurrentThread() - aT) / 1048576.0;
             int targGen0 = GC.CollectionCount(0) - gT;
@@ -480,7 +533,7 @@ namespace TerraStorage.Tests
             CoreResolver core, IReadOnlyList<CoreRecipe> recipes, HashSet<int> affected,
             HashSet<int> reachableAfter, Dictionary<int, int> after, bool[] fullAfter, bool[] canCraft, bool useGate)
         {
-            var ingCache = new Dictionary<(int, int), bool>();
+            var ingCache = new Dictionary<(int ctx, int type, int stack), bool>();
             var result = new Dictionary<int, bool>();
             var sw = Stopwatch.StartNew();
             foreach (int i in affected)
@@ -673,7 +726,7 @@ namespace TerraStorage.Tests
         private static bool ListCraftable(CoreResolver r, CoreRecipe recipe, Dictionary<int, int> available)
         {
             var reachable = r.ComputeReachableTypes(available);
-            var ingCache = new Dictionary<(int type, int stack), bool>();
+            var ingCache = new Dictionary<(int ctx, int type, int stack), bool>();
             return r.IsRecipeCraftable(recipe, reachable, available, ingCache);
         }
 
