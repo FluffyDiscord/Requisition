@@ -329,6 +329,10 @@ namespace TerraStorage.Helpers
                     }
                 }
 
+                // Force-craft semantics (see CoreResolver.RecheckRecipeCraftable): the craft button
+                // ignores existing stock of the output, so the output cannot be its own material.
+                int outputType = recipe.createItem.type;
+
                 bool ingredientsMet = true;
                 foreach (var ingredient in recipe.requiredItem)
                 {
@@ -338,7 +342,8 @@ namespace TerraStorage.Helpers
                     int needed = ingredient.stack;
                     bool found = false;
 
-                    if (available.TryGetValue(ingredient.type, out int have) && have >= needed)
+                    if (ingredient.type != outputType
+                        && available.TryGetValue(ingredient.type, out int have) && have >= needed)
                         found = true;
 
                     if (!found)
@@ -350,7 +355,8 @@ namespace TerraStorage.Helpers
                             {
                                 foreach (int validItem in group.ValidItems)
                                 {
-                                    if (available.TryGetValue(validItem, out int groupHave) && groupHave >= needed)
+                                    if (validItem != outputType
+                                        && available.TryGetValue(validItem, out int groupHave) && groupHave >= needed)
                                     {
                                         found = true;
                                         break;
@@ -390,7 +396,7 @@ namespace TerraStorage.Helpers
         {
             var core = Core(availableStations, availableConditions);
             var reachable = core.ComputeReachableTypes(available);
-            var ingCache = new Dictionary<(int type, int stack), bool>();
+            var ingCache = new Dictionary<(int ctx, int type, int stack), bool>();
             for (int i = 0; i < results.Count; i++)
                 results[i] = (results[i].recipe,
                     core.IsRecipeCraftable(TerrariaRecipeEnvironment.ToCore(results[i].recipe), reachable, available, ingCache));
@@ -409,7 +415,7 @@ namespace TerraStorage.Helpers
             Dictionary<int, int> available,
             HashSet<int> availableStations,
             HashSet<CraftingCondition> availableConditions,
-            Dictionary<(int type, int stack), bool> ingCache,
+            Dictionary<(int ctx, int type, int stack), bool> ingCache,
             out bool anyFlipped)
         {
             anyFlipped = false;

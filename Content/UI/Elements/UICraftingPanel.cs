@@ -135,7 +135,7 @@ namespace TerraStorage.Content.UI.Elements
         private int _deferredRecursiveIndex;
         private HashSet<int> _deferredReachable;
         private Dictionary<int, int> _deferredAvailable;
-        private Dictionary<(int type, int stack), bool> _deferredIngCache;
+        private Dictionary<(int ctx, int type, int stack), bool> _deferredIngCache;
         private const int RecursiveBatchSize = 200;
 
         // Single-owner model: while recursive mode is on, the deferred pass owns every list
@@ -312,7 +312,7 @@ namespace TerraStorage.Content.UI.Elements
             RecipeResolver.MaxDepth = _recursionDepth;
             _deferredAvailable = new Dictionary<int, int>(_cachedAvailable);
             _deferredReachable = null; // computed on the first deferred frame
-            _deferredIngCache = new Dictionary<(int type, int stack), bool>();
+            _deferredIngCache = new Dictionary<(int ctx, int type, int stack), bool>();
             _deferredRecursiveIndex = 0;
             _deferredRecursiveActive = true;
             _recursiveRestartPending = false;
@@ -343,13 +343,17 @@ namespace TerraStorage.Content.UI.Elements
                 var (recipe, canCraft) = _allRecipes[i];
                 if (!canCraft) continue;
 
-                // Re-check direct ingredient availability — if it fails, this was a recursive flag
+                // Re-check direct ingredient availability — if it fails, this was a recursive flag.
+                // Force-craft semantics: the output's own stock is not a material.
+                int outputType = recipe.createItem.type;
+
                 bool directMet = true;
                 foreach (var ing in recipe.requiredItem)
                 {
                     if (ing.type <= ItemID.None) continue;
                     int needed = ing.stack;
-                    bool found = available.TryGetValue(ing.type, out int have) && have >= needed;
+                    bool found = ing.type != outputType
+                        && available.TryGetValue(ing.type, out int have) && have >= needed;
                     if (!found)
                     {
                         foreach (int gid in recipe.acceptedGroups)
@@ -358,7 +362,7 @@ namespace TerraStorage.Content.UI.Elements
                             if (!grp.ContainsItem(ing.type)) continue;
                             foreach (int v in grp.ValidItems)
                             {
-                                if (available.TryGetValue(v, out int vh) && vh >= needed)
+                                if (v != outputType && available.TryGetValue(v, out int vh) && vh >= needed)
                                 { found = true; break; }
                             }
                             if (found) break;
@@ -469,11 +473,16 @@ namespace TerraStorage.Content.UI.Elements
                 // If the recipe was previously uncraftable due to stations/conditions
                 // (not ingredients), it stays uncraftable — ingredient changes can't fix that.
                 // We only flip recipes that were limited by ingredient availability.
+                // Force-craft semantics: the output's own stock is not a material (see
+                // CoreResolver.RecheckRecipeCraftable).
+                int outputType = recipe.createItem.type;
+
                 bool ingredientsMet = true;
                 foreach (var ing in recipe.requiredItem)
                 {
                     if (ing.type <= ItemID.None) continue;
-                    if (current.TryGetValue(ing.type, out int have) && have >= ing.stack) continue;
+                    if (ing.type != outputType
+                        && current.TryGetValue(ing.type, out int have) && have >= ing.stack) continue;
 
                     bool groupOk = false;
                     foreach (int gid in recipe.acceptedGroups)
@@ -482,7 +491,7 @@ namespace TerraStorage.Content.UI.Elements
                         if (!grp.ContainsItem(ing.type)) continue;
                         foreach (int v in grp.ValidItems)
                         {
-                            if (current.TryGetValue(v, out int vh) && vh >= ing.stack)
+                            if (v != outputType && current.TryGetValue(v, out int vh) && vh >= ing.stack)
                             { groupOk = true; break; }
                         }
                         if (groupOk) break;
@@ -568,7 +577,7 @@ namespace TerraStorage.Content.UI.Elements
 
             var core = new CoreResolver(new TerrariaRecipeEnvironment(_availableStations, _availableConditions)) { MaxDepth = _recursionDepth };
             var reachable = core.ComputeReachableTypes(current);
-            var ingCache = new Dictionary<(int type, int stack), bool>();
+            var ingCache = new Dictionary<(int ctx, int type, int stack), bool>();
             bool anyChanged = false;
             foreach (int i in affected)
             {

@@ -453,9 +453,11 @@ namespace TerraStorage.Helpers.Resolver
         // a cheap per-ingredient pre-filter (memoised in ingCache), then a single shared-pool confirm
         // only when 2+ ingredients could contend for the same base material.
         public bool IsRecipeCraftable(CoreRecipe recipe, HashSet<int> reachable,
-            Dictionary<int, int> available, Dictionary<(int type, int stack), bool> ingCache)
+            Dictionary<int, int> available, Dictionary<(int ctx, int type, int stack), bool> ingCache)
         {
             // Fast reject using the precomputed reachable set — worthwhile when sweeping ALL recipes.
+            // `reachable` is built from the full snapshot, so it stays a valid superset under the
+            // force-craft exclusion below: excluding the output can only ever remove craftability.
             if (!reachable.Contains(recipe.OutputType)) return false;
             return RecheckRecipeCraftable(recipe, available, ingCache);
         }
@@ -466,41 +468,60 @@ namespace TerraStorage.Helpers.Resolver
         // Result is identical to IsRecipeCraftable: a recipe whose output is not reachable is not
         // craftable, so the omitted fast-reject only changes speed, never the answer.
         public bool RecheckRecipeCraftable(CoreRecipe recipe,
-            Dictionary<int, int> available, Dictionary<(int type, int stack), bool> ingCache)
+            Dictionary<int, int> available, Dictionary<(int ctx, int type, int stack), bool> ingCache)
         {
             foreach (int t in recipe.RequiredTiles)
                 if (!_env.IsStationSatisfied(t)) return false;
             if (!_env.ConditionsMet(recipe)) return false;
 
-            bool allDirect = true;
-            bool usedGroupSubstitute = false;
-            int realIngredients = 0;
-            foreach (var ing in recipe.Ingredients)
+            // Force-craft semantics, matching what the craft button actually does: existing stock of
+            // the OUTPUT is not a material. Without this, a recipe whose ingredients are only
+            // satisfiable by sub-crafting back through its own output (a cycle) reads as craftable in
+            // the list, but the button — which resolves via ResolveForceCraft — refuses it as
+            // "Nothing to Craft". Excluding the output here makes the two agree: such a recipe is
+            // uncraftable, and an item whose every recipe is a no-op is uncraftable outright.
+            bool hasOutputStock = available.TryGetValue(recipe.OutputType, out int outputStock) && outputStock > 0;
+            if (hasOutputStock) available.Remove(recipe.OutputType);
+            try
             {
-                realIngredients++;
+                // Cached ingredient verdicts are only valid under the same exclusion, so the key is
+                // scoped by the excluded output (0 = nothing excluded, the overwhelmingly common case).
+                int ctx = hasOutputStock ? recipe.OutputType : 0;
 
-                if (IngredientSatisfiedDirectly(recipe, ing.Type, ing.Stack, available, out bool viaGroup))
+                bool allDirect = true;
+                bool usedGroupSubstitute = false;
+                int realIngredients = 0;
+                foreach (var ing in recipe.Ingredients)
                 {
-                    if (viaGroup) usedGroupSubstitute = true;
-                    continue;
+                    realIngredients++;
+
+                    if (IngredientSatisfiedDirectly(recipe, ing.Type, ing.Stack, available, out bool viaGroup))
+                    {
+                        if (viaGroup) usedGroupSubstitute = true;
+                        continue;
+                    }
+
+                    allDirect = false;
+
+                    var key = (ctx, ing.Type, ing.Stack);
+                    if (!ingCache.TryGetValue(key, out bool ok))
+                    {
+                        ok = IsFeasibleFromSnapshot(ing.Type, ing.Stack, available);
+                        ingCache[key] = ok;
+                    }
+                    if (!ok) return false;
                 }
 
-                allDirect = false;
+                bool needsSharedConfirm = realIngredients >= 2 && (!allDirect || usedGroupSubstitute);
+                if (needsSharedConfirm && !IsRecipeFeasibleShared(recipe, available))
+                    return false;
 
-                var key = (ing.Type, ing.Stack);
-                if (!ingCache.TryGetValue(key, out bool ok))
-                {
-                    ok = IsFeasibleFromSnapshot(ing.Type, ing.Stack, available);
-                    ingCache[key] = ok;
-                }
-                if (!ok) return false;
+                return true;
             }
-
-            bool needsSharedConfirm = realIngredients >= 2 && (!allDirect || usedGroupSubstitute);
-            if (needsSharedConfirm && !IsRecipeFeasibleShared(recipe, available))
-                return false;
-
-            return true;
+            finally
+            {
+                if (hasOutputStock) available[recipe.OutputType] = outputStock;
+            }
         }
 
         // Builds the per-ingredient availability view for the detail preview. `available` is the
