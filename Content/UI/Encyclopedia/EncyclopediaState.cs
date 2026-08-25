@@ -349,11 +349,13 @@ namespace TerraStorage.Content.UI.Encyclopedia
             if (_allItems == null) return;
 
             bool hasSearch = !string.IsNullOrEmpty(search);
+            // Parsed once: the query is the same for every item in the sweep below.
+            var (searchMode, searchQuery) = ItemSearchHelper.Parse(search);
 
             _filteredItems.Clear();
             foreach (var ci in _allItems)
             {
-                if (hasSearch && !ItemSearchHelper.Matches(ci.ItemType, search))
+                if (hasSearch && !ItemSearchHelper.Matches(ci.ItemType, searchMode, searchQuery))
                     continue;
                 if (_filterBar != null && !_filterBar.PassesFilter(ci.ItemType))
                     continue;

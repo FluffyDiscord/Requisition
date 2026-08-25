@@ -501,6 +501,8 @@ namespace TerraStorage.Content.UI
             var player = StoragePlayerSystem.Local;
             var search = _searchBar?.SearchText ?? "";
             bool hasSearch = !string.IsNullOrEmpty(search);
+            // Parsed once: the query is the same for every item in the sweep below.
+            var (searchMode, searchQuery) = ItemSearchHelper.Parse(search);
             bool hasFilter = _filterBar != null;
 
             var favorited = new List<ConsolidatedItem>();
@@ -514,7 +516,7 @@ namespace TerraStorage.Content.UI
                 }
                 else
                 {
-                    if (hasSearch && !ItemSearchHelper.Matches(ci.ItemType, search))
+                    if (hasSearch && !ItemSearchHelper.Matches(ci.ItemType, searchMode, searchQuery))
                         continue;
                     if (hasFilter && !_filterBar.PassesFilter(ci.ItemType))
                         continue;
