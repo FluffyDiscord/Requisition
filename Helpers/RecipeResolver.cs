@@ -607,11 +607,20 @@ namespace TerraStorage.Helpers
         public static Dictionary<int, int> GetAvailableItemsPublic(IEnumerable<Guid> diskIds)
             => GetAvailableItems(diskIds);
 
-        // Counts what a withdrawal could hand over, not what the network holds. Summing every stack
-        // let a material held as stacks that each stand for themselves be costed as bulk: the plan
-        // resolved, the button went green, and the craft could not be paid for.
         private static Dictionary<int, int> GetAvailableItems(IEnumerable<Guid> diskIds)
-            => StorageWorldSystem.Instance.GetWithdrawableCounts(diskIds);
+        {
+            var items = new Dictionary<int, int>();
+            var consolidated = StorageWorldSystem.Instance.GetConsolidatedItems(diskIds);
+
+            foreach (var ci in consolidated)
+            {
+                if (!items.ContainsKey(ci.ItemType))
+                    items[ci.ItemType] = 0;
+                items[ci.ItemType] += ci.TotalCount;
+            }
+
+            return items;
+        }
 
         // Populates <see cref="CraftingPlan.BaseMaterialsRequired"/> and
         // <see cref="CraftingPlan.BaseMaterialsMissing"/> by computing the net material demand
@@ -867,15 +876,22 @@ namespace TerraStorage.Helpers
                 return false;
 
             // One of the consumed items must also be a Storage Disk (the source being upgraded)
-            foreach (int consumedType in step.Consumed.Keys)
+            foreach (var consumed in step.Consumed)
             {
                 var temp = new Item();
-                temp.SetDefaults(consumedType);
-                if (temp.ModItem is StorageDiskBase)
-                {
-                    sourceDiskItemType = consumedType;
-                    return true;
-                }
+                temp.SetDefaults(consumed.Key);
+                if (temp.ModItem is not StorageDiskBase)
+                    continue;
+
+                // Exactly one, because only one GUID is read and only one result Item is built:
+                // a batched step consuming several would stamp that GUID on every disk it made
+                // and orphan the rest. Refusing here leaves the step to craft as an ordinary
+                // recipe, which is wrong in a way the player can see rather than a duplication.
+                if (consumed.Value != 1)
+                    return false;
+
+                sourceDiskItemType = consumed.Key;
+                return true;
             }
 
             return false;
