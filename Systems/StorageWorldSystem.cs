@@ -229,47 +229,6 @@ namespace TerraStorage.Systems
             return counts;
         }
 
-        // itemType → how many units a withdrawal could actually hand over, which is what every
-        // craftability decision needs. GetItemCounts answers a different question: it sums every
-        // stack, including ones that stand for themselves and can only ever be taken alone. A
-        // recipe costed against that count went green and then could not be paid for, so clicking
-        // craft did nothing at all.
-        public Dictionary<int, int> GetWithdrawableCounts(IEnumerable<Guid> diskIds)
-        {
-            var pooled = new Dictionary<int, int>();
-            var largestUnique = new Dictionary<int, int>();
-
-            foreach (var diskId in diskIds)
-            {
-                if (!_allDiskData.TryGetValue(diskId, out var disk))
-                    continue;
-
-                foreach (var stored in disk.Items)
-                {
-                    if (stored.IsUnique)
-                    {
-                        largestUnique.TryGetValue(stored.ItemType, out int biggest);
-                        if (stored.Stack > biggest)
-                            largestUnique[stored.ItemType] = stored.Stack;
-                        continue;
-                    }
-
-                    pooled.TryGetValue(stored.ItemType, out int existing);
-                    pooled[stored.ItemType] = existing + stored.Stack;
-                }
-            }
-
-            // A unique stack is only ever drawn when nothing pooled matched, so it contributes only
-            // where the type has no pooled stock at all.
-            foreach (var entry in largestUnique)
-            {
-                if (!pooled.ContainsKey(entry.Key))
-                    pooled[entry.Key] = entry.Value;
-            }
-
-            return pooled;
-        }
-
         // Get all items across multiple disks, consolidated by type+prefix.
         public List<ConsolidatedItem> GetConsolidatedItems(IEnumerable<Guid> diskIds)
         {
@@ -414,6 +373,8 @@ namespace TerraStorage.Systems
             // Pooled stock first, across the WHOLE network. Letting the first disk fall back to a
             // unique stack ended the withdrawal there and returned one item, even when a later disk
             // held hundreds of pooled ones.
+            TagCompound resultModState = null;
+
             foreach (var diskId in diskIds)
             {
                 if (!_allDiskData.TryGetValue(diskId, out var disk))
@@ -421,13 +382,29 @@ namespace TerraStorage.Systems
 
                 int needed = count - totalExtracted;
                 var extracted = disk.ExtractItem(itemType, needed, prefixId,
-                    allowUniqueFallback: false, out _);
+                    allowUniqueFallback: false, out _, out var extractedModState);
                 if (extracted.IsAir)
                     continue;
 
+                // ONE returned item carries ONE stack's mod state, so folding a disk whose state
+                // differs would stamp this item's bytes over it - the same loss DiskData refuses
+                // within a disk. Hand back what is in hand instead; the units go straight back to
+                // the disk they came from, and a caller that wants the rest asks again.
+                if (result != null && !DiskData.ModStateMatches(resultModState, extractedModState))
+                {
+                    // Back into the disk it came from, whose slots this draw just freed, so the
+                    // insert cannot come up short.
+                    disk.InsertItem(extracted, ++_insertionCounter);
+                    break;
+                }
+
                 _modifiedTracker?.Add(diskId);
                 totalExtracted += extracted.stack;
-                result ??= extracted;
+                if (result == null)
+                {
+                    result = extracted;
+                    resultModState = extractedModState;
+                }
 
                 if (totalExtracted >= count)
                     break;
@@ -516,36 +493,6 @@ namespace TerraStorage.Systems
                     total += disk.CountItem(itemType, prefixId);
             }
             return total;
-        }
-
-        // One type's share of GetWithdrawableCounts: what a single withdrawal could hand over.
-        public int CountWithdrawable(IEnumerable<Guid> diskIds, int itemType, int prefixId = -1)
-        {
-            int pooled = 0;
-            int largestUnique = 0;
-
-            foreach (var diskId in diskIds)
-            {
-                if (!_allDiskData.TryGetValue(diskId, out var disk))
-                    continue;
-
-                foreach (var stored in disk.Items)
-                {
-                    if (!stored.Matches(itemType, prefixId))
-                        continue;
-
-                    if (!stored.IsUnique)
-                    {
-                        pooled += stored.Stack;
-                        continue;
-                    }
-
-                    if (stored.Stack > largestUnique)
-                        largestUnique = stored.Stack;
-                }
-            }
-
-            return pooled > 0 ? pooled : largestUnique;
         }
 
         // Register a disk ID with a given tier (ensures data exists).

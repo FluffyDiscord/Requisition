@@ -109,14 +109,20 @@ namespace TerraStorage.Common
         }
 
         public Item ExtractItem(int itemType, int count, int prefixId = -1)
-            => ExtractItem(itemType, count, prefixId, true, out _);
+            => ExtractItem(itemType, count, prefixId, true, out _, out _);
+
+        public Item ExtractItem(int itemType, int count, int prefixId, bool allowUniqueFallback, out bool uniqueStack)
+            => ExtractItem(itemType, count, prefixId, allowUniqueFallback, out uniqueStack, out _);
 
         // Extract up to 'count' of the given item type. Returns the items extracted.
         // uniqueStack reports that the result carries per-instance mod data and therefore stands for
         // exactly the one stack it came from — callers must not fold any other count into it.
         // allowUniqueFallback lets a caller that is already carrying plain items refuse the fallback,
         // so a unique stack is never pulled out only to be mixed in with something else.
-        public Item ExtractItem(int itemType, int count, int prefixId, bool allowUniqueFallback, out bool uniqueStack)
+        // modState is the tag the result carries, so a caller drawing from several disks can tell
+        // whether folding this into what it already holds would discard anything.
+        public Item ExtractItem(int itemType, int count, int prefixId, bool allowUniqueFallback,
+            out bool uniqueStack, out TagCompound modState)
         {
             int extracted = 0;
             var toRemove = new List<StoredItemStack>();
@@ -153,6 +159,8 @@ namespace TerraStorage.Common
 
             foreach (var r in toRemove)
                 Items.Remove(r);
+
+            modState = extractedFullTag;
 
             if (extracted == 0)
                 return new Item();
