@@ -607,20 +607,11 @@ namespace TerraStorage.Helpers
         public static Dictionary<int, int> GetAvailableItemsPublic(IEnumerable<Guid> diskIds)
             => GetAvailableItems(diskIds);
 
+        // Counts what a withdrawal could hand over, not what the network holds. Summing every stack
+        // let a material held as stacks that each stand for themselves be costed as bulk: the plan
+        // resolved, the button went green, and the craft could not be paid for.
         private static Dictionary<int, int> GetAvailableItems(IEnumerable<Guid> diskIds)
-        {
-            var items = new Dictionary<int, int>();
-            var consolidated = StorageWorldSystem.Instance.GetConsolidatedItems(diskIds);
-
-            foreach (var ci in consolidated)
-            {
-                if (!items.ContainsKey(ci.ItemType))
-                    items[ci.ItemType] = 0;
-                items[ci.ItemType] += ci.TotalCount;
-            }
-
-            return items;
-        }
+            => StorageWorldSystem.Instance.GetWithdrawableCounts(diskIds);
 
         // Populates <see cref="CraftingPlan.BaseMaterialsRequired"/> and
         // <see cref="CraftingPlan.BaseMaterialsMissing"/> by computing the net material demand
@@ -680,6 +671,14 @@ namespace TerraStorage.Helpers
             public int Insert(Item item) => StorageWorldSystem.Instance.InsertItem(_diskList, item);
 
             public int StackOf(Item item) => item == null || item.IsAir ? 0 : item.stack;
+
+            public Item SplitOff(Item item, int count)
+            {
+                var part = item.Clone();
+                part.stack = count;
+                item.stack -= count;
+                return part;
+            }
         }
 
         // Acquires every listed material, crafting shortfalls, and consumes them as one transaction:
@@ -850,15 +849,6 @@ namespace TerraStorage.Helpers
                 }
 
                 return produced;
-            }
-
-            public (Item excess, Item kept) SplitOffExcess(Item produced, int excess)
-            {
-                var excessItem = produced.Clone();
-                excessItem.stack = excess;
-                produced.stack -= excess;
-
-                return (excessItem, produced);
             }
         }
 

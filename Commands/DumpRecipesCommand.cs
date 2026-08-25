@@ -40,15 +40,25 @@ namespace TerraStorage.Commands
             }
 
             var counts = StorageWorldSystem.Instance?.GetItemCounts(diskIds) ?? new Dictionary<int, int>();
+            var withdrawable = StorageWorldSystem.Instance?.GetWithdrawableCounts(diskIds) ?? new Dictionary<int, int>();
 
             var sb = new StringBuilder();
             sb.AppendLine($"# numRecipes={Recipe.numRecipes} itemCount={ItemLoader.ItemCount} terminalFound={terminal != null} storedTypes={counts.Count}");
             sb.AppendLine("STATIONS: " + string.Join(" ", stations));
             sb.AppendLine("CONDITIONS: " + string.Join(" ", conditions.Select(c => c.ToString())));
 
+            // "type count" is the format the tests parse; everything after the '#' is for a reader.
+            // withdrawable is what a single withdrawal could hand over, and a count higher than it
+            // means the type is held as stacks that each stand for themselves.
             sb.AppendLine("STORAGE:");
             foreach (var kvp in counts)
-                sb.AppendLine($"{kvp.Key} {kvp.Value}");
+            {
+                withdrawable.TryGetValue(kvp.Key, out int canWithdraw);
+                sb.Append(kvp.Key).Append(' ').Append(kvp.Value)
+                  .Append("  # ").Append(Lang.GetItemNameValue(kvp.Key))
+                  .Append(" withdrawable=").Append(canWithdraw)
+                  .AppendLine();
+            }
 
             sb.AppendLine("GROUPS:");
             foreach (var kvp in RecipeGroup.recipeGroups)
@@ -66,10 +76,16 @@ namespace TerraStorage.Commands
                     .Select(it => $"{it.type}:{it.stack}");
                 var tiles = r.requiredTile.Where(t => t >= 0);
 
+                var ingredientNames = r.requiredItem
+                    .Where(it => it != null && it.type > ItemID.None)
+                    .Select(it => $"{it.stack}x {Lang.GetItemNameValue(it.type)}");
+
                 sb.Append(r.createItem.type).Append(':').Append(r.createItem.stack)
                   .Append(" | ").Append(string.Join(",", ings))
                   .Append(" | tiles:").Append(string.Join(",", tiles))
                   .Append(" | groups:").Append(string.Join(",", r.acceptedGroups))
+                  .Append("  # ").Append(Lang.GetItemNameValue(r.createItem.type))
+                  .Append(" <- ").Append(string.Join(" + ", ingredientNames))
                   .AppendLine();
             }
 

@@ -43,6 +43,12 @@ namespace TerraStorage.Content.Items
             Item.rare = (int)Tier + 1;
         }
 
+        // Two registered disks are two different stores of items, whatever their tier. Stated to the
+        // game rather than left to maxStack, so anything that asks whether they may be pooled -
+        // storage's own defragment included - gets the right answer.
+        public override bool CanStack(Item source)
+            => source.ModItem is not StorageDiskBase other || (DiskId == Guid.Empty && other.DiskId == Guid.Empty);
+
         public override void OnCreated(ItemCreationContext context)
         {
             // GUIDs are intentionally NOT assigned here. A disk receives its GUID (and is
