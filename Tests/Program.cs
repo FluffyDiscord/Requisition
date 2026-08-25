@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using TerraStorage.Common;
 using TerraStorage.Content.UI;
 using TerraStorage.Helpers.Resolver;
 
@@ -35,6 +36,25 @@ namespace TerraStorage.Tests
             StationFallbackOrderIndependent();
             DirectAndSimpleSanity();
             NoOpRecipesAreUncraftable();
+            BlockingIngredientIsIdentified();
+            RepeatedIngredientSlotsAccumulate();
+            DuplicateSlotsAreSummedInPreview();
+            FeasibilityHonoursMaxDepth();
+            PreviewAppliesForceCraftSemantics();
+            SatisfiableAgreesWithThePlan();
+            SubCraftClaimsSharedBaseMaterial();
+            ListFlagAgreesWithCraftButton();
+            IngredientCacheIsScopedByGroup();
+            RecipeGroupSlotsMixMembers();
+            DepthLimitsCraftsNotLookups();
+            FailedResolveRestoresPool();
+            MaterialTransactionIsAtomic();
+            PlanExecutionIsAtomic();
+            WithdrawalNeverMixesUniqueStacks();
+            DefragmentRespectsStackIdentity();
+            PanelRefreshCacheInvalidates();
+            ClippedRowsRegisterNoHitRect();
+            PartialDepositIsReported();
             ReachabilityEquivalence();
             ReachabilityScaleBenchmark();
             ReachabilityRealisticScaleBenchmark();
@@ -43,6 +63,7 @@ namespace TerraStorage.Tests
             WindowStackTests();
             DepositGateTests();
             ClickBlockerTests();
+            FavoritesRowCacheTests();
 
             Console.WriteLine($"\n=== {_pass} passed, {_fail} failed ===");
             if (_fail > 0)
@@ -165,6 +186,476 @@ namespace TerraStorage.Tests
             var loopOnly = new Dictionary<int, int> { [CRIM] = 5 };
             IsFalse(ListCraftable(r3, a, loopOnly), "NC-005 variant A is a no-op loop");
             IsFalse(ListCraftable(r3, b, loopOnly), "NC-006 variant B is a no-op loop");
+        }
+
+        // ---- Scenario: the preview must name the ingredient that actually blocks the recipe ----
+        // Reproduces a real save (/tsdump): 7 gold bars of the 10 an AnyGoldBar slot needs, no gold
+        // ore and no platinum to substitute, but plenty of sand for the glass. The recipe is
+        // genuinely uncraftable — because of the bars. The panel used to gate its "will be
+        // sub-crafted" state on the WHOLE plan being feasible, so the gold bar (partial stock) looked
+        // healthier than the glass (zero stock but freely craftable from sand), and the player was
+        // told they were short of glass.
+        private static void BlockingIngredientIsIdentified()
+        {
+            Section("Preview identifies the blocking ingredient, not the sub-craftable one");
+            const int GOLD_BAR = 19, PLAT_BAR = 706, GOLD_ORE = 13;
+            const int GLASS = 170, SAND = 169, LENS = 38, DISK = 20042;
+            const int ANVIL = 16, FURNACE = 17, BAR_GROUP = 325;
+
+            var env = new FakeEnvironment().WithStations(ANVIL, FURNACE).WithGroup(BAR_GROUP, GOLD_BAR, PLAT_BAR);
+            env.AddRecipe(GLASS, 1, new[] { (SAND, 2) }, tiles: new[] { FURNACE });
+            env.AddRecipe(GOLD_BAR, 1, new[] { (GOLD_ORE, 4) }, tiles: new[] { FURNACE });
+            env.AddRecipe(GOLD_BAR, 1, new[] { (PLAT_BAR, 1) }, tiles: new[] { FURNACE });
+            var disk = env.AddRecipe(DISK, 1, new[] { (GOLD_BAR, 10), (GLASS, 3), (LENS, 1) },
+                tiles: new[] { ANVIL }, groups: new[] { BAR_GROUP });
+            var r = new CoreResolver(env);
+
+            var realSave = new Dictionary<int, int> { [GOLD_BAR] = 7, [SAND] = 1211, [LENS] = 5 };
+            IsFalse(ListCraftable(r, disk, realSave), "BI-001 disk is genuinely uncraftable (3 bars short)");
+
+            var views = r.ComputeIngredientPreview(disk, new Dictionary<int, int>(realSave), 1);
+            IsFalse(View(views, GOLD_BAR).Satisfiable, "BI-002 gold bar is the blocker (7/10, no ore, no platinum)");
+            IsTrue(View(views, GLASS).Satisfiable, "BI-003 glass is NOT the blocker (0/3, sub-craftable from sand)");
+            IsTrue(View(views, LENS).Satisfiable, "BI-004 lens is satisfied directly");
+
+            // TotalHave stays the honest directly-held count; sub-craftability is a separate flag.
+            Eq(View(views, GOLD_BAR).TotalHave, 7, "BI-005 gold bar still reports its real stock");
+            Eq(View(views, GLASS).TotalHave, 0, "BI-006 glass stock is not inflated by sub-craftability");
+
+            // Add the missing bars and every slot becomes satisfiable.
+            var enoughBars = new Dictionary<int, int> { [GOLD_BAR] = 7, [PLAT_BAR] = 3, [SAND] = 1211, [LENS] = 5 };
+            var okViews = r.ComputeIngredientPreview(disk, new Dictionary<int, int>(enoughBars), 1);
+            IsTrue(View(okViews, GOLD_BAR).Satisfiable, "BI-007 gold bar satisfiable once platinum covers the rest");
+            IsTrue(View(okViews, GLASS).Satisfiable, "BI-008 glass still satisfiable");
+
+            // Sand for only two glass: the glass slot itself becomes the blocker.
+            var thinSand = new Dictionary<int, int> { [GOLD_BAR] = 10, [SAND] = 4, [LENS] = 5 };
+            var thinViews = r.ComputeIngredientPreview(disk, new Dictionary<int, int>(thinSand), 1);
+            IsTrue(View(thinViews, GOLD_BAR).Satisfiable, "BI-009 gold bar fine when fully stocked");
+            IsFalse(View(thinViews, GLASS).Satisfiable, "BI-010 glass IS the blocker when sand runs out");
+
+            // The shared pool still governs: two slots drawing on one ore cannot both be satisfiable.
+            const int ORE = 30, A = 31, B = 32, TARGET = 33;
+            var env2 = new FakeEnvironment().WithStations(FURNACE);
+            env2.AddRecipe(A, 1, new[] { (ORE, 1) }, tiles: new[] { FURNACE });
+            env2.AddRecipe(B, 1, new[] { (ORE, 1) }, tiles: new[] { FURNACE });
+            var contended = env2.AddRecipe(TARGET, 1, new[] { (A, 1), (B, 1) }, tiles: new[] { FURNACE });
+            var r2 = new CoreResolver(env2);
+            var oneOre = new Dictionary<int, int> { [ORE] = 1 };
+            var shared = r2.ComputeIngredientPreview(contended, oneOre, 1);
+            IsTrue(View(shared, A).Satisfiable, "BI-011 first slot claims the only ore");
+            IsFalse(View(shared, B).Satisfiable, "BI-012 second slot cannot re-spend it");
+        }
+
+        // ---- Scenario: a recipe listing the same item in two slots must consume both amounts ----
+        // The step's Consumed map drives ExecutePlan's extraction. Assigning instead of accumulating
+        // recorded only the last slot, so the craft extracted less than it used and handed the player
+        // the output anyway — a duplication.
+        private static void RepeatedIngredientSlotsAccumulate()
+        {
+            Section("Repeated ingredient slots accumulate into Consumed");
+            const int WOOD = 9, TABLE = 40, BENCH = 101;
+
+            var env = new FakeEnvironment().WithStations(BENCH);
+            env.AddRecipe(TABLE, 1, new[] { (WOOD, 4), (WOOD, 6) }, tiles: new[] { BENCH });
+            var r = new CoreResolver(env);
+
+            var stock = new Dictionary<int, int> { [WOOD] = 100 };
+            var steps = new List<CoreStep>();
+            IsTrue(r.ResolveRecursive(TABLE, 1, stock, steps, new HashSet<int>(), 0), "RS-001 table resolves");
+            Eq(steps.Count, 1, "RS-002 one step");
+            Eq(steps[0].Consumed[WOOD], 10, "RS-003 both wood slots recorded (4 + 6)");
+            Eq(stock[WOOD], 90, "RS-004 pool deducted the full 10");
+        }
+
+        // ---- Scenario: the preview must sum duplicate slots of the same item ----
+        // A recipe may name one item twice. Reading only the first slot's stack understates the need,
+        // so every slot reads satisfied while the recipe cannot be crafted — no red square anywhere,
+        // which is the very failure the Satisfiable flag exists to prevent.
+        private static void DuplicateSlotsAreSummedInPreview()
+        {
+            Section("Preview sums duplicate ingredient slots");
+            const int WOOD = 9, TABLE = 40, BENCH = 101;
+
+            var env = new FakeEnvironment().WithStations(BENCH);
+            var table = env.AddRecipe(TABLE, 1, new[] { (WOOD, 4), (WOOD, 6) }, tiles: new[] { BENCH });
+            var r = new CoreResolver(env);
+
+            var views = r.ComputeIngredientPreview(table, new Dictionary<int, int> { [WOOD] = 6 }, 1);
+            Eq(views.Count, 1, "DS-001 one view per distinct item type");
+            Eq(View(views, WOOD).Needed, 10, "DS-002 need is the SUM of both slots");
+            Eq(View(views, WOOD).TotalHave, 6, "DS-003 stock is not inflated");
+            IsFalse(View(views, WOOD).Satisfiable, "DS-004 6 wood cannot cover 10");
+
+            var enough = r.ComputeIngredientPreview(table, new Dictionary<int, int> { [WOOD] = 10 }, 1);
+            IsTrue(View(enough, WOOD).Satisfiable, "DS-005 10 wood covers 10");
+
+            // craftAmount multiplies the summed need, not just the first slot's.
+            var doubled = r.ComputeIngredientPreview(table, new Dictionary<int, int> { [WOOD] = 19 }, 2);
+            Eq(View(doubled, WOOD).Needed, 20, "DS-006 craftAmount applies to the sum");
+            IsFalse(View(doubled, WOOD).Satisfiable, "DS-007 19 wood cannot cover 20");
+        }
+
+        // ---- Scenario: the preview and the list flag must honour MaxDepth ----
+        // The craft button plans through ResolveRecursive, which stops at MaxDepth. The feasibility
+        // mirror had no depth limit, so a chain longer than the recursion-depth slider read as
+        // craftable everywhere and did nothing when clicked.
+        private static void FeasibilityHonoursMaxDepth()
+        {
+            Section("Feasibility mirrors ResolveRecursive's depth limit");
+            const int CHAIN_TOP = 1000, CHAIN_LEN = 12;
+
+            var env = new FakeEnvironment();
+            for (int i = CHAIN_TOP; i < CHAIN_TOP + CHAIN_LEN; i++)
+                env.AddRecipe(i, 1, new[] { (i + 1, 1) });
+            var topRecipe = env.AllRecipes[0];
+            var stock = new Dictionary<int, int> { [CHAIN_TOP + CHAIN_LEN] = 5 };
+
+            // Contiguous, not a sample: the two sides last diverged at exactly one value
+            // (MaxDepth == chain length - 1), which a sparse sweep walked straight past.
+            for (int depth = 1; depth <= CHAIN_LEN + 3; depth++)
+            {
+                var r = new CoreResolver(env) { MaxDepth = depth };
+
+                var planSteps = new List<CoreStep>();
+                bool button = r.ResolveRecursive(CHAIN_TOP, 1, new Dictionary<int, int>(stock),
+                    planSteps, new HashSet<int>(), 0);
+
+                bool listFlag = r.RecheckRecipeCraftable(topRecipe, new Dictionary<int, int>(stock),
+                    new Dictionary<(int ctx, int group, int type, int stack), bool>());
+                bool feasible = r.IsFeasibleFromSnapshot(CHAIN_TOP, 1, new Dictionary<int, int>(stock));
+                var views = r.ComputeIngredientPreview(topRecipe, new Dictionary<int, int>(stock), 1);
+
+                Check(listFlag == button, $"MD-{depth:00}a list flag agrees with the craft button at depth {depth}");
+                Check(feasible == button, $"MD-{depth:00}b feasibility agrees with the craft button at depth {depth}");
+                Check(views[0].Satisfiable == button, $"MD-{depth:00}c preview agrees with the craft button at depth {depth}");
+            }
+
+            // A chain that fits must still be craftable — the limit must not reject everything.
+            var shallow = new FakeEnvironment();
+            shallow.AddRecipe(1, 1, new[] { (2, 1) });
+            var deep = new CoreResolver(shallow) { MaxDepth = 10 };
+            IsTrue(deep.IsFeasibleFromSnapshot(1, 1, new Dictionary<int, int> { [2] = 3 }),
+                "MD-100 a one-link chain within the limit stays feasible");
+        }
+
+        // ---- Scenario: a slot must not read satisfiable off the item being crafted ----
+        // The craft button force-crafts: existing stock of the OUTPUT is not a material. The preview
+        // seeded its cycle guard but left the output stock in the pool, so a recipe that loops back
+        // through its own output showed an orange "will be sub-crafted" slot on a dead button.
+        private static void PreviewAppliesForceCraftSemantics()
+        {
+            Section("Preview excludes the output own stock");
+            const int DEMO = 21, CRIM = 22, FURNACE = 100;
+
+            var env = new FakeEnvironment().WithStations(FURNACE);
+            var crimRecipe = env.AddRecipe(CRIM, 1, new[] { (DEMO, 1) }, tiles: new[] { FURNACE });
+            env.AddRecipe(DEMO, 1, new[] { (CRIM, 1) }, tiles: new[] { FURNACE });
+            var r = new CoreResolver(env);
+
+            // Only the output in stock: the sole route to DEMO converts the CRIM force-craft drops.
+            var onlyCrim = new Dictionary<int, int> { [CRIM] = 5 };
+            IsFalse(ListCraftable(r, crimRecipe, onlyCrim), "FC-001 recipe is a no-op loop");
+            var views = r.ComputeIngredientPreview(crimRecipe, onlyCrim, 1);
+            IsFalse(View(views, DEMO).Satisfiable, "FC-002 ingredient NOT satisfiable from the output stock");
+
+            // A genuine route exists once the ingredient is really obtainable.
+            var withDemo = new Dictionary<int, int> { [CRIM] = 5, [DEMO] = 2 };
+            var okViews = r.ComputeIngredientPreview(crimRecipe, withDemo, 1);
+            IsTrue(View(okViews, DEMO).Satisfiable, "FC-003 satisfiable when the ingredient is really in stock");
+        }
+
+        // ---- Scenario: every slot satisfiable must mean the craft button works ----
+        // The invariant the whole preview rests on. If the preview says nothing is blocking, the
+        // resolver must be able to produce a plan; otherwise the player sees no red square and a
+        // "Missing Materials" button, which is the original complaint.
+        private static void SatisfiableAgreesWithThePlan()
+        {
+            Section("All-satisfiable implies a resolvable plan");
+            const int ORE = 30, BAR = 31, GEM = 32, TOOL = 33, ANVIL = 16, FURNACE = 17;
+
+            var shapes = new List<(string name, Dictionary<int, int> stock)>
+            {
+                ("no stock",            new Dictionary<int, int>()),
+                ("ore only",            new Dictionary<int, int> { [ORE] = 100 }),
+                ("ore and gem",         new Dictionary<int, int> { [ORE] = 100, [GEM] = 5 }),
+                ("one ore short",       new Dictionary<int, int> { [ORE] = 19, [GEM] = 5 }),
+                ("exact ore",           new Dictionary<int, int> { [ORE] = 20, [GEM] = 5 }),
+                ("bars held",           new Dictionary<int, int> { [BAR] = 5, [GEM] = 5 }),
+                ("bars short",          new Dictionary<int, int> { [BAR] = 3, [GEM] = 5 }),
+                ("bars short, ore too", new Dictionary<int, int> { [BAR] = 3, [ORE] = 4, [GEM] = 5 }),
+            };
+
+            foreach (var (name, stock) in shapes)
+            {
+                var env = new FakeEnvironment().WithStations(ANVIL, FURNACE);
+                env.AddRecipe(BAR, 1, new[] { (ORE, 4) }, tiles: new[] { FURNACE });
+                var tool = env.AddRecipe(TOOL, 1, new[] { (BAR, 5), (GEM, 1) }, tiles: new[] { ANVIL });
+                var r = new CoreResolver(env) { MaxDepth = 10 };
+
+                var views = r.ComputeIngredientPreview(tool, new Dictionary<int, int>(stock), 1);
+                bool allSatisfiable = views.TrueForAll(v => v.Satisfiable);
+
+                var steps = new List<CoreStep>();
+                bool planned = r.TryResolveRecipe(tool, TOOL, 1, new Dictionary<int, int>(stock),
+                    steps, new HashSet<int> { TOOL }, 0);
+
+                Check(allSatisfiable == planned, $"SA-{name}: preview ({allSatisfiable}) agrees with the plan ({planned})");
+            }
+        }
+
+        // ---- Scenario: an earlier slot sub-craft really does claim shared base material ----
+        // Pins the ordering semantics: sand burned by the glass slot is no longer free for the sand
+        // slot, so the later slot reports what is still claimable rather than the raw stack count.
+        private static void SubCraftClaimsSharedBaseMaterial()
+        {
+            Section("Sub-craft deductions carry into later slots");
+            const int SAND = 169, GLASS = 170, TARGET = 41, FURNACE = 17;
+
+            var env = new FakeEnvironment().WithStations(FURNACE);
+            env.AddRecipe(GLASS, 1, new[] { (SAND, 2) }, tiles: new[] { FURNACE });
+            var target = env.AddRecipe(TARGET, 1, new[] { (GLASS, 1), (SAND, 1) }, tiles: new[] { FURNACE });
+            var r = new CoreResolver(env);
+
+            // 3 sand: 2 become the glass, 1 is left for the sand slot.
+            var three = r.ComputeIngredientPreview(target, new Dictionary<int, int> { [SAND] = 3 }, 1);
+            IsTrue(View(three, GLASS).Satisfiable, "SC-001 glass sub-crafts from 2 of the 3 sand");
+            Eq(View(three, SAND).TotalHave, 1, "SC-002 sand slot sees the 1 sand still free");
+            IsTrue(View(three, SAND).Satisfiable, "SC-003 sand slot is covered");
+
+            // 2 sand: the glass consumes both, nothing is left — the sand slot is the blocker.
+            var two = r.ComputeIngredientPreview(target, new Dictionary<int, int> { [SAND] = 2 }, 1);
+            IsTrue(View(two, GLASS).Satisfiable, "SC-004 glass still sub-craftable");
+            Eq(View(two, SAND).TotalHave, 0, "SC-005 sand slot sees nothing free (glass claimed it)");
+            IsFalse(View(two, SAND).Satisfiable, "SC-006 sand slot blocks the recipe");
+
+            var steps = new List<CoreStep>();
+            IsFalse(r.TryResolveRecipe(target, TARGET, 1, new Dictionary<int, int> { [SAND] = 2 },
+                steps, new HashSet<int> { TARGET }, 0), "SC-007 the plan agrees: 2 sand is not enough");
+        }
+
+        // ---- Scenario: the list flag must agree with the craft button ----
+        // The grid paints from RecheckRecipeCraftable; the button plans through TryResolveRecipe.
+        // Every disagreement is a recipe that looks craftable and does nothing when clicked, or a
+        // craftable recipe the player never sees. These three shapes each produced one.
+        private static void ListFlagAgreesWithCraftButton()
+        {
+            Section("List flag agrees with the craft button");
+            const int WOOD = 9, TABLE = 40, BENCH = 101;
+
+            // Duplicate slots: the per-slot checks both measure against the full stock, so only the
+            // shared confirm catches the contention — and it used to be skipped when all slots were
+            // individually satisfied.
+            foreach (int wood in new[] { 5, 6, 9, 10, 20 })
+            {
+                var env = new FakeEnvironment().WithStations(BENCH);
+                var table = env.AddRecipe(TABLE, 1, new[] { (WOOD, 4), (WOOD, 6) }, tiles: new[] { BENCH });
+                var r = new CoreResolver(env);
+                var stock = new Dictionary<int, int> { [WOOD] = wood };
+
+                bool listFlag = ListCraftableNoPrefilter(r, table, stock);
+                var steps = new List<CoreStep>();
+                bool button = r.TryResolveRecipe(table, TABLE, 1, new Dictionary<int, int>(stock),
+                    steps, new HashSet<int> { TABLE }, 0);
+                Check(listFlag == button, $"LF-dup{wood:00} wood={wood}: list ({listFlag}) agrees with button ({button})");
+            }
+
+            // Self-loop: the prefilter must not satisfy a slot by producing the very item being
+            // crafted — ResolveRecursive holds the output in `resolving` and forbids exactly that.
+            {
+                const int A = 700, B = 701;
+                var env = new FakeEnvironment();
+                var selfRecipe = env.AddRecipe(A, 3, new[] { (A, 3) });
+                env.AddRecipe(A, 1, new[] { (B, 2) });
+                var r = new CoreResolver(env);
+                var stock = new Dictionary<int, int> { [B] = 20 };
+
+                bool listFlag = ListCraftableNoPrefilter(r, selfRecipe, stock);
+                var steps = new List<CoreStep>();
+                bool button = r.TryResolveRecipe(selfRecipe, A, 3, new Dictionary<int, int>(stock),
+                    steps, new HashSet<int> { A }, 0);
+                IsFalse(listFlag, "LF-loop1 a recipe that only loops through its own output is not craftable");
+                Check(listFlag == button, $"LF-loop2 list ({listFlag}) agrees with button ({button})");
+            }
+
+            // Recipe groups: the prefilter must consider substitutes when sub-crafting, not just the
+            // named item, or a craftable recipe never appears in the grid.
+            {
+                const int GOLD = 19, PLAT = 706, PLAT_ORE = 702, LENS = 38, CROWN = 20;
+                const int ANVIL = 16, FURNACE = 17, GROUP = 325;
+
+                var env = new FakeEnvironment().WithStations(ANVIL, FURNACE).WithGroup(GROUP, GOLD, PLAT);
+                env.AddRecipe(PLAT, 1, new[] { (PLAT_ORE, 4) }, tiles: new[] { FURNACE });
+                var crown = env.AddRecipe(CROWN, 1, new[] { (GOLD, 10), (LENS, 1) },
+                    tiles: new[] { ANVIL }, groups: new[] { GROUP });
+                var r = new CoreResolver(env);
+
+                var withOre = new Dictionary<int, int> { [PLAT] = 2, [PLAT_ORE] = 40, [LENS] = 5 };
+                var steps = new List<CoreStep>();
+                bool button = r.TryResolveRecipe(crown, CROWN, 1, new Dictionary<int, int>(withOre),
+                    steps, new HashSet<int> { CROWN }, 0);
+                IsTrue(button, "LF-grp1 the plan sub-crafts the substitute");
+                IsTrue(ListCraftableNoPrefilter(r, crown, withOre),
+                    "LF-grp2 the list flag sees it too (prefilter is group-aware)");
+
+                var noOre = new Dictionary<int, int> { [PLAT] = 2, [LENS] = 5 };
+                IsFalse(ListCraftableNoPrefilter(r, crown, noOre),
+                    "LF-grp3 not craftable when the substitute cannot be made either");
+            }
+        }
+
+        // ---- Scenario: an ingredient verdict cached for one recipe must not leak to another ----
+        // The prefilter's answer depends on which recipe group may fill the slot, so two recipes
+        // naming the same item with different accepted groups must not share a cache entry.
+        private static void IngredientCacheIsScopedByGroup()
+        {
+            Section("Ingredient cache is scoped by accepted group");
+            const int GOLD = 19, PLAT = 706, PLAT_ORE = 702, ANVIL = 16, FURNACE = 17, GROUP = 325;
+            const int WITH_GROUP = 50, WITHOUT_GROUP = 51;
+
+            var env = new FakeEnvironment().WithStations(ANVIL, FURNACE).WithGroup(GROUP, GOLD, PLAT);
+            env.AddRecipe(PLAT, 1, new[] { (PLAT_ORE, 4) }, tiles: new[] { FURNACE });
+            var grouped = env.AddRecipe(WITH_GROUP, 1, new[] { (GOLD, 10) },
+                tiles: new[] { ANVIL }, groups: new[] { GROUP });
+            var ungrouped = env.AddRecipe(WITHOUT_GROUP, 1, new[] { (GOLD, 10) }, tiles: new[] { ANVIL });
+            var r = new CoreResolver(env);
+
+            // Only platinum ore: the grouped recipe can be made, the ungrouped one cannot.
+            var stock = new Dictionary<int, int> { [PLAT_ORE] = 40 };
+            var sharedCache = new Dictionary<(int ctx, int group, int type, int stack), bool>();
+
+            bool groupedFirst = r.RecheckRecipeCraftable(grouped, new Dictionary<int, int>(stock), sharedCache);
+            bool ungroupedAfter = r.RecheckRecipeCraftable(ungrouped, new Dictionary<int, int>(stock), sharedCache);
+            IsTrue(groupedFirst, "IC-001 grouped recipe is craftable via the substitute");
+            IsFalse(ungroupedAfter, "IC-002 ungrouped recipe is NOT craftable, despite the shared cache");
+
+            // Same pair, evaluated in the other order — the cache must not poison either direction.
+            var reverseCache = new Dictionary<(int ctx, int group, int type, int stack), bool>();
+            bool ungroupedFirst = r.RecheckRecipeCraftable(ungrouped, new Dictionary<int, int>(stock), reverseCache);
+            bool groupedAfter = r.RecheckRecipeCraftable(grouped, new Dictionary<int, int>(stock), reverseCache);
+            IsFalse(ungroupedFirst, "IC-003 ungrouped recipe still not craftable when checked first");
+            IsTrue(groupedAfter, "IC-004 grouped recipe still craftable when checked second");
+        }
+
+        // ---- Scenario: a recipe-group slot draws from every accepted member ----
+        // Vanilla counts a group in aggregate: 3 gold bars plus 7 platinum bars fill a 10-bar slot.
+        // Committing the slot to one concrete type meant holding a few of the NAMED item turned a
+        // craftable recipe uncraftable — picking up one gold bar broke a recipe that worked on
+        // platinum alone.
+        private static void RecipeGroupSlotsMixMembers()
+        {
+            Section("Recipe-group slot draws from every accepted member");
+            const int GOLD = 19, PLAT = 706, GOLD_ORE = 13, LENS = 38, DISK = 20042;
+            const int ANVIL = 16, FURNACE = 17, GROUP = 325;
+
+            FakeEnvironment Build(out CoreRecipe disk)
+            {
+                var e = new FakeEnvironment().WithStations(ANVIL, FURNACE).WithGroup(GROUP, GOLD, PLAT);
+                e.AddRecipe(GOLD, 1, new[] { (GOLD_ORE, 4) }, tiles: new[] { FURNACE });
+                disk = e.AddRecipe(DISK, 1, new[] { (GOLD, 10), (LENS, 1) },
+                    tiles: new[] { ANVIL }, groups: new[] { GROUP });
+                return e;
+            }
+
+            void Case(string label, Dictionary<int, int> stock, bool expected)
+            {
+                var env = Build(out var disk);
+                var r = new CoreResolver(env);
+                var steps = new List<CoreStep>();
+                bool planned = r.TryResolveRecipe(disk, DISK, 1, new Dictionary<int, int>(stock),
+                    steps, new HashSet<int> { DISK }, 0);
+                Check(planned == expected, $"GM-{label}: plan {planned}, expected {expected}");
+                Check(ListCraftableNoPrefilter(r, disk, stock) == expected,
+                    $"GM-{label}-list: list flag agrees");
+                var views = r.ComputeIngredientPreview(disk, new Dictionary<int, int>(stock), 1);
+                Check(views.TrueForAll(v => v.Satisfiable) == expected, $"GM-{label}-view: preview agrees");
+            }
+
+            Case("all-plat ", new Dictionary<int, int> { [PLAT] = 99, [LENS] = 5 }, true);
+            Case("all-gold ", new Dictionary<int, int> { [GOLD] = 99, [LENS] = 5 }, true);
+            Case("mixed    ", new Dictionary<int, int> { [GOLD] = 3, [PLAT] = 7, [LENS] = 5 }, true);
+            Case("mixed-big", new Dictionary<int, int> { [GOLD] = 3, [PLAT] = 99, [LENS] = 5 }, true);
+            Case("one-short", new Dictionary<int, int> { [GOLD] = 3, [PLAT] = 6, [LENS] = 5 }, false);
+            Case("gold+ore ", new Dictionary<int, int> { [GOLD] = 3, [GOLD_ORE] = 28, [LENS] = 5 }, true);
+            Case("plat+ore ", new Dictionary<int, int> { [PLAT] = 3, [GOLD_ORE] = 28, [LENS] = 5 }, true);
+            Case("no-lens  ", new Dictionary<int, int> { [GOLD] = 99 }, false);
+
+            // The consumed map must name both members, or ExecutePlan extracts the wrong items.
+            var mixEnv = Build(out var mixDisk);
+            var mixR = new CoreResolver(mixEnv);
+            var mixSteps = new List<CoreStep>();
+            mixR.TryResolveRecipe(mixDisk, DISK, 1,
+                new Dictionary<int, int> { [GOLD] = 3, [PLAT] = 7, [LENS] = 5 },
+                mixSteps, new HashSet<int> { DISK }, 0);
+            var final = mixSteps[mixSteps.Count - 1];
+            Eq(final.Consumed[GOLD], 3, "GM-consume-gold both members recorded");
+            Eq(final.Consumed[PLAT], 7, "GM-consume-plat both members recorded");
+            Eq(final.Consumed[LENS], 1, "GM-consume-lens");
+        }
+
+        // ---- Scenario: taking something out of storage is not recursion ----
+        // The depth limit bounds how far the resolver may CHAIN crafts. An ingredient sitting in
+        // stock costs no depth, so a one-craft recipe works even at the lowest slider setting.
+        private static void DepthLimitsCraftsNotLookups()
+        {
+            Section("Depth limit bounds crafts, not stock lookups");
+            const int PLANK = 500, LOG = 501, BENCH = 101;
+
+            var env = new FakeEnvironment().WithStations(BENCH);
+            var plank = env.AddRecipe(PLANK, 1, new[] { (LOG, 2) }, tiles: new[] { BENCH });
+            var stock = new Dictionary<int, int> { [LOG] = 5 };
+
+            foreach (int depth in new[] { 0, 1, 2, 10 })
+            {
+                var r = new CoreResolver(env) { MaxDepth = depth };
+                var steps = new List<CoreStep>();
+                bool planned = r.ResolveRecursive(PLANK, 1, new Dictionary<int, int>(stock),
+                    steps, new HashSet<int>(), 0);
+                Check(planned, $"DL-{depth:00} a single craft off in-stock material works at MaxDepth {depth}");
+                Check(ListCraftableNoPrefilter(r, plank, stock), $"DL-{depth:00}-list list flag agrees");
+            }
+        }
+
+        // ---- Scenario: a failed resolve must not spend the caller's pool ----
+        // Partial stock is deducted before the resolver knows a plan exists. Every false path has to
+        // hand it back, or the next caller reads a pool that was quietly drained by a failed attempt.
+        private static void FailedResolveRestoresPool()
+        {
+            Section("Failed resolve leaves the pool untouched");
+            const int BAR = 700, ORE = 701, A = 800, B = 801;
+
+            // Not enough ore to cover the deficit: the 3 bars already held must survive.
+            var env = new FakeEnvironment();
+            env.AddRecipe(BAR, 1, new[] { (ORE, 5) });
+            var r = new CoreResolver(env);
+            var pool = new Dictionary<int, int> { [BAR] = 3, [ORE] = 2 };
+            var steps = new List<CoreStep>();
+
+            IsFalse(r.ResolveRecursive(BAR, 10, pool, steps, new HashSet<int>(), 0),
+                "PR-001 10 bars cannot be made from 3 bars and 2 ore");
+            Eq(pool[BAR], 3, "PR-002 the 3 held bars are still there");
+            Eq(pool[ORE], 2, "PR-003 the ore is still there");
+
+            // Same via the cycle guard: A and B convert into each other and nothing else.
+            var cyclic = new FakeEnvironment();
+            cyclic.AddRecipe(A, 1, new[] { (B, 1) });
+            cyclic.AddRecipe(B, 1, new[] { (A, 1) });
+            var r2 = new CoreResolver(cyclic);
+            var cyclePool = new Dictionary<int, int> { [A] = 1, [B] = 1 };
+            var steps2 = new List<CoreStep>();
+
+            IsFalse(r2.ResolveRecursive(A, 5, cyclePool, steps2, new HashSet<int>(), 0),
+                "PR-004 a two-way loop cannot conjure the shortfall");
+            Eq(cyclePool[A], 1, "PR-005 A survives the failed attempt");
+            Eq(cyclePool[B], 1, "PR-006 B survives the failed attempt");
+
+            // A successful resolve still consumes, of course.
+            var okPool = new Dictionary<int, int> { [BAR] = 3, [ORE] = 40 };
+            var steps3 = new List<CoreStep>();
+            IsTrue(r.ResolveRecursive(BAR, 10, okPool, steps3, new HashSet<int>(), 0),
+                "PR-007 10 bars from 3 bars and 40 ore");
+            Eq(okPool[BAR], 0, "PR-008 the held bars were spent");
+            Eq(okPool[ORE], 5, "PR-009 35 ore became the other 7 bars");
         }
 
         // ---- Scenario 3: recipe-group contention (copper/tin bars share a group) ----
@@ -428,7 +919,7 @@ namespace TerraStorage.Tests
             var reachable = core.ComputeReachableTypes(available);
             long reachMs = sw.ElapsedMilliseconds;
             var canCraft = new bool[recipes.Count];
-            var ingCacheFull = new Dictionary<(int ctx, int type, int stack), bool>();
+            var ingCacheFull = new Dictionary<(int ctx, int group, int type, int stack), bool>();
             for (int i = 0; i < recipes.Count; i++)
                 canCraft[i] = core.IsRecipeCraftable(recipes[i], reachable, available, ingCacheFull);
             sw.Stop();
@@ -453,7 +944,7 @@ namespace TerraStorage.Tests
             // Oracle: a FULL recompute after the craft (the authoritative result every variant is checked against).
             var reachableAfter = core.ComputeReachableTypes(after);
             var fullAfter = new bool[recipes.Count];
-            var ingCacheO = new Dictionary<(int ctx, int type, int stack), bool>();
+            var ingCacheO = new Dictionary<(int ctx, int group, int type, int stack), bool>();
             for (int i = 0; i < recipes.Count; i++)
                 fullAfter[i] = core.IsRecipeCraftable(recipes[i], reachableAfter, after, ingCacheO);
 
@@ -503,7 +994,7 @@ namespace TerraStorage.Tests
             long aF = GC.GetAllocatedBytesForCurrentThread();
             int gF = GC.CollectionCount(0);
             var rchF = core.ComputeReachableTypes(available);
-            var icF = new Dictionary<(int ctx, int type, int stack), bool>();
+            var icF = new Dictionary<(int ctx, int group, int type, int stack), bool>();
             for (int i = 0; i < recipes.Count; i++) core.IsRecipeCraftable(recipes[i], rchF, available, icF);
             double fullMB = (GC.GetAllocatedBytesForCurrentThread() - aF) / 1048576.0;
             int fullGen0 = GC.CollectionCount(0) - gF;
@@ -512,7 +1003,7 @@ namespace TerraStorage.Tests
             long aT = GC.GetAllocatedBytesForCurrentThread();
             int gT = GC.CollectionCount(0);
             var rchT = core.ComputeReachableTypes(after);
-            var icT = new Dictionary<(int ctx, int type, int stack), bool>();
+            var icT = new Dictionary<(int ctx, int group, int type, int stack), bool>();
             foreach (int i in affectedB) core.IsRecipeCraftable(recipes[i], rchT, after, icT);
             double targMB = (GC.GetAllocatedBytesForCurrentThread() - aT) / 1048576.0;
             int targGen0 = GC.CollectionCount(0) - gT;
@@ -533,7 +1024,7 @@ namespace TerraStorage.Tests
             CoreResolver core, IReadOnlyList<CoreRecipe> recipes, HashSet<int> affected,
             HashSet<int> reachableAfter, Dictionary<int, int> after, bool[] fullAfter, bool[] canCraft, bool useGate)
         {
-            var ingCache = new Dictionary<(int ctx, int type, int stack), bool>();
+            var ingCache = new Dictionary<(int ctx, int group, int type, int stack), bool>();
             var result = new Dictionary<int, bool>();
             var sw = Stopwatch.StartNew();
             foreach (int i in affected)
@@ -723,10 +1214,16 @@ namespace TerraStorage.Tests
             return views;
         }
 
+        // Craftability without the reachable fast-reject, so a scenario can compare the flag against
+        // the craft button without also building a reachable set for a one-recipe fixture.
+        private static bool ListCraftableNoPrefilter(CoreResolver r, CoreRecipe recipe, Dictionary<int, int> available)
+            => r.RecheckRecipeCraftable(recipe, new Dictionary<int, int>(available),
+                new Dictionary<(int ctx, int group, int type, int stack), bool>());
+
         private static bool ListCraftable(CoreResolver r, CoreRecipe recipe, Dictionary<int, int> available)
         {
             var reachable = r.ComputeReachableTypes(available);
-            var ingCache = new Dictionary<(int ctx, int type, int stack), bool>();
+            var ingCache = new Dictionary<(int ctx, int group, int type, int stack), bool>();
             return r.IsRecipeCraftable(recipe, reachable, available, ingCache);
         }
 
@@ -948,6 +1445,477 @@ namespace TerraStorage.Tests
         }
 
         // ---- tiny assert framework ----
+        // The Favorited Recipes panel draws every frame while pinned during normal gameplay;
+        // the 5-8 fps defect was uncached per-frame storage scans + string churn there. These
+        // tests encode the cache's contract: rebuild only on version change, re-allocate a
+        // slot string only on count change, and allocate NOTHING in the steady state.
+        private static void FavoritesRowCacheTests()
+        {
+            Section("FavoritesRowCache - version gating, change-gated strings, zero-alloc steady state");
+
+            var cache = new FavoritesRowCache();
+
+            IsTrue(cache.NeedsRowRebuild(1), "FC-01 initial state needs a row rebuild");
+            cache.Rows.Add(new FavoritesRowCache.Row { RecipeIndex = 7, OutputType = 42 });
+            cache.MarkRowsRebuilt(1);
+            IsFalse(cache.NeedsRowRebuild(1), "FC-01 same favorites version -> no rebuild");
+            IsTrue(cache.NeedsRowRebuild(2), "FC-02 favorites version bump -> rebuild");
+
+            IsTrue(cache.NeedsStorageRefresh(5, 1), "FC-02 initial storage state needs a refresh");
+            cache.MarkStorageRefreshed(5, 1);
+            IsFalse(cache.NeedsStorageRefresh(5, 1), "FC-02 unchanged storage+disks -> no refresh");
+            IsTrue(cache.NeedsStorageRefresh(6, 1), "FC-02 storage version bump -> refresh");
+            IsTrue(cache.NeedsStorageRefresh(5, 2), "FC-02 disk-set token bump -> refresh");
+
+            var slot = new FavoritesRowCache.Slot { ItemType = 42, Needed = 5 };
+            IsTrue(FavoritesRowCache.UpdateSlotCount(slot, 3), "FC-04 first count set builds the text");
+            Check(slot.Text == "3/5", "FC-05 FormatCount format is have/needed");
+            string before = slot.Text;
+            IsFalse(FavoritesRowCache.UpdateSlotCount(slot, 3), "FC-03 unchanged count -> no text change");
+            IsTrue(ReferenceEquals(before, slot.Text), "FC-03 unchanged count keeps the same string instance");
+            IsTrue(FavoritesRowCache.UpdateSlotCount(slot, 4), "FC-04 changed count -> text rebuilt");
+            Check(slot.Text == "4/5", "FC-04 rebuilt text reflects the new count");
+            Check(FavoritesRowCache.FormatCount(0, 1) == "0/1", "FC-05 zero have formats as 0/1");
+
+            // FC-08: world/character switch reset. A new session can legitimately present the
+            // SAME stamps (FavoritesVersion restarts per player; StorageVersion is not reset on
+            // world load), so the explicit reset must force staleness even for identical stamps.
+            cache.MarkRowsRebuilt(2);
+            cache.MarkStorageRefreshed(6, 2);
+            cache.ResetVersionStamps();
+            IsTrue(cache.NeedsRowRebuild(2), "FC-08 reset forces a row rebuild even at the previously marked version");
+            IsTrue(cache.NeedsStorageRefresh(6, 2), "FC-08 reset forces a storage refresh even at the previously marked stamps");
+
+            var heightCache = new FavoritesRowCache();
+            for (int i = 0; i < 6; i++) heightCache.Rows.Add(new FavoritesRowCache.Row());
+            heightCache.MarkRowsRebuilt(1);
+            Check(Math.Abs(heightCache.BodyHeight - (FavoritesRowCache.TopPad + 6 * FavoritesRowCache.RowHeight)) < 0.001f,
+                "FC-07 BodyHeight = pad + rows * rowHeight");
+
+            // FC-06: the per-frame path (version checks + slot updates with unchanged counts +
+            // BodyHeight read) must allocate zero bytes once warmed up.
+            var steady = new FavoritesRowCache();
+            var row = new FavoritesRowCache.Row { RecipeIndex = 1, OutputType = 10 };
+            row.Slots.Add(new FavoritesRowCache.Slot { ItemType = 11, Needed = 2 });
+            row.Slots.Add(new FavoritesRowCache.Slot { ItemType = 12, Needed = 3 });
+            steady.Rows.Add(row);
+            steady.MarkRowsRebuilt(1);
+            steady.MarkStorageRefreshed(1, 1);
+            FavoritesRowCache.UpdateSlotCount(row.Slots[0], 1);
+            FavoritesRowCache.UpdateSlotCount(row.Slots[1], 3);
+
+            SimulateSteadyFrames(steady, 100); // warmup: JITs the loop
+
+            int gen0Before = GC.CollectionCount(0);
+            long allocBefore = GC.GetAllocatedBytesForCurrentThread();
+            SimulateSteadyFrames(steady, 10_000);
+            long allocDelta = GC.GetAllocatedBytesForCurrentThread() - allocBefore;
+            int gen0Delta = GC.CollectionCount(0) - gen0Before;
+            Check(allocDelta == 0, $"FC-06 steady state allocates nothing over 10k frames (delta {allocDelta} B)");
+            Check(gen0Delta == 0, $"FC-06 no gen0 collections in steady state (delta {gen0Delta})");
+        }
+
+        private static void SimulateSteadyFrames(FavoritesRowCache cache, int frames)
+        {
+            for (int f = 0; f < frames; f++)
+            {
+                if (cache.NeedsRowRebuild(1) || cache.NeedsStorageRefresh(1, 1))
+                    throw new InvalidOperationException("steady state must not invalidate");
+                if (cache.BodyHeight < 0)
+                    throw new InvalidOperationException("unreachable");
+                for (int r = 0; r < cache.Rows.Count; r++)
+                {
+                    var row = cache.Rows[r];
+                    for (int s = 0; s < row.Slots.Count; s++)
+                        FavoritesRowCache.UpdateSlotCount(row.Slots[s], row.Slots[s].Have);
+                }
+            }
+        }
+
+        // ---- The disk-upgrade transaction: all of it, or none of it ----
+        // Issues 01 and 02 both shipped an upgrade that was never paid for. The rule under test is
+        // that TryConsume either takes the whole material list or leaves storage exactly as it was.
+        private static void MaterialTransactionIsAtomic()
+        {
+            Section("Material consumption is all-or-nothing");
+            const int IRON = 1, GOLD = 2, GLASS = 3, SAND = 4;
+
+            var stocked = new FakeStorage().With(IRON, 10).With(GOLD, 5);
+            var neverCrafts = new MaterialConsumer<FakeItem>(stocked, (type, need) => null);
+            IsTrue(neverCrafts.TryConsume(new[] { (IRON, 10), (GOLD, 5) }), "TX-01 a fully stocked list is consumed");
+            Eq(stocked.CountItem(IRON), 0, "TX-01a iron consumed exactly");
+            Eq(stocked.CountItem(GOLD), 0, "TX-01b gold consumed exactly");
+
+            var shortByOne = new FakeStorage().With(IRON, 9);
+            var noCraft = new MaterialConsumer<FakeItem>(shortByOne, (type, need) => null);
+            IsFalse(noCraft.TryConsume(new[] { (IRON, 10) }), "TX-02 one unit short is refused");
+            Eq(shortByOne.CountItem(IRON), 9, "TX-02a nothing was consumed");
+
+            // The blame case behind issue 01: the first material is taken before the second is
+            // known to be missing, so it has to come back.
+            var secondMissing = new FakeStorage().With(IRON, 10).With(GOLD, 4);
+            var partial = new MaterialConsumer<FakeItem>(secondMissing, (type, need) => null);
+            IsFalse(partial.TryConsume(new[] { (IRON, 10), (GOLD, 5) }), "TX-03 a later shortfall refuses the whole list");
+            Eq(secondMissing.CountItem(IRON), 10, "TX-03a the first material was refunded");
+            Eq(secondMissing.CountItem(GOLD), 4, "TX-03b the second material is untouched");
+
+            // A shortfall the network can craft. The resolver must be asked for the FULL need:
+            // asking for need - have makes it see the stock the caller already subtracted and
+            // report a free direct extract.
+            var craftable = new FakeStorage().With(GLASS, 4).With(SAND, 20);
+            var craftRequests = new List<(int type, int need)>();
+            var crafting = new MaterialConsumer<FakeItem>(craftable, (type, need) =>
+            {
+                craftRequests.Add((type, need));
+                craftable.Extract(SAND, 12);
+                return new FakeItem { Type = GLASS, Stack = 6 };
+            });
+            IsTrue(crafting.TryConsume(new[] { (GLASS, 10) }), "TX-04 a craftable shortfall is crafted and consumed");
+            Eq(craftRequests.Count, 1, "TX-04a the shortfall was crafted exactly once");
+            Eq(craftRequests.Count > 0 ? craftRequests[0].need : -1, 10, "TX-04b the craft was asked for the full need");
+            Eq(craftable.CountItem(GLASS), 0, "TX-04c all ten glass were consumed");
+
+            var uncraftable = new FakeStorage().With(IRON, 10).With(GLASS, 0);
+            var craftFails = new MaterialConsumer<FakeItem>(uncraftable, (type, need) => null);
+            IsFalse(craftFails.TryConsume(new[] { (IRON, 10), (GLASS, 1) }), "TX-05 an impossible craft refuses the list");
+            Eq(uncraftable.CountItem(IRON), 10, "TX-05a the paid material was refunded");
+
+            // Storage too full to hold everything the craft produced. The extract that follows
+            // would come up short, so fail here - and take back the part that did land, or the
+            // refund of the earlier material has nowhere to go.
+            var full = new FakeStorage().With(IRON, 10);
+            full.Capacity = 10;
+            var craftsIntoFullStorage = new MaterialConsumer<FakeItem>(full,
+                (type, need) => new FakeItem { Type = GLASS, Stack = need });
+            IsFalse(craftsIntoFullStorage.TryConsume(new[] { (IRON, 10), (GLASS, 20) }), "TX-06 an unstorable craft refuses the list");
+            Eq(full.CountItem(IRON), 10, "TX-06a the paid material was refunded");
+            Eq(full.CountItem(GLASS), 0, "TX-06b the partial insert was taken back");
+
+            var skipping = new FakeStorage().With(IRON, 10);
+            var skipper = new MaterialConsumer<FakeItem>(skipping, (type, need) => null);
+            IsTrue(skipper.TryConsume(new[] { (IRON, 0), (GOLD, -3) }), "TX-07 zero and negative requirements cost nothing");
+            Eq(skipping.CountItem(IRON), 10, "TX-07a storage untouched");
+        }
+
+        // ---- A plan that cannot finish must leave storage exactly as it found it ----
+        // Issue 03: a step that could not be paid for still produced its output. The subtler half
+        // is that a refund alone is not enough once an earlier step has already made something.
+        private static void PlanExecutionIsAtomic()
+        {
+            Section("A failed plan refunds materials and keeps nothing it made");
+            const int WOOD = 1, PLANK = 2, IRON = 3, TARGET = 4;
+
+            var single = new FakeStorage().With(WOOD, 5);
+            var oneStep = Steps((new[] { (WOOD, 5) }, PLANK, 1));
+            var product = new PlanExecutor<FakeItem>(single).Run(oneStep, 1, new FakeStepProducer(oneStep));
+            Eq(single.StackOf(product), 1, "PX-01 a payable step hands back its product");
+            Eq(single.CountItem(WOOD), 0, "PX-01a its materials were consumed");
+            Eq(single.CountItem(PLANK), 0, "PX-01b the final product never routes through storage");
+
+            var chained = new FakeStorage().With(WOOD, 5).With(IRON, 3);
+            var twoSteps = Steps(
+                (new[] { (WOOD, 5) }, PLANK, 1),
+                (new[] { (PLANK, 1), (IRON, 3) }, TARGET, 1));
+            var chainProduct = new PlanExecutor<FakeItem>(chained).Run(twoSteps, 1, new FakeStepProducer(twoSteps));
+            Eq(chained.StackOf(chainProduct), 1, "PX-02 an intermediate is stored and then consumed");
+            Eq(chained.CountItem(PLANK), 0, "PX-02a no intermediate is left behind");
+
+            // The duplication this seam exposed: step 2 cannot be paid for, so the wood comes back
+            // - and without discarding the plank the player keeps both the ingredients and the
+            // thing made from them.
+            var aborts = new FakeStorage().With(WOOD, 5).With(IRON, 2);
+            var abortSteps = Steps(
+                (new[] { (WOOD, 5) }, PLANK, 1),
+                (new[] { (PLANK, 1), (IRON, 3) }, TARGET, 1));
+            var abortProducer = new FakeStepProducer(abortSteps);
+            var aborted = new PlanExecutor<FakeItem>(aborts).Run(abortSteps, 1, abortProducer);
+            Eq(aborts.StackOf(aborted), 0, "PX-03 a mid-plan shortfall produces nothing");
+            Eq(aborts.CountItem(WOOD), 5, "PX-03a the first step's materials were refunded");
+            Eq(aborts.CountItem(IRON), 2, "PX-03b the partial payment was refunded");
+            Eq(aborts.CountItem(PLANK), 0, "PX-03c the intermediate was NOT left in storage");
+            Eq(abortProducer.Prepared.Count, 2, "PX-03d each step is prepared before it is paid for");
+
+            var unaffordable = new FakeStorage().With(WOOD, 4);
+            var firstStepFails = Steps((new[] { (WOOD, 5) }, PLANK, 1));
+            var nothing = new PlanExecutor<FakeItem>(unaffordable).Run(firstStepFails, 1, new FakeStepProducer(firstStepFails));
+            Eq(unaffordable.StackOf(nothing), 0, "PX-04 an unaffordable first step produces nothing");
+            Eq(unaffordable.CountItem(WOOD), 4, "PX-04a the partial extraction was refunded");
+
+            // Storage too full to hold the intermediate: the part that did land must come back out,
+            // or refunding the materials would be blocked by the very product they were spent on.
+            var cramped = new FakeStorage().With(WOOD, 5);
+            cramped.Capacity = 5;
+            var bulkySteps = Steps(
+                (new[] { (WOOD, 5) }, PLANK, 10),
+                (new[] { (PLANK, 10) }, TARGET, 1));
+            var cramping = new PlanExecutor<FakeItem>(cramped).Run(bulkySteps, 1, new FakeStepProducer(bulkySteps));
+            Eq(cramped.StackOf(cramping), 0, "PX-05 an unstorable intermediate aborts the plan");
+            Eq(cramped.CountItem(WOOD), 5, "PX-05a the materials were refunded");
+            Eq(cramped.CountItem(PLANK), 0, "PX-05b the partial insert was taken back");
+
+            var batched = new FakeStorage().With(WOOD, 5);
+            var batchStep = Steps((new[] { (WOOD, 5) }, PLANK, 10));
+            var trimmed = new PlanExecutor<FakeItem>(batched).Run(batchStep, 3, new FakeStepProducer(batchStep));
+            Eq(batched.StackOf(trimmed), 3, "PX-06 batch rounding hands back only what was asked for");
+            Eq(batched.CountItem(PLANK), 7, "PX-06a the excess was stored");
+        }
+
+        // ---- A partial deposit is still a deposit ----
+        // Issue 13: the count that went in was read after the item's stack had been overwritten
+        // with the leftover, so a partial deposit reported failure and its delta never went out.
+        private static void PartialDepositIsReported()
+        {
+            Section("Deposit outcome arithmetic");
+
+            var full = new DepositOutcome(50, 0);
+            Eq(full.Deposited, 50, "DP-01 a full deposit banks everything");
+            IsTrue(full.AnyDeposited, "DP-01a and reports success");
+            IsFalse(full.NeedsReturn, "DP-01b with nothing to hand back");
+
+            // The bug: 30 of 50 landed, so the network changed and other clients must be told.
+            var partial = new DepositOutcome(50, 20);
+            Eq(partial.Deposited, 30, "DP-02 a partial deposit banks the difference");
+            IsTrue(partial.AnyDeposited, "DP-02a and still counts as a deposit");
+            IsTrue(partial.NeedsReturn, "DP-02b with the remainder going back");
+
+            var rejected = new DepositOutcome(50, 50);
+            Eq(rejected.Deposited, 0, "DP-03 a rejected deposit banks nothing");
+            IsFalse(rejected.AnyDeposited, "DP-03a and reports no change");
+            IsTrue(rejected.NeedsReturn, "DP-03b handing the whole stack back");
+
+            var empty = new DepositOutcome(0, 0);
+            IsFalse(empty.AnyDeposited, "DP-04 an empty deposit is not a change");
+            IsFalse(empty.NeedsReturn, "DP-04a and returns nothing");
+
+            // Storage cannot bounce more than it was offered, and a negative leftover would make
+            // the deposit look larger than the stack.
+            var overshoot = new DepositOutcome(10, 40);
+            Eq(overshoot.Deposited, 0, "DP-05 a leftover beyond the offer cannot bank a negative");
+            var undershoot = new DepositOutcome(10, -5);
+            Eq(undershoot.Deposited, 10, "DP-06 a negative leftover cannot bank more than offered");
+        }
+
+        // ---- A row the scissor hides must not be clickable ----
+        // Issue 16: alt-click is the vanilla favorite gesture, so a hit rect left registered
+        // outside the clipped body turns an ordinary inventory alt-click into unfavoriting a row
+        // the player cannot even see.
+        private static void ClippedRowsRegisterNoHitRect()
+        {
+            Section("Favorites hit rects stop at the clip");
+
+            const float bodyTop = 100f, slotSize = 36f, maxBodyH = 200f;
+
+            float shortBody = FavoritesRowCache.GetBodyBottom(bodyTop, 120f, maxBodyH);
+            Check(Math.Abs(shortBody - 220f) < 0.001f, "HR-01 a body shorter than the maximum ends where it ends");
+
+            float clippedBody = FavoritesRowCache.GetBodyBottom(bodyTop, 900f, maxBodyH);
+            Check(Math.Abs(clippedBody - 300f) < 0.001f, "HR-02 a long body is clipped to the maximum");
+
+            IsTrue(FavoritesRowCache.IsHitRectVisible(bodyTop + slotSize, bodyTop, clippedBody), "HR-03 a row inside the body is clickable");
+            IsTrue(FavoritesRowCache.IsHitRectVisible(clippedBody, bodyTop, clippedBody), "HR-04 a row ending exactly on the clip is clickable");
+            IsFalse(FavoritesRowCache.IsHitRectVisible(clippedBody + 1f, bodyTop, clippedBody), "HR-05 one pixel past the clip is not");
+
+            // The case that bit: many more rows than fit, drawn anyway, scissored away.
+            var overflowing = new FavoritesRowCache();
+            for (int i = 0; i < 40; i++) overflowing.Rows.Add(new FavoritesRowCache.Row());
+            overflowing.MarkRowsRebuilt(1);
+            float overflowBottom = FavoritesRowCache.GetBodyBottom(bodyTop, overflowing.BodyHeight, maxBodyH);
+
+            int clickable = 0;
+            for (int i = 0; i < overflowing.Rows.Count; i++)
+            {
+                float rectBottom = bodyTop + FavoritesRowCache.TopPad + i * FavoritesRowCache.RowHeight + slotSize;
+                if (FavoritesRowCache.IsHitRectVisible(rectBottom, bodyTop, overflowBottom))
+                    clickable++;
+            }
+            Eq(clickable, 5, "HR-06 only the rows the clip actually shows register a rect");
+
+            IsFalse(FavoritesRowCache.IsHitRectVisible(bodyTop - 1f, bodyTop, clippedBody), "HR-07 a row scrolled off the top registers nothing");
+            IsTrue(FavoritesRowCache.IsHitRectVisible(bodyTop, bodyTop, clippedBody), "HR-08 a row scrolling in at the top is clickable as soon as it shows");
+        }
+
+        // ---- A terminal left open must not keep showing numbers that stopped being true ----
+        // Issues 09, 14 and 15: stock stamped against storage alone survived a walk to another
+        // terminal, conditions were snapshotted once, and favorites toggled elsewhere never
+        // re-filtered the grid.
+        private static void PanelRefreshCacheInvalidates()
+        {
+            Section("Panel refresh gating");
+
+            var cache = new PanelRefreshCache();
+            IsTrue(cache.NeedsOutputStockRecount(1, 10), "RC-01 an uncounted output slot needs a count");
+            cache.MarkOutputStockCounted(1, 10);
+            IsFalse(cache.NeedsOutputStockRecount(1, 10), "RC-01a same storage and same output -> no recount");
+            IsTrue(cache.NeedsOutputStockRecount(2, 10), "RC-02 a storage change forces a recount");
+            cache.MarkOutputStockCounted(2, 10);
+            IsTrue(cache.NeedsOutputStockRecount(2, 11), "RC-03 selecting another output forces a recount");
+
+            // The disk-set case: storage itself did not change, so nothing above catches it.
+            cache.MarkOutputStockCounted(2, 11);
+            IsFalse(cache.NeedsOutputStockRecount(2, 11), "RC-04 a counted slot is stable");
+            cache.InvalidateOutputStock();
+            IsTrue(cache.NeedsOutputStockRecount(2, 11), "RC-04a walking to another terminal forces a recount");
+
+            IsTrue(cache.NeedsFavoritesRefilter(0), "RC-05 favorites start unfiltered");
+            cache.MarkFavoritesFiltered(0);
+            IsFalse(cache.NeedsFavoritesRefilter(0), "RC-05a an unchanged favorites version re-filters nothing");
+            IsTrue(cache.NeedsFavoritesRefilter(1), "RC-06 a favorite toggled elsewhere re-filters the grid");
+
+            IsTrue(cache.NeedsStorageReact(5), "RC-07 an unseen storage version needs reacting to");
+            cache.MarkStorageReacted(5);
+            IsFalse(cache.NeedsStorageReact(5), "RC-07a the same version is not reacted to twice");
+
+            // Conditions are live world state: the first check is always due, then once a second.
+            var clock = new PanelRefreshCache();
+            IsTrue(clock.NeedsConditionRecheck(0), "RC-08 the first condition check is always due");
+            clock.MarkConditionsChecked(0);
+            IsFalse(clock.NeedsConditionRecheck(59), "RC-08a and not repeated within the interval");
+            IsTrue(clock.NeedsConditionRecheck(60), "RC-09 a check falls due once the interval passes");
+            clock.MarkConditionsChecked(60);
+            IsFalse(clock.NeedsConditionRecheck(61), "RC-09a and the interval restarts from there");
+
+            // uint tick counters wrap. The window must survive it, or a terminal open across the
+            // wrap freezes its condition flags for the rest of the session.
+            var wrapping = new PanelRefreshCache();
+            wrapping.MarkConditionsChecked(uint.MaxValue - 10);
+            IsFalse(wrapping.NeedsConditionRecheck(uint.MaxValue), "RC-10 no early re-check across the tick wrap");
+            IsTrue(wrapping.NeedsConditionRecheck(50), "RC-10a and the check still falls due after it");
+
+            // Flags only matter when one actually flips - re-filtering the whole list otherwise
+            // is what made this a once-per-refresh snapshot in the first place.
+            var flags = new[] { true, true, false };
+            IsFalse(PanelRefreshCache.ApplyFlags(flags, 3, i => flags[i]), "RC-11 unchanged flags report no change");
+            IsTrue(PanelRefreshCache.ApplyFlags(flags, 3, i => i == 2), "RC-12 a flipped flag is reported");
+            IsTrue(flags[2], "RC-12a and written through");
+            IsFalse(flags[0], "RC-12b including the ones that flipped off");
+
+            // A stale array belongs to a recipe list that has since been rebuilt; applying it would
+            // blame the wrong recipes.
+            var stale = new[] { true, true };
+            IsFalse(PanelRefreshCache.ApplyFlags(stale, 3, i => false), "RC-13 a length mismatch applies nothing");
+            IsTrue(stale[0], "RC-13a leaving the old flags untouched");
+            IsFalse(PanelRefreshCache.ApplyFlags(null, 3, i => false), "RC-14 no flags yet applies nothing");
+        }
+
+        // ---- A unique stack stands for itself ----
+        // Issue 05: a bulk withdrawal that picked up one enchanted stack stamped its state onto
+        // every unit returned. The rule is that plain stacks drain first and a unique stack is
+        // only ever taken alone.
+        private static void WithdrawalNeverMixesUniqueStacks()
+        {
+            Section("A withdrawal drains plain stacks and takes a unique one only alone");
+
+            // The reported shape: a unique stack sorted first, 300 plain units behind it.
+            var uniqueFirst = new List<StackSlot>
+            {
+                new StackSlot { Index = 0, Stack = 1, IsUnique = true },
+                new StackSlot { Index = 1, Stack = 300, IsUnique = false }
+            };
+            var bulk = StackSelection.PlanWithdrawal(uniqueFirst, 300, true, out bool bulkUnique);
+            Eq(bulk.Sum(d => d.Count), 300, "SL-01 a bulk withdrawal takes the full amount");
+            IsFalse(bulkUnique, "SL-01a it is not reported as a unique stack");
+            IsFalse(bulk.Any(d => d.Index == 0), "SL-01b the unique stack was left alone");
+
+            var spread = new List<StackSlot>
+            {
+                new StackSlot { Index = 0, Stack = 40, IsUnique = false },
+                new StackSlot { Index = 1, Stack = 40, IsUnique = false },
+                new StackSlot { Index = 2, Stack = 40, IsUnique = false }
+            };
+            var partial = StackSelection.PlanWithdrawal(spread, 50, true, out _);
+            Eq(partial.Sum(d => d.Count), 50, "SL-02 a withdrawal spans as many stacks as it needs");
+            Eq(partial.Count, 2, "SL-02a and stops at the first stack that covers the rest");
+            Eq(partial.Count > 1 ? partial[1].Count : -1, 10, "SL-02b taking only the remainder from the last");
+
+            var overdraw = StackSelection.PlanWithdrawal(spread, 500, true, out _);
+            Eq(overdraw.Sum(d => d.Count), 120, "SL-03 asking for more than exists takes everything plain");
+
+            // Nothing plain matched, so the fallback applies - this is how a disk, always unique,
+            // still comes out of storage.
+            var onlyUnique = new List<StackSlot>
+            {
+                new StackSlot { Index = 0, Stack = 1, IsUnique = true },
+                new StackSlot { Index = 1, Stack = 1, IsUnique = true }
+            };
+            var fallback = StackSelection.PlanWithdrawal(onlyUnique, 5, true, out bool fellBack);
+            IsTrue(fellBack, "SL-04 with nothing plain to take, the unique fallback applies");
+            Eq(fallback.Count, 1, "SL-04a exactly one unique stack is taken");
+            Eq(fallback.Count > 0 ? fallback[0].Count : -1, 1, "SL-04b and only what that stack holds");
+
+            // A caller already carrying plain items from another disk must not pull a unique stack
+            // it would then have to fold into a count that does not describe it.
+            var refused = StackSelection.PlanWithdrawal(onlyUnique, 5, false, out bool refusedUnique);
+            Eq(refused.Count, 0, "SL-05 a caller mid-withdrawal refuses the unique fallback");
+            IsFalse(refusedUnique, "SL-05a and is not told it got one");
+
+            var nothingWanted = StackSelection.PlanWithdrawal(spread, 0, true, out _);
+            Eq(nothingWanted.Count, 0, "SL-06 asking for nothing draws nothing");
+        }
+
+        // ---- Defragmenting must not invent, merge away or strip identity ----
+        // Issue 04: unique stacks were merged on type and prefix alone.
+        private static void DefragmentRespectsStackIdentity()
+        {
+            Section("Defragment merges only what shares an identity");
+
+            var partials = new List<MergeTarget>
+            {
+                new MergeTarget { Index = 0, Stack = 90, Accepts = true },
+                new MergeTarget { Index = 1, Stack = 95, Accepts = false },
+                new MergeTarget { Index = 2, Stack = 50, Accepts = true }
+            };
+
+            var merged = StackSelection.PlanDonorMove(partials, 40, 99, 5, false);
+            Eq(merged.Merges.Sum(m => m.Count), 40, "DF-01 a plain donor fills partial stacks first");
+            Eq(merged.NewSlots.Count, 0, "DF-01a and needs no new slot");
+            Eq(merged.LeftOnDonor, 0, "DF-01b leaving nothing on the donor");
+            IsFalse(merged.Merges.Any(m => m.Index == 1), "DF-01c a stack of another identity is skipped");
+
+            var spills = StackSelection.PlanDonorMove(partials, 300, 99, 5, false);
+            Eq(spills.Merges.Sum(m => m.Count), 58, "DF-02 partials are topped up to maxStack");
+            Eq(spills.NewSlots.Sum(), 242, "DF-02a the rest takes fresh slots");
+            IsTrue(spills.NewSlots.All(c => c <= 99), "DF-02b no new slot exceeds maxStack");
+            Eq(spills.LeftOnDonor, 0, "DF-02c the donor is emptied");
+
+            var cramped = StackSelection.PlanDonorMove(partials, 300, 99, 1, false);
+            Eq(cramped.NewSlots.Count, 1, "DF-03 only the free slots available are taken");
+            Eq(cramped.LeftOnDonor, 143, "DF-03a what does not fit stays on the donor");
+
+            // The identity bug: a unique stack must never merge and never split, whatever the
+            // target holds. Every target here would accept it on type and prefix.
+            var willingTargets = new List<MergeTarget>
+            {
+                new MergeTarget { Index = 0, Stack = 1, Accepts = true }
+            };
+            var unique = StackSelection.PlanDonorMove(willingTargets, 1, 99, 3, true);
+            IsTrue(unique.MoveWholeStack, "DF-04 a unique donor moves whole into a free slot");
+            Eq(unique.Merges.Count, 0, "DF-04a it never merges, however willing the target");
+            Eq(unique.NewSlots.Count, 0, "DF-04b and is never split into counted copies");
+            Eq(unique.LeftOnDonor, 0, "DF-04c it leaves the donor entirely");
+
+            var noRoom = StackSelection.PlanDonorMove(willingTargets, 1, 99, 0, true);
+            IsFalse(noRoom.MoveWholeStack, "DF-05 with no free slot a unique stack stays put");
+            Eq(noRoom.LeftOnDonor, 1, "DF-05a and is not partially moved");
+
+            var full = StackSelection.PlanDonorMove(new List<MergeTarget>(), 10, 99, 0, false);
+            Eq(full.LeftOnDonor, 10, "DF-06 a full target moves nothing");
+        }
+
+        // Builds the execution steps for a plan: each entry is (what it costs, what it makes).
+        private static List<ExecutionStep> Steps(params ((int type, int count)[] consumed, int producedType, int producedCount)[] steps)
+        {
+            var built = new List<ExecutionStep>();
+
+            foreach (var (consumed, producedType, producedCount) in steps)
+            {
+                var step = new ExecutionStep { ProducedType = producedType, ProducedCount = producedCount };
+                step.Consumed.AddRange(consumed.Select(c => (c.type, c.count)));
+                built.Add(step);
+            }
+
+            return built;
+        }
+
         private static void Section(string title) => Console.WriteLine($"-- {title}");
 
         private static void Check(bool cond, string name)
