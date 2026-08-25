@@ -1327,7 +1327,9 @@ namespace TerraStorage.Content.UI.Elements
                     NetworkHandler.SendCraftRequest(mod, _diskIds, _selectedRecipe.createItem.type,
                         _craftAmount * _selectedRecipe.createItem.stack, _availableStations, _availableConditions, _cleanCraft, _craftToInventory,
                         _lockRecipe ? _selectedRecipe.RecipeIndex : -1);
-                    Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.Grab);
+                    // No pickup sound here: the server has not answered yet, and playing the sound
+                    // of a successful craft on SEND told the player a refused craft had worked.
+                    Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.MenuTick);
                 }
                 return;
             }
@@ -1372,7 +1374,7 @@ namespace TerraStorage.Content.UI.Elements
 
             var result = RecipeResolver.ExecutePlan(planToUse, _diskIds, _cleanCraft);
             if (result.IsAir)
-                ReportCraftFailed("Requisition: the craft was cancelled and nothing was consumed — a material could not be withdrawn in one go.");
+                ReportCraftFailed("Requisition: the craft was cancelled — storage no longer holds what the plan was costed against.");
             else
             {
                 if (_craftToInventory)
