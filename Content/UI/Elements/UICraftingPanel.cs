@@ -919,10 +919,7 @@ namespace TerraStorage.Content.UI.Elements
             if (cached)
                 return _maxCraftAmount;
 
-            // Withdrawable stock, not raw counts: a stack carrying mod data stands for itself and
-            // cannot be pooled into a craft, so pricing MAX against the raw count would offer an
-            // amount the withdrawal cannot pay for.
-            var available = StorageWorldSystem.Instance.GetWithdrawableCounts(_diskIds);
+            var available = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
             var core = new CoreResolver(new TerrariaRecipeEnvironment(_availableStations, _availableConditions))
                 { MaxDepth = _recursionDepth };
             var coreRecipe = TerrariaRecipeEnvironment.ToCore(_selectedRecipe);
