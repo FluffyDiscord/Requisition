@@ -28,6 +28,8 @@
     <Compile Include="..\Content\UI\UIClickBlocker.cs" />
     <Compile Include="..\Content\UI\FavoritesRowCache.cs" />
     <Compile Include="..\Content\UI\PanelRefreshCache.cs" />
+    <!-- Scoped /tsdump slices: real recipe graphs small enough to read, one per scenario. -->
+    <None Include="Fixtures\*.tsdump.txt" CopyToOutputDirectory="Always" />
     <Compile Include="FakeEnvironment.cs" />
     <Compile Include="FakeStorage.cs" />
     <Compile Include="Program.cs" />

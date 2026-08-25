@@ -28,6 +28,13 @@ namespace TerraStorage.Helpers.Resolver
         // exactly at MaxDepth == chainLength - 1. Item-level queries still start at 0.
         private const int IngredientDepth = 1;
 
+        // How many craft counts past the bisected boundary ComputeMaxCraftAmount checks one by one,
+        // covering the short dips that sub-craft rounding produces.
+        private const int RoundingDipProbeWindow = 4;
+
+        // How far ComputeMaxCraftAmount will step down looking for an amount the planner confirms.
+        private const int PlannerConfirmSteps = 8;
+
         public CoreResolver(IRecipeEnvironment env)
         {
             _env = env;
@@ -66,26 +73,6 @@ namespace TerraStorage.Helpers.Resolver
                 }
             }
             return false;
-        }
-
-        // Chooses which concrete item to consume for an ingredient: its own type if in stock,
-        // else a recipe-group substitute that is in stock, else its own type.
-        private int ResolveIngredientType(CoreRecipe recipe, int ingredientType, Dictionary<int, int> available)
-        {
-            if (available.TryGetValue(ingredientType, out int have) && have > 0)
-                return ingredientType;
-
-            foreach (int groupId in recipe.AcceptedGroups)
-            {
-                if (!_env.GroupContains(groupId, ingredientType)) continue;
-                foreach (int validItem in _env.GroupValidItems(groupId))
-                {
-                    if (validItem == ingredientType) continue;
-                    if (available.TryGetValue(validItem, out int altHave) && altHave > 0)
-                        return validItem;
-                }
-            }
-            return ingredientType;
         }
 
         // Recursively satisfies a demand for `needed` units of `itemType` against the mutable
@@ -253,7 +240,10 @@ namespace TerraStorage.Helpers.Resolver
 
             foreach (var ingredient in recipe.Ingredients)
             {
-                int ingredientNeeded = ingredient.Stack * craftsNeeded;
+                // Each level of the chain multiplies the demand again. Wrapped into a negative it
+                // costs nothing to fill, so a plan reads as built when it cannot be.
+                long slotDemand = (long)ingredient.Stack * craftsNeeded;
+                int ingredientNeeded = slotDemand > int.MaxValue ? int.MaxValue : (int)slotDemand;
 
                 if (!ResolveIngredientSlot(recipe, ingredient.Type, ingredientNeeded,
                         available, tempSteps, resolving, depth, consumed))
@@ -371,8 +361,21 @@ namespace TerraStorage.Helpers.Resolver
                 bool ok = true;
                 foreach (var ingredient in recipe.Ingredients)
                 {
-                    int resolvedType = ResolveIngredientType(recipe, ingredient.Type, avail);
-                    if (!CanProduce(resolvedType, ingredient.Stack * craftsNeeded, avail, depth + 1))
+                    // Each level multiplies the demand again, so a deep chain of x100 recipes wraps
+                    // int negative — and an empty pool satisfies a negative demand. Refuse instead.
+                    long slotDemand = (long)ingredient.Stack * craftsNeeded;
+                    if (slotDemand > int.MaxValue)
+                    {
+                        ok = false;
+                        break;
+                    }
+
+                    // The slot is filled the way ResolveIngredientSlot fills it: stock taken across
+                    // every accepted group member, only the remainder sub-crafted. Committing the
+                    // whole slot to ONE concrete item type made this path refuse plans the craft
+                    // button builds happily — 3 units of one wood plus a fourth sub-crafted from
+                    // acorns is a plan there, and was infeasible here.
+                    if (!CanFillSlot(recipe, ingredient.Type, (int)slotDemand, avail, depth + 1))
                     {
                         ok = false;
                         break;
@@ -806,6 +809,158 @@ namespace TerraStorage.Helpers.Resolver
             {
                 if (hasOutputStock) pool[recipe.OutputType] = outputStock;
             }
+        }
+
+        // Whether `recipe` could be executed `amount` times against `available`, answered by the
+        // allocation-free feasibility mirror: every slot filled from ONE shared, deducting pool —
+        // direct stock, a recipe-group substitute, or a sub-craft — so two slots cannot both spend
+        // the same base material. Force-craft semantics, as CanSubCraftRemainder applies them:
+        // existing stock of the output is not a material. Every count in the snapshot is restored
+        // before returning (a type the query touched may be left present at zero, as it is on the
+        // other feasibility paths).
+        //
+        // This is the fast answer, not the last word: the mirror refuses a station-gated recipe and
+        // moves on to the next group candidate, where the planner takes the first candidate that
+        // resolves at all and keeps a station-incomplete plan. ComputeMaxCraftAmount therefore
+        // confirms whatever this leads it to against the planner itself.
+        public bool CanCraftAmount(CoreRecipe recipe, Dictionary<int, int> available, int amount)
+        {
+            if (amount < 1)
+                return false;
+
+            if (!StationsAllSatisfied(recipe) || !_env.ConditionsMet(recipe))
+                return false;
+
+            // A slot's demand is the stack times the craft count, and every sub-craft multiplies it
+            // again. Left in int arithmetic that wraps negative at large amounts, and a negative
+            // demand is satisfied by an empty pool — infeasible would read as feasible.
+            foreach (var ingredient in recipe.Ingredients)
+            {
+                long demand = (long)ingredient.Stack * amount;
+                if (demand > int.MaxValue)
+                    return false;
+            }
+
+            bool hasOutputStock = available.TryGetValue(recipe.OutputType, out int outputStock) && outputStock > 0;
+            if (hasOutputStock) available.Remove(recipe.OutputType);
+            try
+            {
+                int mark = _undo.Count;
+                _feasibilityResolving.Clear();
+                _feasibilityResolving.Add(recipe.OutputType);
+
+                bool ok = true;
+                foreach (var ingredient in recipe.Ingredients)
+                {
+                    int needed = ingredient.Stack * amount;
+                    if (!CanFillSlot(recipe, ingredient.Type, needed, available, IngredientDepth))
+                    {
+                        ok = false;
+                        break;
+                    }
+                }
+
+                Rollback(available, mark);
+                return ok;
+            }
+            finally
+            {
+                if (hasOutputStock) available[recipe.OutputType] = outputStock;
+            }
+        }
+
+        // Whether the craft button will actually build `amount` executions of `recipe` — the same
+        // TryResolveRecipe it runs, on a copy of the pool, refusing a plan that leans on a station
+        // the network does not have (the panel shows those as "Missing Stations" instead of
+        // crafting). Force-craft semantics: existing stock of the output is not a material.
+        public bool PlannerCanCraftAmount(CoreRecipe recipe, Dictionary<int, int> available, int amount)
+        {
+            if (amount < 1)
+                return false;
+
+            long produced = (long)amount * recipe.OutputStack;
+            if (produced > int.MaxValue)
+                return false;
+
+            var pool = new Dictionary<int, int>(available);
+            pool.Remove(recipe.OutputType);
+
+            var steps = new List<CoreStep>();
+            var resolving = new HashSet<int> { recipe.OutputType };
+            if (!TryResolveRecipe(recipe, recipe.OutputType, (int)produced, pool, steps, resolving, 0))
+                return false;
+
+            foreach (var step in steps)
+                foreach (int tile in step.RequiredStations)
+                    if (!_env.IsStationSatisfied(tile))
+                        return false;
+
+            return true;
+        }
+
+        // The largest number of times `recipe` can be executed against `available`, capped at `cap`
+        // (0 when not even one craft is possible). This is what the panel's MAX button offers, so it
+        // has to agree with what the craft button will actually plan: an ingredient that is out of
+        // stock but sub-craftable raises the ceiling instead of pinning it to zero.
+        //
+        // The search doubles until a craft count fails and bisects the gap — a couple of dozen plans
+        // instead of one per candidate amount, which matters because the button's hover tooltip asks
+        // for this every frame.
+        //
+        // Bisecting wants plannability to fall monotonically with the amount, and it very nearly
+        // does — but not quite, so the amounts just past the boundary are checked one by one. The
+        // dips come from rounding: a sub-craft is planned ceil(deficit / OutputStack) times, so a
+        // larger demand can round onto a different sub-recipe that happens to fit where the first
+        // one did not. A run of dips longer than that window leaves the answer short — always
+        // conservative, never above what the button will build.
+        public int ComputeMaxCraftAmount(CoreRecipe recipe, Dictionary<int, int> available, int cap)
+        {
+            if (cap < 1 || !CanCraftAmount(recipe, available, 1))
+                return 0;
+
+            int feasible = 1;
+            int probe = 2;
+            int high = cap;
+            while (probe <= cap)
+            {
+                if (!CanCraftAmount(recipe, available, probe))
+                {
+                    high = probe - 1;
+                    break;
+                }
+
+                feasible = probe;
+                if (probe > cap / 2)
+                    break;
+                probe *= 2;
+            }
+
+            int low = feasible;
+            while (low < high)
+            {
+                int candidate = low + (high - low + 1) / 2;
+                if (CanCraftAmount(recipe, available, candidate))
+                    low = candidate;
+                else
+                    high = candidate - 1;
+            }
+
+            int best = low;
+            int lastProbed = Math.Min(cap, low + RoundingDipProbeWindow);
+            for (int candidate = low + 1; candidate <= lastProbed; candidate++)
+                if (CanCraftAmount(recipe, available, candidate))
+                    best = candidate;
+
+            // The mirror can be a shade more permissive than the planner, and an amount the craft
+            // button then refuses is worse than no offer at all — it disables the button the click
+            // was meant to arm. Step down until the planner agrees; on real recipe data it agrees
+            // immediately, and a recipe that argues for longer than this is not worth more plans.
+            int floor = Math.Max(0, best - PlannerConfirmSteps);
+            for (int candidate = best; candidate > floor; candidate--)
+                if (PlannerCanCraftAmount(recipe, available, candidate))
+                    return candidate;
+
+            return 0;
         }
 
         // Takes up to `want` units of `type` from the pool, deducting what it takes. Returns the

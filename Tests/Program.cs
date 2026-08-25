@@ -58,6 +58,13 @@ namespace TerraStorage.Tests
             ReachabilityEquivalence();
             ReachabilityScaleBenchmark();
             ReachabilityRealisticScaleBenchmark();
+            MaxAmountCountsSubCrafts();
+            MaxAmountMatchesTheCraftButton();
+            MaxAmountSurvivesARoundingDip();
+            MaxAmountNeverOffersAnUnplannableAmount();
+            MaxAmountAppliesForceCraftAndConditions();
+            MaxAmountSurvivesDeepStackMultiplication();
+            MaxAmountOnScopedDump();
             RealDumpBenchmark();
 
             WindowStackTests();
@@ -72,6 +79,297 @@ namespace TerraStorage.Tests
                 foreach (var f in _failures) Console.WriteLine("  - " + f);
             }
             return _fail == 0 ? 0 : 1;
+        }
+
+        // ---- Scenario: the MAX button must count what sub-crafting unlocks ----
+        // The reported shape, straight off a real dump: thousands of wooden arrows, ZERO torches,
+        // but wood and gel to make torches from. The panel's old formula read the empty torch shelf
+        // as a hard zero and offered one craft; nine are actually possible.
+        private static void MaxAmountCountsSubCrafts()
+        {
+            Section("MAX amount counts sub-crafts (flaming arrows)");
+            const int FLAMING_ARROW = 41, WOODEN_ARROW = 40, TORCH = 8, WOOD = 9, GEL = 23;
+
+            var env = new FakeEnvironment();
+            var flamingArrow = env.AddRecipe(FLAMING_ARROW, 10, new[] { (WOODEN_ARROW, 10), (TORCH, 1) });
+            env.AddRecipe(TORCH, 3, new[] { (GEL, 1), (WOOD, 1) });
+            var r = new CoreResolver(env);
+
+            // 3 wood -> 3 torch crafts -> 9 torches -> 9 flaming-arrow crafts (90 arrows of 3580).
+            var noTorches = new Dictionary<int, int> { [WOODEN_ARROW] = 3580, [GEL] = 114, [WOOD] = 3 };
+            Eq(PanelDirectOnlyMax(env, flamingArrow, noTorches), 0, "OLD formula: torch shelf empty -> 0");
+            Eq(r.ComputeMaxCraftAmount(flamingArrow, noTorches, 9999), 9, "NEW: 9 crafts via sub-crafted torches");
+            IsTrue(r.CanCraftAmount(flamingArrow, noTorches, 9), "9 crafts feasible");
+            IsFalse(r.CanCraftAmount(flamingArrow, noTorches, 10), "10 crafts needs a 4th wood");
+            Eq(noTorches[WOOD], 3, "the snapshot is restored, not drained");
+
+            // Enough wood for torches: the arrow stock becomes the ceiling (3580 / 10).
+            var plentyOfWood = new Dictionary<int, int> { [WOODEN_ARROW] = 3580, [GEL] = 1000, [WOOD] = 1000 };
+            Eq(r.ComputeMaxCraftAmount(flamingArrow, plentyOfWood, 9999), 358, "arrow stock binds at 358 crafts");
+
+            // Torches in stock and nothing to craft more from: the direct answer still holds.
+            var torchesInStock = new Dictionary<int, int> { [WOODEN_ARROW] = 3580, [TORCH] = 5 };
+            Eq(PanelDirectOnlyMax(env, flamingArrow, torchesInStock), 5, "OLD formula: 5 torches -> 5");
+            Eq(r.ComputeMaxCraftAmount(flamingArrow, torchesInStock, 9999), 5, "NEW agrees when nothing is sub-crafted");
+
+            // The cap the panel passes is honoured even when materials would allow more.
+            Eq(r.ComputeMaxCraftAmount(flamingArrow, plentyOfWood, 100), 100, "cap is respected");
+
+            // Nothing to work with at all: zero, and the panel's Math.Max(1, ...) shows 1.
+            var empty = new Dictionary<int, int>();
+            Eq(r.ComputeMaxCraftAmount(flamingArrow, empty, 9999), 0, "no materials -> 0");
+        }
+
+        // ---- Scenario: MAX may never offer more crafts than the craft button can plan ----
+        // Sub-crafts share one pool, so a base material two slots both want must not be counted
+        // twice — the failure mode that would turn an inflated MAX into a half-finished craft.
+        private static void MaxAmountMatchesTheCraftButton()
+        {
+            Section("MAX amount agrees with the resolver");
+            const int ORE_X = 10, A = 11, B = 12, TARGET = 13, FURNACE = 100;
+
+            var env = new FakeEnvironment().WithStations(FURNACE);
+            env.AddRecipe(A, 1, new[] { (ORE_X, 1) }, tiles: new[] { FURNACE });
+            env.AddRecipe(B, 1, new[] { (ORE_X, 1) }, tiles: new[] { FURNACE });
+            var target = env.AddRecipe(TARGET, 1, new[] { (A, 1), (B, 1) }, tiles: new[] { FURNACE });
+            var r = new CoreResolver(env);
+
+            // 7 ore covers 3 targets (2 ore each), not 4 — A and B draw on the same ore.
+            var sevenOre = new Dictionary<int, int> { [ORE_X] = 7 };
+            Eq(r.ComputeMaxCraftAmount(target, sevenOre, 9999), 3, "shared base is not double-counted");
+            IsTrue(PlannerCanCraftAmount(r, target, sevenOre, 3), "the craft button plans the 3 MAX offers");
+            IsFalse(PlannerCanCraftAmount(r, target, sevenOre, 4), "the craft button refuses one more");
+
+            // One ore short of a single craft.
+            var oneOre = new Dictionary<int, int> { [ORE_X] = 1 };
+            Eq(r.ComputeMaxCraftAmount(target, oneOre, 9999), 0, "not even one craft");
+
+            // Depth is the panel's recursion-depth slider: at depth 0 no sub-craft is allowed, so
+            // MAX falls back to what is directly in stock.
+            var shallow = new CoreResolver(env) { MaxDepth = 0 };
+            Eq(shallow.ComputeMaxCraftAmount(target, sevenOre, 9999), 0, "depth 0: ore alone crafts nothing");
+            var barsInStock = new Dictionary<int, int> { [A] = 4, [B] = 6 };
+            Eq(shallow.ComputeMaxCraftAmount(target, barsInStock, 9999), 4, "depth 0: direct stock still counts");
+
+            // A station the network does not have blocks the sub-craft, so MAX must not count it.
+            var stationless = new FakeEnvironment();
+            stationless.AddRecipe(A, 1, new[] { (ORE_X, 1) }, tiles: new[] { FURNACE });
+            stationless.AddRecipe(B, 1, new[] { (ORE_X, 1) }, tiles: new[] { FURNACE });
+            var stationlessTarget = stationless.AddRecipe(TARGET, 1, new[] { (A, 1), (B, 1) });
+            Eq(new CoreResolver(stationless).ComputeMaxCraftAmount(stationlessTarget, sevenOre, 9999), 0,
+                "no furnace: the sub-craft does not count");
+
+            // Nor may MAX ignore the station the SELECTED recipe itself needs, even with every
+            // ingredient on the shelf — it is a public answer to "how many can I make here".
+            var needsMissingStation = new FakeEnvironment();
+            var gated = needsMissingStation.AddRecipe(TARGET, 1, new[] { (A, 1) }, tiles: new[] { FURNACE });
+            var barsOnly = new Dictionary<int, int> { [A] = 50 };
+            IsFalse(new CoreResolver(needsMissingStation).CanCraftAmount(gated, barsOnly, 1), "missing station: not one craft");
+            Eq(new CoreResolver(needsMissingStation).ComputeMaxCraftAmount(gated, barsOnly, 9999), 0, "missing station: MAX 0");
+        }
+
+        // ---- Scenario: a craft count that fails must not end the search ----
+        // A sub-craft is planned ceil(deficit / OutputStack) times, so a larger demand can round onto
+        // a different sub-recipe that fits where the first one did not — plannability dips and comes
+        // back. A bisect that trusts monotonicity stops at the dip and reports the same "1" the
+        // reported bug did. No recipe groups and no stations here: rounding alone is enough.
+        private static void MaxAmountSurvivesARoundingDip()
+        {
+            Section("MAX amount survives a rounding dip");
+            const int TARGET = 60, PART = 61, FILLER = 62, SCARCE = 63;
+
+            var env = new FakeEnvironment();
+            var target = env.AddRecipe(TARGET, 1, new[] { (PART, 1), (PART, 3) });
+            env.AddRecipe(PART, 4, new[] { (SCARCE, 2) });
+            env.AddRecipe(PART, 3, new[] { (FILLER, 1) });
+            env.AddRecipe(FILLER, 3, new[] { (SCARCE, 1) });
+            var r = new CoreResolver(env);
+
+            var stock = new Dictionary<int, int> { [SCARCE] = 3 };
+            IsTrue(r.CanCraftAmount(target, stock, 3), "3 crafts plannable");
+            IsFalse(r.CanCraftAmount(target, stock, 4), "4 rounds onto the wasteful sub-recipe");
+            IsTrue(r.CanCraftAmount(target, stock, 5), "5 rounds back onto the one that fits");
+            IsTrue(r.CanCraftAmount(target, stock, 6), "and 6 too");
+
+            Eq(r.ComputeMaxCraftAmount(target, stock, 9999), 6, "the search looks past the dip");
+        }
+
+        // ---- Scenario: MAX may never offer an amount the craft button then refuses ----
+        // The allocation-free feasibility mirror and the planner disagree about stations: the mirror
+        // refuses a station-gated recipe and tries the next group candidate, while the planner takes
+        // the first candidate that resolves at all and keeps a station-incomplete plan — which the
+        // panel reports as "Missing Stations". MAX asks the planner, so it cannot inherit that gap.
+        private static void MaxAmountNeverOffersAnUnplannableAmount()
+        {
+            Section("MAX amount never offers what the button refuses");
+            const int TARGET = 80, MID = 81, GATED = 82, SUBSTITUTE = 83, BASE = 84, ANY = 8, MISSING_STATION = 999;
+
+            var env = new FakeEnvironment().WithGroup(ANY, GATED, SUBSTITUTE);
+            env.AddRecipe(GATED, 1, new[] { (BASE, 1) }, tiles: new[] { MISSING_STATION });
+            env.AddRecipe(SUBSTITUTE, 1, new[] { (BASE, 1) });
+            env.AddRecipe(MID, 1, new[] { (GATED, 1) }, groups: new[] { ANY });
+            var target = env.AddRecipe(TARGET, 1, new[] { (MID, 1) });
+            var r = new CoreResolver(env);
+
+            var stock = new Dictionary<int, int> { [BASE] = 4 };
+            int max = r.ComputeMaxCraftAmount(target, stock, 9999);
+            for (int amount = 1; amount <= max; amount++)
+                IsTrue(PlannerCanCraftAmount(r, target, stock, amount), $"x{amount} is plannable");
+
+            // The station-gated route is the only one the planner takes, so nothing here is craftable.
+            Eq(max, 0, "a station-incomplete plan is not an offer");
+        }
+
+        // ---- Scenario: force-craft semantics and live recipe conditions ----
+        private static void MaxAmountAppliesForceCraftAndConditions()
+        {
+            Section("MAX amount: force-craft semantics and conditions");
+            const int LOOP = 90, OTHER = 91, GATED = 92, BASE = 93;
+
+            // A no-op loop: the only way to "make" LOOP is to unmake OTHER, which is made from LOOP.
+            // Existing stock of the output is not a material, so no amount is craftable — the same
+            // rule the craft button applies, and without it MAX would offer the shelf back to you.
+            var loopEnv = new FakeEnvironment();
+            var loop = loopEnv.AddRecipe(LOOP, 1, new[] { (OTHER, 1) });
+            loopEnv.AddRecipe(OTHER, 1, new[] { (LOOP, 1) });
+            var loopResolver = new CoreResolver(loopEnv);
+
+            var tenInStorage = new Dictionary<int, int> { [LOOP] = 10 };
+            IsFalse(loopResolver.CanCraftAmount(loop, tenInStorage, 5), "no-op loop: output stock is not a material");
+            Eq(loopResolver.ComputeMaxCraftAmount(loop, tenInStorage, 9999), 0, "no-op loop: MAX 0");
+            IsFalse(PlannerCanCraftAmount(loopResolver, loop, tenInStorage, 1), "and the craft button agrees");
+
+            // A recipe whose condition is not met (night, biome, a boss not downed) crafts nothing,
+            // however full the shelves are.
+            var closedEnv = new FakeEnvironment().WithConditions(_ => false);
+            var closed = closedEnv.AddRecipe(GATED, 1, new[] { (BASE, 1) });
+            var plenty = new Dictionary<int, int> { [BASE] = 50 };
+            Eq(new CoreResolver(closedEnv).ComputeMaxCraftAmount(closed, plenty, 9999), 0, "condition unmet: MAX 0");
+
+            var openEnv = new FakeEnvironment().WithConditions(_ => true);
+            var open = openEnv.AddRecipe(GATED, 1, new[] { (BASE, 1) });
+            Eq(new CoreResolver(openEnv).ComputeMaxCraftAmount(open, plenty, 9999), 50, "condition met: MAX 50");
+        }
+
+        // ---- Scenario: a deep x100 chain asked for thousands of crafts ----
+        // Every level multiplies the demand again. In int arithmetic that wraps negative, and an
+        // empty pool "satisfies" a negative demand — so an impossible craft reads as possible. The
+        // coin chain is the shipped example: copper -> silver -> gold -> platinum, x100 each.
+        private static void MaxAmountSurvivesDeepStackMultiplication()
+        {
+            Section("MAX amount survives deep stack multiplication");
+            const int COPPER = 71, SILVER = 72, GOLD = 73, PLATINUM = 74, SPENDER = 75;
+
+            var env = new FakeEnvironment();
+            env.AddRecipe(SILVER, 1, new[] { (COPPER, 100) });
+            env.AddRecipe(GOLD, 1, new[] { (SILVER, 100) });
+            env.AddRecipe(PLATINUM, 1, new[] { (GOLD, 100) });
+            var spender = env.AddRecipe(SPENDER, 1, new[] { (PLATINUM, 3996) });
+            var r = new CoreResolver(env);
+
+            var empty = new Dictionary<int, int>();
+            IsFalse(r.CanCraftAmount(spender, empty, 7), "nothing in storage crafts nothing, at any amount");
+            Eq(r.ComputeMaxCraftAmount(spender, empty, 9999), 0, "empty storage -> MAX 0");
+
+            // The guard must refuse the overflow, not the craft: one platinum on the shelf is one craft.
+            var oneCraftsWorth = new Dictionary<int, int> { [PLATINUM] = 3996 };
+            Eq(r.ComputeMaxCraftAmount(spender, oneCraftsWorth, 9999), 1, "stock for exactly one craft -> 1");
+        }
+
+        // ---- The reported bug, on the real graphs it was reported against ----
+        // The fixtures are minimised slices of real /tsdumps: every line load-bearing, the recipe
+        // groups and station tiles a hand-built fixture forgets still intact. MAX is checked against
+        // the PLANNER — TryResolveRecipe, what the craft button actually runs — not against the
+        // feasibility mirror the search itself uses, so the two cannot agree by construction.
+        private static void MaxAmountOnScopedDump()
+        {
+            Section("MAX amount on the scoped flaming-arrow dumps");
+            const int FLAMING_ARROW = 41;
+
+            // The reported world: no torches at all, and the 4th wood for the torches exists only as
+            // 3 group substitutes plus a sub-craft from acorns. MAX offered 1.
+            AssertScopedDump("flaming-arrow-group-slot.tsdump.txt", FLAMING_ARROW,
+                expectedRecipes: 3, expectedStoredTypes: 4, expectedMax: 12, expectedDirectOnlyMax: 0);
+
+            // The same world later: 2 torches in stock, and 107 gel that makes 321 more.
+            AssertScopedDump("flaming-arrow-gel-ceiling.tsdump.txt", FLAMING_ARROW,
+                expectedRecipes: 3, expectedStoredTypes: 5, expectedMax: 323, expectedDirectOnlyMax: 2);
+        }
+
+        private static void AssertScopedDump(string fixture, int targetItem,
+            int expectedRecipes, int expectedStoredTypes, int expectedMax, int expectedDirectOnlyMax)
+        {
+            var env = new FakeEnvironment();
+            var available = new Dictionary<int, int>();
+            var stations = new HashSet<int>();
+            ParseDump(FixturePath(fixture), env, available, stations);
+
+            // ParseDump skips malformed lines silently, which would quietly shrink a committed
+            // fixture into a different world that still asserts cleanly.
+            Eq(env.AllRecipes.Count, expectedRecipes, $"{fixture}: recipe count");
+            Eq(available.Count, expectedStoredTypes, $"{fixture}: stored types");
+
+            var core = new CoreResolver(env) { MaxDepth = 10 };
+            var recipe = env.RecipesProducing(targetItem)[0];
+            int max = core.ComputeMaxCraftAmount(recipe, available, 9999);
+
+            Eq(PanelDirectOnlyMax(env, recipe, available), expectedDirectOnlyMax, $"{fixture}: OLD direct-stock formula");
+            Eq(max, expectedMax, $"{fixture}: MAX offers {expectedMax} crafts");
+            IsTrue(PlannerCanCraftAmount(core, recipe, available, max), $"{fixture}: the craft button can plan {max}");
+            IsFalse(PlannerCanCraftAmount(core, recipe, available, max + 1), $"{fixture}: it cannot plan {max + 1}");
+
+            // Exhaustive, not just the boundary: every amount the planner can build, up to well past
+            // the answer. This is the assertion the binary search cannot satisfy by construction.
+            Eq(PlannerMaxCraftAmount(core, recipe, available, expectedMax + 40), expectedMax,
+                $"{fixture}: an exhaustive planner scan finds the same ceiling");
+
+            // MAX must never promise more than the planner delivers, for any recipe in the slice.
+            foreach (var other in env.AllRecipes)
+            {
+                int otherMax = core.ComputeMaxCraftAmount(other, available, 9999);
+                if (otherMax == 0) continue;
+
+                IsTrue(PlannerCanCraftAmount(core, other, available, otherMax),
+                    $"{fixture}: {other.OutputType} x{otherMax} is plannable");
+            }
+        }
+
+        // Test fixtures are copied next to the test assembly by Tests.csproj.
+        private static string FixturePath(string fileName)
+            => Path.Combine(AppContext.BaseDirectory, "Fixtures", fileName);
+
+        private static bool PlannerCanCraftAmount(CoreResolver core, CoreRecipe recipe, Dictionary<int, int> available, int amount)
+            => core.PlannerCanCraftAmount(recipe, available, amount);
+
+        private static int PlannerMaxCraftAmount(CoreResolver core, CoreRecipe recipe, Dictionary<int, int> available, int cap)
+        {
+            int max = 0;
+            for (int amount = 1; amount <= cap; amount++)
+                if (PlannerCanCraftAmount(core, recipe, available, amount))
+                    max = amount;
+            return max;
+        }
+
+        // The panel's pre-fix MAX formula: direct stock only, own type plus recipe-group substitutes.
+        // Kept as the contrast the fixed number is measured against, the way BuggyPreview is.
+        private static int PanelDirectOnlyMax(IRecipeEnvironment env, CoreRecipe recipe, Dictionary<int, int> available)
+        {
+            int max = 9999;
+            foreach (var ingredient in recipe.Ingredients)
+            {
+                if (ingredient.Stack <= 0) continue;
+                available.TryGetValue(ingredient.Type, out int have);
+                foreach (int groupId in recipe.AcceptedGroups)
+                {
+                    if (!env.GroupContains(groupId, ingredient.Type)) continue;
+                    foreach (int validItem in env.GroupValidItems(groupId))
+                        if (validItem != ingredient.Type && available.TryGetValue(validItem, out int substitute))
+                            have += substitute;
+                    break;
+                }
+                max = Math.Min(max, have / ingredient.Stack);
+            }
+            return max;
         }
 
         // ---- Scenario 1: two ingredients made from the SAME base ore, only enough ore for one ----
