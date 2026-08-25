@@ -371,8 +371,12 @@ namespace TerraStorage.Helpers.Resolver
                 bool ok = true;
                 foreach (var ingredient in recipe.Ingredients)
                 {
-                    int resolvedType = ResolveIngredientType(recipe, ingredient.Type, avail);
-                    if (!CanProduce(resolvedType, ingredient.Stack * craftsNeeded, avail, depth + 1))
+                    // CanFillSlot, not ResolveIngredientType: a recipe-group slot may be filled
+                    // from a MIX of members, and committing to one concrete type here loses that.
+                    // ResolveIngredientSlot (the plan side) mixes at every level, so picking one
+                    // type here made feasibility disagree with the plan for any group slot below
+                    // the top — hiding a craftable recipe from the grid.
+                    if (!CanFillSlot(recipe, ingredient.Type, ingredient.Stack * craftsNeeded, avail, depth + 1))
                     {
                         ok = false;
                         break;
@@ -642,9 +646,13 @@ namespace TerraStorage.Helpers.Resolver
             if (hasOutputStock) available.Remove(recipe.OutputType);
             try
             {
-                // Cached ingredient verdicts are only valid under the same exclusion, so the key is
-                // scoped by the excluded output (0 = nothing excluded, the overwhelmingly common case).
-                int ctx = hasOutputStock ? recipe.OutputType : 0;
+                // Cached ingredient verdicts are scoped by the recipe's OUTPUT, always - not only
+                // when its stock is excluded. IsIngredientFeasible seeds the cycle guard with
+                // OutputType unconditionally, so the verdict depends on which item may not be
+                // routed through. Keying that only when the output happened to be in stock let one
+                // recipe's answer decide another's: whichever was evaluated first won, hiding a
+                // craftable recipe or offering an uncraftable one, depending on the order.
+                int ctx = recipe.OutputType;
 
                 bool allDirect = true;
                 bool usedGroupSubstitute = false;
@@ -704,6 +712,15 @@ namespace TerraStorage.Helpers.Resolver
         {
             var views = new List<IngredientView>();
             var pool = new Dictionary<int, int>(available);
+
+            // Force-craft semantics, the same rule RecheckRecipeCraftable and ResolveForceCraft
+            // apply: existing stock of the OUTPUT is not a material. Without this the direct draw
+            // below fills a slot from the very item being crafted — reachable whenever the output
+            // is named as its own ingredient, and far more often when the output is a member of an
+            // accepted recipe group (Any Wood, Any Iron Bar). The slot then paints green off stock
+            // the craft button refuses to spend.
+            bool hasOutputStock = pool.TryGetValue(recipe.OutputType, out int outputStock) && outputStock > 0;
+            if (hasOutputStock) pool.Remove(recipe.OutputType);
 
             // One view per distinct item type, needing the SUM of its slots. A recipe may list the
             // same item twice; taking only the first slot's stack understates the need, and every
