@@ -34,7 +34,7 @@
     <Compile Include="FakeStorage.cs" />
     <Compile Include="Program.cs" />
     <!-- Scoped /tsdump slices: one scenario each, so a failure names the recipe that broke. -->
-    <None Include="Fixtures\*.tsdump.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\*.tsdump.txt" CopyToOutputDirectory="Always" />
   </ItemGroup>
 
 </Project>

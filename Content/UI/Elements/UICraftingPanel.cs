@@ -50,6 +50,18 @@ namespace TerraStorage.Content.UI.Elements
         private int _recursionDepth = 10;
         private const int MaxRecursionDepth = 10;
 
+        // Largest amount the craft field accepts, and so the ceiling MAX searches up to.
+        private const int MaxCraftAmountCap = 9999;
+
+        // MAX is asked for on every frame the button is hovered, and answering it recursively costs
+        // a storage snapshot plus a handful of resolves. The answer only moves when storage, the
+        // selection or the recursion depth does; a null recipe means "not computed yet", which is
+        // how the disk/station/condition setters invalidate it.
+        private Recipe _maxCraftAmountRecipe;
+        private long _maxCraftAmountVersion;
+        private int _maxCraftAmountDepth;
+        private int _maxCraftAmount;
+
         // Recursion depth drag state (right-drag on Recursive checkbox)
         private bool _recursionDragActive;
         private float _recursionDragStartY;
@@ -190,7 +202,12 @@ namespace TerraStorage.Content.UI.Elements
             bool anyChanged = PanelRefreshCache.ApplyFlags(_stationsConditionsMet, _allRecipes.Count, IsStationConditionMet);
 
             if (anyChanged)
+            {
+                // Conditions are world state, not storage, so nightfall moves what MAX should offer
+                // without touching StorageVersion. This is the panel's only notice that it did.
+                _maxCraftAmountRecipe = null;
                 UpdateCanCraftFlags();
+            }
         }
 
         private bool IsStationConditionMet(int recipeIndex)
@@ -213,6 +230,7 @@ namespace TerraStorage.Content.UI.Elements
                 return;
             _diskIds = diskIds;
             _needsRecipeRefresh = true;
+            _maxCraftAmountRecipe = null;
 
             // StorageVersion tracks what is IN storage, not which disks are connected, so the
             // output-slot count would survive a walk to a different Terminal and show phantom stock
@@ -226,6 +244,7 @@ namespace TerraStorage.Content.UI.Elements
             if (_availableStations.SetEquals(stations)) return;
             _availableStations = stations;
             _needsRecipeRefresh = true;
+            _maxCraftAmountRecipe = null;
         }
 
         public void SetConditions(HashSet<CraftingCondition> conditions)
@@ -234,6 +253,7 @@ namespace TerraStorage.Content.UI.Elements
             if (_availableConditions.SetEquals(conditions)) return;
             _availableConditions = conditions;
             _needsRecipeRefresh = true;
+            _maxCraftAmountRecipe = null;
         }
 
         public void SetCategoryFilter(UICategoryFilterBar filterBar)
@@ -877,35 +897,41 @@ namespace TerraStorage.Content.UI.Elements
 
         private void SetCraftAmount(int amount)
         {
-            _craftAmount = Math.Max(1, Math.Min(9999, amount));
+            _craftAmount = Math.Max(1, Math.Min(MaxCraftAmountCap, amount));
             _amountFieldText = _craftAmount.ToString();
             UpdatePlan();
         }
 
+        // What the MAX button offers. This has to be the resolver's answer, not a stock tally: an
+        // ingredient that is out of stock but sub-craftable (no torches, but wood and gel to make
+        // them from) otherwise reads as a hard zero and pins MAX to one, while the craft button
+        // happily plans the dozen crafts the materials allow. The Recursive checkbox is not a
+        // condition here — it governs the recipe LIST's craftability flags; the craft path resolves
+        // recursively either way, so MAX must too or the two disagree the moment it is unticked.
         private int ComputeMaxCraftAmount()
         {
             if (_selectedRecipe == null) return 1;
-            // Max craftable from directly-held stock (own type plus recipe-group substitutes). Reads
-            // storage rather than the ingredient cache, whose TotalHave is capped at the current
-            // amount for the honest X/Y display. The craft button still gates the actual craft, so a
-            // shared-material overestimate here is harmless.
-            int max = 9999;
-            foreach (var ingredient in _selectedRecipe.requiredItem)
-            {
-                if (ingredient.type <= ItemID.None || ingredient.stack <= 0) continue;
-                int have = StorageWorldSystem.Instance.CountItem(_diskIds, ingredient.type);
-                foreach (int gid in _selectedRecipe.acceptedGroups)
-                {
-                    var grp = RecipeGroup.recipeGroups[gid];
-                    if (!grp.ContainsItem(ingredient.type)) continue;
-                    foreach (int v in grp.ValidItems)
-                        if (v != ingredient.type)
-                            have += StorageWorldSystem.Instance.CountItem(_diskIds, v);
-                    break;
-                }
-                max = Math.Min(max, have / ingredient.stack);
-            }
-            return Math.Max(1, max);
+
+            long storageVersion = StorageWorldSystem.Instance.StorageVersion;
+            bool cached = _maxCraftAmountRecipe == _selectedRecipe
+                && _maxCraftAmountVersion == storageVersion
+                && _maxCraftAmountDepth == _recursionDepth;
+            if (cached)
+                return _maxCraftAmount;
+
+            // Withdrawable stock, not raw counts: a stack carrying mod data stands for itself and
+            // cannot be pooled into a craft, so pricing MAX against the raw count would offer an
+            // amount the withdrawal cannot pay for.
+            var available = StorageWorldSystem.Instance.GetWithdrawableCounts(_diskIds);
+            var core = new CoreResolver(new TerrariaRecipeEnvironment(_availableStations, _availableConditions))
+                { MaxDepth = _recursionDepth };
+            var coreRecipe = TerrariaRecipeEnvironment.ToCore(_selectedRecipe);
+
+            _maxCraftAmount = Math.Max(1, core.ComputeMaxCraftAmount(coreRecipe, available, MaxCraftAmountCap));
+            _maxCraftAmountRecipe = _selectedRecipe;
+            _maxCraftAmountVersion = storageVersion;
+            _maxCraftAmountDepth = _recursionDepth;
+            return _maxCraftAmount;
         }
 
         // Resolves the plan for a recipe, honoring the global recipe-lock: when locked, forces the
@@ -2524,7 +2550,7 @@ private void DrawItemIcon(SpriteBatch spriteBatch, int itemType, Vector2 center,
                     _amountFieldText = newText;
                     if (int.TryParse(newText, out int val) && val > 0)
                     {
-                        _craftAmount = Math.Min(9999, val);
+                        _craftAmount = Math.Min(MaxCraftAmountCap, val);
                         UpdatePlan();
                     }
                 }
