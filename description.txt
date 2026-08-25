@@ -98,6 +98,7 @@ I am not an artist — I have Aphantasia, so it’s difficult for me to put my m
 Developed by _/Stixx with assistance from [b]Claude[/b] (Anthropic).
 Claude assisted with architecture design, feature implementation, bug diagnosis, and code review throughout the project. I understand the hate around AI in general, but this simply would not exist without the insight into the very complex details and my limited knowledge of tModLoader API and C#/XNA in general. I write my own code and read every line generated, understanding rather than blindly accepting.
 Disk/DriveBay sprites provided by [url=https://steamcommunity.com/profiles/76561199052428514/]NonamewouldFit[/url]
+Special credit to Honk (FluffyDiscord) for various code improvements and maintenance.
 
 [h1]Current Known Bugs[/h1]
 No known bugs at this time.
