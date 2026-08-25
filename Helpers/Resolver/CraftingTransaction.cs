@@ -29,6 +29,27 @@ namespace TerraStorage.Helpers.Resolver
         TItem SplitOff(TItem item, int count);
     }
 
+    // Undoing an insert, for both transactions. Extract is best-effort and hands back one stack per
+    // call for a type held as stacks that each stand for themselves, so a single call abandoned the
+    // rest in storage - the ingredients refunded AND the product they paid for kept.
+    internal static class StorageRecovery
+    {
+        public static void TakeBack<TItem>(ICraftingStorage<TItem> storage, int itemType, int count)
+        {
+            int remaining = count;
+
+            while (remaining > 0)
+            {
+                TItem returned = storage.Extract(itemType, remaining);
+                int taken = storage.StackOf(returned);
+                if (taken <= 0)
+                    return;
+
+                remaining -= taken;
+            }
+        }
+    }
+
     // One crafting step's material bookkeeping, free of Terraria types.
     public class ExecutionStep
     {
@@ -55,15 +76,28 @@ namespace TerraStorage.Helpers.Resolver
         // Extracts exactly `amount`, or reports failure. Extract is a best-effort partial
         // extractor, so an unchecked call lets a step consume less than its recipe listed and
         // still produce the output. Whatever did come out is recorded either way.
+        //
+        // One call is not enough: a stack that stands for itself comes out alone, so a material
+        // held as twenty such stacks answered a request for twenty with one, and every recipe
+        // needing it was offered and then quietly refused. Each draw is kept as its own handle, so
+        // no stack's state is folded into another's - which is the rule that made the withdrawal
+        // hand back one stack in the first place.
         public bool TryTakeExact(int itemType, int amount)
         {
-            TItem extracted = _storage.Extract(itemType, amount);
-            int extractedStack = _storage.StackOf(extracted);
+            int taken = 0;
 
-            if (extractedStack > 0)
+            while (taken < amount)
+            {
+                TItem extracted = _storage.Extract(itemType, amount - taken);
+                int extractedStack = _storage.StackOf(extracted);
+                if (extractedStack <= 0)
+                    break;
+
                 _taken.Add((extracted, itemType));
+                taken += extractedStack;
+            }
 
-            return extractedStack >= amount;
+            return taken >= amount;
         }
 
         // Units of this type that this run created rather than the player owning them. A later
@@ -82,24 +116,36 @@ namespace TerraStorage.Helpers.Resolver
         // real materials as leftover.
         public void Refund()
         {
-            foreach (var (item, itemType) in _taken)
+            // From the END of the list, not the front. A step's product is inserted after the stock
+            // the player already had, so extraction hands it back last and the conjured handles are
+            // the trailing ones. Withholding from the front kept the count right and put the wrong
+            // items back: the player's own stacks were dropped and stateless copies took their
+            // place, which for a type whose stacks stand for themselves is their mod state gone.
+            var withheld = new int[_taken.Count];
+
+            for (int index = _taken.Count - 1; index >= 0; index--)
             {
-                TItem toInsert = item;
+                var (item, itemType) = _taken[index];
 
                 _conjured.TryGetValue(itemType, out int outstanding);
-                if (outstanding > 0)
-                {
-                    int stack = _storage.StackOf(item);
-                    int withheld = Math.Min(outstanding, stack);
-                    _conjured[itemType] = outstanding - withheld;
+                if (outstanding <= 0)
+                    continue;
 
-                    if (withheld >= stack)
-                        continue; // the whole handle was conjured
+                int drop = Math.Min(outstanding, _storage.StackOf(item));
+                withheld[index] = drop;
+                _conjured[itemType] = outstanding - drop;
+            }
 
-                    toInsert = _storage.SplitOff(item, stack - withheld);
-                }
+            for (int index = 0; index < _taken.Count; index++)
+            {
+                TItem item = _taken[index].item;
+                int stack = _storage.StackOf(item);
+                int drop = withheld[index];
 
-                _storage.Insert(toInsert);
+                if (drop >= stack)
+                    continue; // the whole handle was conjured
+
+                _storage.Insert(drop > 0 ? _storage.SplitOff(item, stack - drop) : item);
             }
 
             _taken.Clear();
@@ -189,26 +235,9 @@ namespace TerraStorage.Helpers.Resolver
             // caller is about to abandon anyway.
             int stored = craftedStack - leftover;
             if (stored > 0)
-                TakeBack(itemType, stored);
+                StorageRecovery.TakeBack(_storage, itemType, stored);
 
             return false;
-        }
-
-        // Extract hands back one stack per call for a type held as stacks that each stand for
-        // themselves, so a single call would abandon the rest in storage.
-        private void TakeBack(int itemType, int count)
-        {
-            int remaining = count;
-
-            while (remaining > 0)
-            {
-                TItem returned = _storage.Extract(itemType, remaining);
-                int taken = _storage.StackOf(returned);
-                if (taken <= 0)
-                    return;
-
-                remaining -= taken;
-            }
         }
     }
 
@@ -282,27 +311,9 @@ namespace TerraStorage.Helpers.Resolver
 
             // Whatever no later step consumed is still where the step that made it left it.
             foreach (var (itemType, count) in ledger.DrainRemainingConjured())
-                TakeBack(itemType, count);
+                StorageRecovery.TakeBack(_storage, itemType, count);
 
             return _storage.Nothing;
-        }
-
-        // Extract is best-effort and hands back one stack per call when the type is held as stacks
-        // that each stand for themselves. Taking a conjured product back in a single call therefore
-        // left the rest in storage - the ingredients refunded AND the thing made from them kept.
-        private void TakeBack(int itemType, int count)
-        {
-            int remaining = count;
-
-            while (remaining > 0)
-            {
-                TItem returned = _storage.Extract(itemType, remaining);
-                int taken = _storage.StackOf(returned);
-                if (taken <= 0)
-                    return;
-
-                remaining -= taken;
-            }
         }
 
         private bool TryPayFor(ExecutionStep step, RefundLedger<TItem> ledger)
@@ -349,7 +360,7 @@ namespace TerraStorage.Helpers.Resolver
             // nothing: its ingredients go back untouched.
             int stored = producedStack - leftover;
             if (stored > 0)
-                TakeBack(producedType, stored);
+                StorageRecovery.TakeBack(_storage, producedType, stored);
 
             return false;
         }
