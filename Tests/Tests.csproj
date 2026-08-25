@@ -18,6 +18,8 @@
     <Compile Include="..\Helpers\Resolver\CoreResolver.cs" />
     <!-- Which stacks a withdrawal or a defragment touches: the rule, without the NBT. -->
     <Compile Include="..\Common\StackSelection.cs" />
+    <!-- What makes a stored stack its own item rather than so many units of a type. -->
+    <Compile Include="..\Common\StackIdentity.cs" />
     <!-- Deposit arithmetic: the pair of numbers a partial deposit has to keep straight. -->
     <Compile Include="..\Common\DepositOutcome.cs" />
     <!-- Crafting transaction core: item movement bookkeeping, Terraria-free so it can be faked. -->
@@ -31,6 +33,8 @@
     <Compile Include="FakeEnvironment.cs" />
     <Compile Include="FakeStorage.cs" />
     <Compile Include="Program.cs" />
+    <!-- Scoped /tsdump slices: one scenario each, so a failure names the recipe that broke. -->
+    <None Include="Fixtures\*.tsdump.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

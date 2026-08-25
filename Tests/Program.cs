@@ -55,6 +55,10 @@ namespace TerraStorage.Tests
             PanelRefreshCacheInvalidates();
             ClippedRowsRegisterNoHitRect();
             PartialDepositIsReported();
+            PreviewExcludesTheOutputFromDirectDraw();
+            NestedGroupSlotsMixMembers();
+            IngredientCacheIsScopedByOutput();
+            AbortRefundSurvivesAFullNetwork();
             ReachabilityEquivalence();
             ReachabilityScaleBenchmark();
             ReachabilityRealisticScaleBenchmark();
@@ -64,6 +68,11 @@ namespace TerraStorage.Tests
             DepositGateTests();
             ClickBlockerTests();
             FavoritesRowCacheTests();
+            VanillaMouseBlockingStaysInTheUIPhase();
+            StackIdentityTests();
+            CraftingPoolMatchesWhatAWithdrawalDelivers();
+            BandOfDoorIsNotOfferedWhatItCannotPay();
+            BandOfDoorFixtureBuildsTheReportedPlan();
 
             Console.WriteLine($"\n=== {_pass} passed, {_fail} failed ===");
             if (_fail > 0)
@@ -1051,28 +1060,32 @@ namespace TerraStorage.Tests
             int section = 0; // 1=storage 2=groups 3=recipes
             foreach (var line in File.ReadLines(path))
             {
-                if (line.Length == 0 || line[0] == '#') continue;
-                if (line.StartsWith("STATIONS:")) { foreach (var s in line.Substring(9).Split(' ', StringSplitOptions.RemoveEmptyEntries)) stations.Add(int.Parse(s)); continue; }
-                if (line.StartsWith("CONDITIONS:")) continue; // FakeEnvironment treats conditions as always met
-                if (line == "STORAGE:") { section = 1; continue; }
-                if (line == "GROUPS:") { section = 2; continue; }
-                if (line == "RECIPES:") { section = 3; continue; }
+                // Everything from the first '#' is the dump's human-readable half - item names on
+                // storage and recipe lines - and never part of the data.
+                int comment = line.IndexOf('#');
+                string data = (comment >= 0 ? line.Substring(0, comment) : line).TrimEnd();
+                if (data.Length == 0) continue;
+                if (data.StartsWith("STATIONS:")) { foreach (var s in data.Substring(9).Split(' ', StringSplitOptions.RemoveEmptyEntries)) stations.Add(int.Parse(s)); continue; }
+                if (data.StartsWith("CONDITIONS:")) continue; // FakeEnvironment treats conditions as always met
+                if (data == "STORAGE:") { section = 1; continue; }
+                if (data == "GROUPS:") { section = 2; continue; }
+                if (data == "RECIPES:") { section = 3; continue; }
 
                 try
                 {
                     if (section == 1)
                     {
-                        var p = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                        var p = data.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                         available[int.Parse(p[0])] = int.Parse(p[1]);
                     }
                     else if (section == 2)
                     {
-                        var p = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                        var p = data.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                         env.WithGroup(int.Parse(p[0]), p.Skip(1).Select(int.Parse).ToArray());
                     }
                     else if (section == 3)
                     {
-                        var parts = line.Split('|');
+                        var parts = data.Split('|');
                         var outp = parts[0].Trim().Split(':');
                         int outType = int.Parse(outp[0]), outStack = int.Parse(outp[1]);
                         var ings = parts[1].Trim().Split(',', StringSplitOptions.RemoveEmptyEntries)
@@ -1658,6 +1671,19 @@ namespace TerraStorage.Tests
             var trimmed = new PlanExecutor<FakeItem>(batched).Run(batchStep, 3, new FakeStepProducer(batchStep));
             Eq(batched.StackOf(trimmed), 3, "PX-06 batch rounding hands back only what was asked for");
             Eq(batched.CountItem(PLANK), 7, "PX-06a the excess was stored");
+
+            // The drain that ends an abort asks for everything the run made in one Extract call.
+            // A material held as stacks that each stand for themselves hands back one stack per
+            // call, so the rest stayed in storage: the ingredients came back AND the player kept
+            // what was made from them.
+            var leaky = new FakeStorage().WithUniqueType(PLANK).With(WOOD, 5);
+            var leakySteps = Steps(
+                (new[] { (WOOD, 5) }, PLANK, 3),
+                (new[] { (IRON, 1) }, TARGET, 1));
+            var leaked = new PlanExecutor<FakeItem>(leaky).Run(leakySteps, 1, new FakeStepProducer(leakySteps));
+            Eq(leaky.StackOf(leaked), 0, "PX-07 an unpayable final step produces nothing");
+            Eq(leaky.CountItem(WOOD), 5, "PX-07a the materials came back");
+            Eq(leaky.CountItem(PLANK), 0, "PX-07b and none of what the run made was kept");
         }
 
         // ---- A partial deposit is still a deposit ----
@@ -1901,7 +1927,349 @@ namespace TerraStorage.Tests
             Eq(full.LeftOnDonor, 10, "DF-06 a full target moves nothing");
         }
 
+        // ---- Force-craft semantics apply to the preview's direct draw too ----
+        // The output's own stock is not a material. RecheckRecipeCraftable and ResolveForceCraft
+        // both exclude it; the preview's direct draw did not, so a slot painted green off the very
+        // item being crafted. Reachable via a recipe group whose members include the output.
+        private static void PreviewExcludesTheOutputFromDirectDraw()
+        {
+            Section("Preview will not fill a slot from the item being crafted");
+            const int IRON = 1, LEAD = 2, CHAIN = 3, ANVIL = 90, ANY_IRON = 500;
+
+            var env = new FakeEnvironment().WithStations(ANVIL).WithGroup(ANY_IRON, IRON, LEAD);
+            var lead = env.AddRecipe(LEAD, 1, new[] { (IRON, 3), (CHAIN, 1) },
+                tiles: new[] { ANVIL }, groups: new[] { ANY_IRON });
+            var r = new CoreResolver(env);
+            var stock = new Dictionary<int, int> { [LEAD] = 40, [CHAIN] = 5 };
+
+            // The button path: ResolveForceCraft removes the target from the pool first.
+            var forceStock = new Dictionary<int, int>(stock);
+            forceStock.Remove(LEAD);
+            var steps = new List<CoreStep>();
+            bool button = r.ResolveRecursive(LEAD, 1, forceStock, steps, new HashSet<int>(), 0);
+            bool listFlag = ListCraftableNoPrefilter(r, lead, stock);
+            var views = r.ComputeIngredientPreview(lead, stock, 1);
+            var ironView = views.Find(v => v.Type == IRON);
+
+            IsFalse(button, "FD-01 the button refuses: force-craft will not spend the output");
+            Check(listFlag == button, "FD-02 the list flag agrees with the button");
+            Eq(ironView.TotalHave, 0, "FD-03 the slot is not filled from the item being crafted");
+            Check(ironView.Satisfiable == button, "FD-04 the preview agrees with the button");
+
+            // A recipe naming its own output as an ingredient: same rule, simpler shape.
+            const int GEAR = 10, PLATE = 11, BENCH = 91;
+            var env2 = new FakeEnvironment().WithStations(BENCH);
+            var selfFed = env2.AddRecipe(GEAR, 2, new[] { (GEAR, 1), (PLATE, 1) }, tiles: new[] { BENCH });
+            var r2 = new CoreResolver(env2);
+            var stock2 = new Dictionary<int, int> { [GEAR] = 50, [PLATE] = 50 };
+            var views2 = r2.ComputeIngredientPreview(selfFed, stock2, 1);
+            Eq(views2.Find(v => v.Type == GEAR).TotalHave, 0, "FD-05 an output named as its own ingredient draws nothing");
+        }
+
+        // ---- A recipe-group slot mixes members at EVERY level, not just the top ----
+        // ResolveIngredientSlot mixes; CanProduce used to commit to one concrete type, so
+        // feasibility disagreed with the plan for any group slot below the top level.
+        private static void NestedGroupSlotsMixMembers()
+        {
+            Section("Group slots mix members below the top level");
+            const int GOLD = 10, PLAT = 11, WIDGET = 12, DISK = 13, ANVIL = 91, GRP = 501;
+
+            var env = new FakeEnvironment().WithStations(ANVIL).WithGroup(GRP, GOLD, PLAT);
+            env.AddRecipe(WIDGET, 1, new[] { (GOLD, 10) }, tiles: new[] { ANVIL }, groups: new[] { GRP });
+            var disk = env.AddRecipe(DISK, 1, new[] { (WIDGET, 1) }, tiles: new[] { ANVIL });
+            var r = new CoreResolver(env);
+
+            // Neither metal alone covers the slot; together they do.
+            var stock = new Dictionary<int, int> { [GOLD] = 3, [PLAT] = 7 };
+            var steps = new List<CoreStep>();
+            bool button = r.TryResolveRecipe(disk, DISK, 1, new Dictionary<int, int>(stock),
+                steps, new HashSet<int> { DISK }, 0);
+            var views = r.ComputeIngredientPreview(disk, stock, 1);
+
+            IsTrue(button, "NG-01 the plan mixes 3 gold + 7 platinum one level down");
+            Check(ListCraftableNoPrefilter(r, disk, stock) == button, "NG-02 the list flag agrees");
+            Check(views.TrueForAll(v => v.Satisfiable) == button, "NG-03 the preview agrees");
+            Check(r.IsFeasibleFromSnapshot(DISK, 1, new Dictionary<int, int>(stock)) == button,
+                "NG-04 snapshot feasibility agrees");
+
+            // One short: all three must still agree, now on false.
+            var scarce = new Dictionary<int, int> { [GOLD] = 3, [PLAT] = 6 };
+            var steps2 = new List<CoreStep>();
+            bool button2 = r.TryResolveRecipe(disk, DISK, 1, new Dictionary<int, int>(scarce),
+                steps2, new HashSet<int> { DISK }, 0);
+            IsFalse(button2, "NG-05 nine units cannot fill a ten-unit slot");
+            Check(ListCraftableNoPrefilter(r, disk, scarce) == button2, "NG-06 the list flag agrees when short");
+        }
+
+        // ---- One recipe's ingredient verdict must not decide another's ----
+        // IsIngredientFeasible seeds the cycle guard with the recipe's output, so a cached verdict
+        // is only valid for that output. Keying it only when the output happened to be in stock
+        // let whichever recipe was evaluated first decide for both.
+        private static void IngredientCacheIsScopedByOutput()
+        {
+            Section("Ingredient cache is scoped by the recipe's output");
+            const int OUT1 = 20, OUT2 = 21, MID = 22, BASE = 23;
+
+            var env = new FakeEnvironment();
+            var r1 = env.AddRecipe(OUT1, 1, new[] { (MID, 1) });
+            var r2 = env.AddRecipe(OUT2, 1, new[] { (MID, 1) });
+            env.AddRecipe(MID, 1, new[] { (OUT1, 1) });   // MID routes back through OUT1
+            env.AddRecipe(OUT1, 1, new[] { (BASE, 1) });  // the real route to OUT1
+            var r = new CoreResolver(env);
+            var stock = new Dictionary<int, int> { [BASE] = 10 };
+
+            bool alone1 = ListCraftableNoPrefilter(r, r1, stock);
+            bool alone2 = ListCraftableNoPrefilter(r, r2, stock);
+            IsFalse(alone1, "IO-01 OUT1 cannot be made: its only ingredient routes back through itself");
+            IsTrue(alone2, "IO-02 OUT2 can be made: MID may route through OUT1 freely");
+
+            // Both orders, one shared cache: the verdicts must not move.
+            var forward = new Dictionary<(int ctx, int group, int type, int stack), bool>();
+            bool f1 = r.RecheckRecipeCraftable(r1, new Dictionary<int, int>(stock), forward);
+            bool f2 = r.RecheckRecipeCraftable(r2, new Dictionary<int, int>(stock), forward);
+            Check(f1 == alone1, "IO-03 sharing a cache does not change OUT1's verdict");
+            Check(f2 == alone2, "IO-04 sharing a cache does not change OUT2's verdict");
+
+            var reverse = new Dictionary<(int ctx, int group, int type, int stack), bool>();
+            bool b2 = r.RecheckRecipeCraftable(r2, new Dictionary<int, int>(stock), reverse);
+            bool b1 = r.RecheckRecipeCraftable(r1, new Dictionary<int, int>(stock), reverse);
+            Check(b1 == alone1, "IO-05 evaluation order does not change OUT1's verdict");
+            Check(b2 == alone2, "IO-06 evaluation order does not change OUT2's verdict");
+        }
+
+        // ---- An abort on a full network must return storage exactly as it was ----
+        // Refunding everything and then discarding the conjured intermediates overflows by exactly
+        // the conjured amount, and real materials drop as leftover.
+        private static void AbortRefundSurvivesAFullNetwork()
+        {
+            Section("An aborted plan refunds fully even with no spare room");
+            const int WOOD = 1, PLANK = 2, IRON = 3, TARGET = 4;
+
+            // 5 wood + 2 iron + 2 planks the player already owned = 9 units; capacity is exactly 9.
+            var storage = new FakeStorage().With(WOOD, 5).With(IRON, 2).With(PLANK, 2);
+            storage.Capacity = 9;
+            var steps = Steps(
+                (new[] { (WOOD, 5) }, PLANK, 1),
+                (new[] { (PLANK, 3), (IRON, 3) }, TARGET, 1));   // only 2 iron, so it aborts
+
+            var result = new PlanExecutor<FakeItem>(storage).Run(steps, 1, new FakeStepProducer(steps));
+
+            Eq(storage.StackOf(result), 0, "AF-01 the plan aborts and produces nothing");
+            Eq(storage.CountItem(WOOD), 5, "AF-02 the wood came back");
+            Eq(storage.CountItem(IRON), 2, "AF-03 the iron came back, not dropped as leftover");
+            Eq(storage.CountItem(PLANK), 2, "AF-04 the player's own planks survived, the conjured one did not");
+            Eq(storage.TotalUnits, 9, "AF-05 storage is exactly as it started");
+
+            // An intermediate no later step consumed is still in storage and must also go.
+            var untouched = new FakeStorage().With(WOOD, 5).With(IRON, 1);
+            var threeSteps = Steps(
+                (new[] { (WOOD, 5) }, PLANK, 2),
+                (new[] { (PLANK, 1) }, TARGET, 1),
+                (new[] { (IRON, 5) }, TARGET, 1));
+            var aborted = new PlanExecutor<FakeItem>(untouched).Run(threeSteps, 1, new FakeStepProducer(threeSteps));
+            Eq(untouched.StackOf(aborted), 0, "AF-06 the later step's shortfall aborts the plan");
+            Eq(untouched.CountItem(WOOD), 5, "AF-07 materials refunded");
+            Eq(untouched.CountItem(PLANK), 0, "AF-08 no conjured intermediate is left behind");
+            Eq(untouched.CountItem(TARGET), 0, "AF-09 including one produced by a middle step");
+        }
+
         // Builds the execution steps for a plan: each entry is (what it costs, what it makes).
+
+        // ---- The count a craft is offered must be a count a withdrawal can pay ----
+        // Band of Door: the panel counted 18 Door Pants held as 18 stacks that each stand for
+        // themselves, painted the CRAFT button green, and the plan's last step could withdraw one
+        // of them. ExecutePlan aborted and ExecuteCraft returned without a sound, a message or a
+        // visible change - the reported "clicking craft does nothing".
+        private static void CraftingPoolMatchesWhatAWithdrawalDelivers()
+        {
+            Section("The crafting pool promises only what a withdrawal can deliver");
+
+            var doorPants = UniqueOnes(20);
+            Eq(doorPants.Sum(s => s.Stack), 20, "WD-01 the raw count sums every stack");
+            Eq(StackSelection.WithdrawableCount(doorPants), 1,
+                "WD-02 but a bulk withdrawal can only ever take one of them");
+
+            var plain = PlainStacks(40, 40, 40);
+            Eq(StackSelection.WithdrawableCount(plain), 120, "WD-03 pooled stacks are unaffected");
+
+            var mixed = new List<StackSlot>(plain) { new StackSlot { Index = 3, Stack = 9, IsUnique = true } };
+            Eq(StackSelection.WithdrawableCount(mixed), 120,
+                "WD-04 a unique stack adds nothing a bulk draw can use");
+
+            var uneven = UniqueStacks(1, 7, 3);
+            Eq(StackSelection.WithdrawableCount(uneven), 7,
+                "WD-05 with nothing plain, the biggest single stack is the ceiling");
+
+            Eq(StackSelection.WithdrawableCount(new List<StackSlot>()), 0, "WD-06 nothing stored offers nothing");
+
+            // The invariant the defect broke, over every shape: the amount a craft is offered is
+            // the amount a withdrawal of that amount actually hands back.
+            var shapes = new (List<StackSlot> slots, string label)[]
+            {
+                (doorPants, "twenty single unique stacks"),
+                (plain,     "three pooled stacks"),
+                (mixed,     "pooled stacks with a unique one among them"),
+                (uneven,    "unique stacks of different sizes"),
+                (UniqueStacks(4), "one unique stack")
+            };
+
+            foreach (var (slots, label) in shapes)
+            {
+                int offered = StackSelection.WithdrawableCount(slots);
+                var draws = StackSelection.PlanWithdrawal(slots, offered, true, out _);
+                Eq(draws.Sum(d => d.Count), offered, $"WD-07 {label}: the offered count is the delivered count");
+            }
+        }
+
+        // ---- The reported recipe, end to end ----
+        // Band of Door = 1 Shackle + 20 Door Pants, at a Work Bench. Door Pants are armour: 18 of
+        // them are 18 stacks, and in a modded world each stack stands for itself.
+        private static void BandOfDoorIsNotOfferedWhatItCannotPay()
+        {
+            Section("A recipe is not offered when its material cannot be withdrawn in bulk");
+            const int BAND = 18120, SHACKLE = 216, DOOR_PANTS = 18121, WOODEN_DOOR = 25, WOOD = 9;
+            const int WORK_BENCH = 18;
+
+            var env = new FakeEnvironment().WithStations(WORK_BENCH);
+            env.AddRecipe(BAND, 1, new[] { (SHACKLE, 1), (DOOR_PANTS, 20) }, new[] { WORK_BENCH });
+            env.AddRecipe(DOOR_PANTS, 1, new[] { (WOODEN_DOOR, 2) }, new[] { WORK_BENCH });
+            env.AddRecipe(WOODEN_DOOR, 1, new[] { (WOOD, 6) }, new[] { WORK_BENCH });
+
+            var storage = new FakeStorage()
+                .WithUniqueType(DOOR_PANTS)
+                .With(WOOD, 4472)
+                .With(SHACKLE, 1)
+                .With(DOOR_PANTS, 18);
+
+            var core = new CoreResolver(env) { MaxDepth = 10 };
+
+            var counted = new Dictionary<int, int>
+            {
+                [WOOD] = storage.CountItem(WOOD),
+                [SHACKLE] = storage.CountItem(SHACKLE),
+                [DOOR_PANTS] = storage.CountItem(DOOR_PANTS)
+            };
+            var countedSteps = new List<CoreStep>();
+            IsTrue(core.ResolveRecursive(BAND, 1, counted, countedSteps, new HashSet<int>(), 0),
+                "BD-01 counting every stack makes the recipe look craftable");
+
+            var withdrawable = new Dictionary<int, int>
+            {
+                [WOOD] = storage.WithdrawableCount(WOOD),
+                [SHACKLE] = storage.WithdrawableCount(SHACKLE),
+                [DOOR_PANTS] = storage.WithdrawableCount(DOOR_PANTS)
+            };
+            Eq(withdrawable[DOOR_PANTS], 1, "BD-02 only one Door Pant can actually be withdrawn");
+
+            // The honest pool no longer lets the stock stand in for units the withdrawal cannot
+            // hand over: the resolver plans the shortfall instead of assuming it away.
+            var honestSteps = new List<CoreStep>();
+            IsTrue(core.ResolveRecursive(BAND, 1, withdrawable, honestSteps, new HashSet<int>(), 0),
+                "BD-03 the honest pool still reaches the item through its own recipe");
+            int drawnFromStock = honestSteps
+                .Where(s => s.ProducedType == DOOR_PANTS)
+                .Sum(s => s.ProducedCount);
+            Eq(drawnFromStock, 19, "BD-03a and plans every unit the stock cannot supply");
+
+            // Executing the plan the raw count produced is the reported no-op - and each attempt
+            // left a Door Pant behind, which is how the player's 18 became 20.
+            var steps = Steps(
+                (new[] { (WOOD, 24) }, WOODEN_DOOR, 4),
+                (new[] { (WOODEN_DOOR, 4) }, DOOR_PANTS, 2),
+                (new[] { (SHACKLE, 1), (DOOR_PANTS, 20) }, BAND, 1));
+            var made = new PlanExecutor<FakeItem>(storage).Run(steps, 1, new FakeStepProducer(steps));
+
+            Eq(storage.StackOf(made), 0, "BD-04 the craft produces nothing");
+            Eq(storage.CountItem(DOOR_PANTS), 18, "BD-05 and leaves no intermediate behind");
+            Eq(storage.CountItem(WOOD), 4472, "BD-06 the materials came back");
+            Eq(storage.CountItem(SHACKLE), 1, "BD-07 including the partial payment");
+            Eq(storage.CountItem(WOODEN_DOOR), 0, "BD-08 and the first step's product was discarded");
+
+            // Armour holds one unit per stack, so the 18 pieces are 18 stacks either way. What
+            // decides the craft is whether they pool: once they do, the withdrawal spans all of
+            // them and the same recipe goes through.
+            var pooling = new FakeStorage()
+                .With(WOOD, 4472)
+                .With(SHACKLE, 1)
+                .WithStacks(DOOR_PANTS, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1);
+            Eq(pooling.WithdrawableCount(DOOR_PANTS), 18, "BD-09 pooled stacks offer every unit");
+
+            var payable = Steps(
+                (new[] { (WOOD, 24) }, WOODEN_DOOR, 4),
+                (new[] { (WOODEN_DOOR, 4) }, DOOR_PANTS, 2),
+                (new[] { (SHACKLE, 1), (DOOR_PANTS, 20) }, BAND, 1));
+            var band = new PlanExecutor<FakeItem>(pooling).Run(payable, 1, new FakeStepProducer(payable));
+
+            Eq(pooling.StackOf(band), 1, "BD-10 and the craft goes through");
+            Eq(pooling.CountItem(DOOR_PANTS), 0, "BD-10a spending all twenty");
+            Eq(pooling.CountItem(SHACKLE), 0, "BD-10b and the shackle");
+            Eq(pooling.CountItem(WOOD), 4448, "BD-10c leaving the wood the chain actually cost");
+        }
+
+        // ---- The reported recipe, against the real recipe graph ----
+        // A three-hop slice of the /tsdump the bug was reported from, so the plan under test is the
+        // one the game actually built rather than a hand-written approximation of it.
+        private static void BandOfDoorFixtureBuildsTheReportedPlan()
+        {
+            Section("Band of Door: the real dump slice resolves to the reported plan");
+            const int BAND = 18120, SHACKLE = 216, DOOR_PANTS = 18121, WOODEN_DOOR = 25, WOOD = 9;
+
+            string fixture = Path.Combine(AppContext.BaseDirectory, "Fixtures", "band-of-door.tsdump.txt");
+            if (!File.Exists(fixture)) { Check(false, $"FX-00 fixture missing at {fixture}"); return; }
+
+            var env = new FakeEnvironment();
+            var counted = new Dictionary<int, int>();
+            var stations = new HashSet<int>();
+            ParseDump(fixture, env, counted, stations);
+
+            Eq(env.AllRecipes.Count, 6, "FX-01 the slice carries the recipes the chain needs");
+            Eq(counted[DOOR_PANTS], 18, "FX-02 the dump counted eighteen Door Pants");
+
+            var steps = new List<CoreStep>();
+            var core = new CoreResolver(env) { MaxDepth = 10 };
+            IsTrue(core.ResolveRecursive(BAND, 1, new Dictionary<int, int>(counted), steps, new HashSet<int>(), 0),
+                "FX-03 which made the panel offer the craft");
+            Eq(steps.Count, 3, "FX-03a through the same three steps the game planned");
+
+            var finalStep = steps[steps.Count - 1];
+            Eq(finalStep.ProducedType, BAND, "FX-04 the last step makes the band");
+            Eq(finalStep.Consumed[DOOR_PANTS], 20, "FX-04a and asks storage for twenty Door Pants at once");
+            Eq(finalStep.Consumed[SHACKLE], 1, "FX-04b plus the shackle");
+            Eq(steps[0].ProducedType, WOODEN_DOOR, "FX-05 the chain starts at wooden doors");
+            Eq(steps[0].Consumed[WOOD], 24, "FX-05a costing the wood the dump had");
+
+            // Held as stacks that each stand for themselves - which is what the build the bug was
+            // reported from made of every stack - one withdrawal hands over one of the twenty.
+            var asStoredThen = new FakeStorage()
+                .WithUniqueType(DOOR_PANTS)
+                .With(DOOR_PANTS, counted[DOOR_PANTS]);
+            Eq(asStoredThen.WithdrawableCount(DOOR_PANTS), 1,
+                "FX-06 so the step could never have been paid for");
+        }
+
+        private static List<StackSlot> UniqueOnes(int count)
+        {
+            var sizes = new int[count];
+            for (int index = 0; index < count; index++)
+                sizes[index] = 1;
+            return UniqueStacks(sizes);
+        }
+
+        private static List<StackSlot> UniqueStacks(params int[] sizes)
+        {
+            var slots = new List<StackSlot>();
+            for (int index = 0; index < sizes.Length; index++)
+                slots.Add(new StackSlot { Index = index, Stack = sizes[index], IsUnique = true });
+            return slots;
+        }
+
+        private static List<StackSlot> PlainStacks(params int[] sizes)
+        {
+            var slots = new List<StackSlot>();
+            for (int index = 0; index < sizes.Length; index++)
+                slots.Add(new StackSlot { Index = index, Stack = sizes[index] });
+            return slots;
+        }
         private static List<ExecutionStep> Steps(params ((int type, int count)[] consumed, int producedType, int producedCount)[] steps)
         {
             var built = new List<ExecutionStep>();
@@ -1914,6 +2282,140 @@ namespace TerraStorage.Tests
             }
 
             return built;
+        }
+
+        private static void VanillaMouseBlockingStaysInTheUIPhase()
+        {
+            Section("Vanilla mouse blocking is decided in the UI phase only");
+
+            string repoRoot = FindRepoRoot();
+            IsTrue(repoRoot != null, "PU-00 repo root located from " + AppContext.BaseDirectory);
+            if (repoRoot == null) return;
+
+            var uiPhaseOwners = new SortedSet<string>(StringComparer.Ordinal)
+            {
+                "Content/UI/CraftingCoreUIState.cs",
+                "Content/UI/CraftingTree/CraftingTreeState.cs",
+                "Content/UI/DiskRecoveryUIState.cs",
+                "Content/UI/DriveBayUIState.cs",
+                "Content/UI/Elements/TSButton.cs",
+                "Content/UI/Elements/TSCloseButton.cs",
+                "Content/UI/Elements/TSTab.cs",
+                "Content/UI/Elements/TSWindowElement.cs",
+                "Content/UI/Elements/UICategoryFilterBar.cs",
+                "Content/UI/Elements/UICraftingPanel.cs",
+                "Content/UI/Elements/UIDiskPanel.cs",
+                "Content/UI/Elements/UISortBar.cs",
+                "Content/UI/Encyclopedia/EncyclopediaState.cs",
+                "Content/UI/FavoritedRecipesPanelSystem.cs",
+                "Content/UI/TerminalUIState.cs",
+                "Content/UI/UIFavoritedRecipesPanel.cs"
+            };
+
+            var blockers = new SortedSet<string>(FindFilesAssigningMouseInterface(repoRoot), StringComparer.Ordinal);
+
+            string outsideTheUIPhase = string.Join(", ", blockers.Except(uiPhaseOwners));
+            string stoppedBlocking = string.Join(", ", uiPhaseOwners.Except(blockers));
+
+            IsTrue(outsideTheUIPhase.Length == 0,
+                "PU-01 mouseInterface is assigned only from UI-phase code [" + outsideTheUIPhase + "]");
+            IsTrue(stoppedBlocking.Length == 0,
+                "PU-02 every Requisition window still blocks the vanilla mouse [" + stoppedBlocking + "]");
+        }
+
+        private static IEnumerable<string> FindFilesAssigningMouseInterface(string repoRoot)
+        {
+            foreach (string file in Directory.EnumerateFiles(repoRoot, "*.cs", SearchOption.AllDirectories))
+            {
+                if (IsOutsideModSource(repoRoot, file)) continue;
+                if (!AssignsMouseInterface(StripLineComments(File.ReadAllText(file)))) continue;
+
+                yield return file.Substring(repoRoot.Length).TrimStart(Path.DirectorySeparatorChar)
+                                 .Replace(Path.DirectorySeparatorChar, '/');
+            }
+        }
+
+        private static bool AssignsMouseInterface(string source)
+        {
+            const string field = "mouseInterface";
+
+            int search = 0;
+            while (true)
+            {
+                int mention = source.IndexOf(field, search, StringComparison.Ordinal);
+                if (mention < 0) return false;
+                search = mention + field.Length;
+
+                int after = search;
+                while (after < source.Length && char.IsWhiteSpace(source[after])) after++;
+                if (after < source.Length && source[after] == '=' && source[after + 1] != '=') return true;
+            }
+        }
+
+        private static string FindRepoRoot()
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null && !File.Exists(Path.Combine(dir.FullName, "build.txt")))
+                dir = dir.Parent;
+            return dir?.FullName;
+        }
+
+        private static bool IsOutsideModSource(string repoRoot, string file)
+        {
+            string relative = file.Substring(repoRoot.Length).Replace(Path.DirectorySeparatorChar, '/');
+            return relative.Contains("/obj/") || relative.Contains("/bin/")
+                || relative.Contains("/.claude/") || relative.Contains("/Tests/");
+        }
+
+        private static string StripLineComments(string source)
+        {
+            var kept = new List<string>();
+            foreach (string line in source.Split('\n'))
+            {
+                int comment = line.IndexOf("//", StringComparison.Ordinal);
+                kept.Add(comment >= 0 ? line.Substring(0, comment) : line);
+            }
+            return string.Join("\n", kept);
+        }
+
+        // Two 1-stacks of the same fruit deposited into storage have to become one 2-stack, the way
+        // they do in the player inventory and in a chest. They did not, because every item in a
+        // modded world carries bytes some GlobalItem wrote, and carrying those was read as "this
+        // stack is its own item".
+        private static void StackIdentityTests()
+        {
+            Section("Stack identity: what makes a stack its own item");
+
+            IsFalse(StackIdentity.IsUnique(hasModItemData: false, gameRefusesToStackWithPlainItem: false),
+                "SI-01 a plain fruit carrying another mod's GlobalItem bytes is NOT its own item");
+
+            IsTrue(StackIdentity.IsUnique(hasModItemData: true, gameRefusesToStackWithPlainItem: false),
+                "SI-02 a storage disk, whose GUID is its own ModItem save data, IS its own item");
+
+            IsTrue(StackIdentity.IsUnique(hasModItemData: false, gameRefusesToStackWithPlainItem: true),
+                "SI-03 an item the game itself refuses to stack IS its own item");
+
+            IsTrue(StackIdentity.MustPreserveFullTag(hasModItemData: false, carriesModWrittenData: true),
+                "SI-04 mod-written bytes are still preserved for extraction");
+
+            IsFalse(StackIdentity.MustPreserveFullTag(hasModItemData: false, carriesModWrittenData: false),
+                "SI-05 a stack carrying nothing needs no full tag");
+
+            // The reported bug, as the grid decides it: the terminal gives a stack its own cell
+            // exactly when the stack is its own item, so two 1-stacks of the same fruit are one
+            // cell and a storage disk is not folded into its neighbours.
+            var fruit = new StackSlot { Index = 0, Stack = 1, IsUnique = false };
+            var alsoFruit = new StackSlot { Index = 1, Stack = 1, IsUnique = false };
+            var disk = new StackSlot { Index = 2, Stack = 1, IsUnique = true };
+
+            var wholeFruitStack = StackSelection.PlanWithdrawal(
+                new[] { fruit, alsoFruit }, 2, allowUniqueFallback: true, out bool tookUnique);
+            Eq(wholeFruitStack.Sum(d => d.Count), 2, "SI-06 two 1-stacks of the same fruit come out as 2");
+            IsFalse(tookUnique, "SI-07 pooling two plain stacks is not a unique withdrawal");
+
+            var pastTheDisk = StackSelection.PlanWithdrawal(
+                new[] { disk, fruit }, 2, allowUniqueFallback: true, out _);
+            Eq(pastTheDisk.Sum(d => d.Count), 1, "SI-08 a stack that stands for itself is not drained into a count");
         }
 
         private static void Section(string title) => Console.WriteLine($"-- {title}");

@@ -1,0 +1,18 @@
+# Band of Door: 20 Door Pants + 1 Shackle at a Work Bench. Sliced from the real
+# /tsdump of 2026-08-25 by BFS closure from item 18120, three hops.
+# The panel counted 18 Door Pants held as 18 stacks that each stood for themselves,
+# painted CRAFT green, and the withdrawal could hand over one.
+STATIONS: 18 16 17 94 4 215 13 103 106
+CONDITIONS: 
+STORAGE:
+9 4472
+216 1
+18121 18
+GROUPS:
+RECIPES:
+25:1 | 9:6 | tiles:18 | groups:
+216:1 | 1678:1 | tiles:220 | groups:
+216:1 | 1701:1 | tiles:220 | groups:
+216:1 | 1643:1 | tiles:220 | groups:
+18120:1 | 216:1,18121:20 | tiles:18 | groups:
+18121:1 | 25:2 | tiles:18 | groups:
