@@ -448,16 +448,20 @@ namespace TerraStorage.Systems
                 StorageWorldSystem.Instance.BeginModificationTracking();
                 int leftover = StorageWorldSystem.Instance.InsertItem(diskIds, item);
                 DBG($"  InsertItem result: leftover={leftover}");
-                if (leftover > 0)
+
+                // Built before item.stack is overwritten with the leftover below.
+                var outcome = new DepositOutcome(item.stack, leftover);
+
+                if (outcome.NeedsReturn)
                 {
-                    item.stack = leftover;
+                    item.stack = outcome.Leftover;
                     var resultPacket = mod.GetPacket();
                     resultPacket.Write((byte)PacketType.WithdrawItemResult);
                     ItemIO.Send(item, resultPacket, true);
                     resultPacket.Write(true); // shift=true: route into inventory, fall back to cursor
                     resultPacket.Send(whoAmI);
                 }
-                EndTrackingAndRespond(mod, whoAmI, leftover < item.stack, diskIds);
+                EndTrackingAndRespond(mod, whoAmI, outcome.AnyDeposited, diskIds);
             }
         }
 
@@ -513,12 +517,16 @@ namespace TerraStorage.Systems
 
             StorageWorldSystem.Instance.BeginModificationTracking();
             int leftover = StorageWorldSystem.Instance.InsertItem(diskIds, item);
-            if (leftover > 0)
+
+            // Built before item.stack becomes the leftover — see HandleDepositItem.
+            var outcome = new DepositOutcome(item.stack, leftover);
+
+            if (outcome.NeedsReturn)
             {
-                item.stack = leftover;
+                item.stack = outcome.Leftover;
                 SendReturnItemToClient(mod, whoAmI, item);
             }
-            EndTrackingAndRespond(mod, whoAmI, leftover < item.stack, diskIds);
+            EndTrackingAndRespond(mod, whoAmI, outcome.AnyDeposited, diskIds);
         }
 
         // Server → client: return an item to the player's inventory with full fidelity (mod data
@@ -1129,7 +1137,7 @@ namespace TerraStorage.Systems
             int slotIdx   = reader.ReadInt32();
             var diskId    = new Guid(reader.ReadBytes(16));
             int diskCount = reader.ReadInt32();
-            var diskIds   = ReadGuidList(reader, diskCount);
+            ReadGuidList(reader, diskCount); // read to advance the stream; the network is re-derived below
             int optionIdx = reader.ReadInt32();
             int staCnt    = reader.ReadInt32();
             var stations  = new System.Collections.Generic.HashSet<int>();
@@ -1154,23 +1162,19 @@ namespace TerraStorage.Systems
             var nextTier = (DiskTier)((int)disk.Tier + 1);
             var sys      = StorageWorldSystem.Instance;
 
+            // The packet's disk list is client-supplied: re-derive the network from the bay itself so
+            // a crafted client cannot name disks it is nowhere near, or repeat one to inflate counts.
+            var networkDiskIds = StorageNetwork.GetAllConnectedDiskIds(bay.Position);
+
             sys.BeginModificationTracking();
 
-            // Consume ingredients (craft shortfalls from storage if needed).
-            foreach (var (itemType, need) in option)
+            // Affordability is re-checked here, not trusted from the client: the panel's gate lives
+            // on the client only, and storage can change between its check and this packet arriving.
+            // TryConsumeMaterials is all-or-nothing, so a shortfall leaves storage untouched.
+            if (!RecipeResolver.TryConsumeMaterials(networkDiskIds, option, stations, conditions))
             {
-                int have = sys.CountItem(diskIds, itemType);
-                if (have < need)
-                {
-                    var plan = RecipeResolver.Resolve(itemType, need - have, diskIds, stations, conditions);
-                    if (plan != null && plan.IsFeasible)
-                    {
-                        var crafted = RecipeResolver.ExecutePlan(plan, diskIds);
-                        if (!crafted.IsAir)
-                            sys.InsertItem(diskIds, crafted);
-                    }
-                }
-                sys.ExtractItem(diskIds, itemType, need);
+                EndTrackingAndBroadcast(mod);
+                return;
             }
 
             // Build upgraded disk item, carry GUID, upgrade tier in world storage.

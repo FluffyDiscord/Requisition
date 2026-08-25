@@ -69,6 +69,15 @@ namespace TerraStorage.Systems
 
         public IReadOnlyCollection<int> FavoritedRecipes => _favoritedRecipes;
 
+        // Changes whenever the favorited-recipes set changes. UI caches (the Favorited Recipes
+        // panel's row cache) poll this instead of re-walking the set every frame. Drawn from a
+        // process-global counter, never a per-instance one: the consuming cache outlives the
+        // player instance, and a per-instance counter would hand every character's LoadData the
+        // same value — a character switch would then never invalidate the cache.
+        public long FavoritesVersion { get; private set; }
+
+        private static long _favoritesVersionCounter;
+
         // Toggles the favorite state of an item. Uses a remove-first pattern:
         // if the key was already present it gets removed, otherwise it is added.
         public void ToggleItemFavorite(int type, int prefix)
@@ -84,6 +93,7 @@ namespace TerraStorage.Systems
             if (!RecipeIndexLookup.TryGetValue(recipe, out int idx)) return;
             if (!_favoritedRecipes.Remove(idx))
                 _favoritedRecipes.Add(idx);
+            FavoritesVersion = System.Threading.Interlocked.Increment(ref _favoritesVersionCounter);
         }
 
         public override void OnEnterWorld()
@@ -223,6 +233,7 @@ namespace TerraStorage.Systems
 
             _starterGiven = tag.GetBool("starterGiven");
             CraftingTreeAutoMinimize = !tag.ContainsKey("craftingTreeAutoMin") || tag.GetBool("craftingTreeAutoMin");
+            FavoritesVersion = System.Threading.Interlocked.Increment(ref _favoritesVersionCounter);
         }
     }
 }

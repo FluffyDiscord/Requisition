@@ -374,13 +374,26 @@ namespace TerraStorage.Systems
                     continue;
 
                 int needed = count - totalExtracted;
-                var extracted = disk.ExtractItem(itemType, needed, prefixId);
+                // Once plain items are in hand, refuse a unique stack rather than pull one out and
+                // have to fold it into a count it does not describe.
+                var extracted = disk.ExtractItem(itemType, needed, prefixId,
+                    allowUniqueFallback: totalExtracted == 0, out bool uniqueStack);
                 if (extracted.IsAir)
                     continue;
 
+                _modifiedTracker?.Add(diskId);
+
+                // A unique stack stands for itself: its mod state describes those units and no
+                // others, so it is returned as-is rather than absorbing counts from other disks.
+                if (uniqueStack)
+                {
+                    StorageVersion++;
+                    BackupSystem.MarkDirty();
+                    return extracted;
+                }
+
                 totalExtracted += extracted.stack;
                 result ??= extracted;
-                _modifiedTracker?.Add(diskId);
 
                 if (totalExtracted >= count)
                     break;
@@ -523,61 +536,43 @@ namespace TerraStorage.Systems
                     {
                         var stack = donor.Items[si];
 
-                        if (stack.ModData != null)
+                        // What may merge with what is DiskData's identity rule, which needs NBT;
+                        // what that verdict then means for stacks and slots is StackSelection's,
+                        // which does not. "Unique" covers a mod's GlobalItem state as well as
+                        // ModItem data: merging on type+prefix alone destroyed enchantments one way
+                        // and duplicated them the other.
+                        bool isUnique = DiskData.HasPerInstanceData(stack);
+                        var mergeTargets = BuildMergeTargets(target, stack);
+                        int freeSlots = target.MaxStacks - target.UsedStacks;
+
+                        var plan = StackSelection.PlanDonorMove(mergeTargets, stack.Stack,
+                            GetMaxStack(stack.ItemType), freeSlots, isUnique);
+
+                        if (plan.MoveWholeStack)
                         {
-                            // Unique item — move whole stack to a free slot only.
                             target.Items.Add(stack);
                             donor.Items.RemoveAt(si);
                             modified.Add(target.DiskId);
                             modified.Add(donor.DiskId);
+                            continue;
                         }
-                        else
+
+                        foreach (var merge in plan.Merges)
+                            target.Items[merge.Index].Stack += merge.Count;
+
+                        foreach (int addAmount in plan.NewSlots)
+                            target.Items.Add(CopyStackWithCount(stack, addAmount));
+
+                        if (plan.LeftOnDonor < stack.Stack)
                         {
-                            // Plain item — merge into existing partial stacks first, then add new slot.
-                            var tempItem = new Terraria.Item();
-                            tempItem.SetDefaults(stack.ItemType);
-                            int maxStack = tempItem.maxStack;
-                            int toMove = stack.Stack;
-
-                            foreach (var existing in target.Items)
-                            {
-                                if (existing.ItemType == stack.ItemType
-                                    && existing.PrefixId == stack.PrefixId
-                                    && existing.ModData == null
-                                    && existing.Stack < maxStack)
-                                {
-                                    int canAdd = Math.Min(toMove, maxStack - existing.Stack);
-                                    existing.Stack += canAdd;
-                                    toMove -= canAdd;
-                                    if (toMove == 0) break;
-                                }
-                            }
-
-                            while (toMove > 0 && !target.IsFull)
-                            {
-                                int addAmount = Math.Min(toMove, maxStack);
-                                target.Items.Add(new StoredItemStack
-                                {
-                                    ItemType     = stack.ItemType,
-                                    Stack        = addAmount,
-                                    PrefixId     = stack.PrefixId,
-                                    InsertionOrder = stack.InsertionOrder,
-                                    ModData      = null
-                                });
-                                toMove -= addAmount;
-                            }
-
-                            if (toMove < stack.Stack)
-                            {
-                                modified.Add(target.DiskId);
-                                modified.Add(donor.DiskId);
-                            }
-
-                            if (toMove == 0)
-                                donor.Items.RemoveAt(si);
-                            else
-                                stack.Stack = toMove;
+                            modified.Add(target.DiskId);
+                            modified.Add(donor.DiskId);
                         }
+
+                        if (plan.LeftOnDonor == 0)
+                            donor.Items.RemoveAt(si);
+                        else
+                            stack.Stack = plan.LeftOnDonor;
                     }
                 }
             }
@@ -590,6 +585,45 @@ namespace TerraStorage.Systems
 
             return modified.ToList();
         }
+
+        // Every stack already on the target, with the identity verdict for this donor attached.
+        private static List<MergeTarget> BuildMergeTargets(DiskData target, StoredItemStack donorStack)
+        {
+            var mergeTargets = new List<MergeTarget>(target.Items.Count);
+
+            for (int index = 0; index < target.Items.Count; index++)
+            {
+                var existing = target.Items[index];
+                mergeTargets.Add(new MergeTarget
+                {
+                    Index = index,
+                    Stack = existing.Stack,
+                    Accepts = DiskData.CanMergeStacks(existing, donorStack)
+                });
+            }
+
+            return mergeTargets;
+        }
+
+        private static int GetMaxStack(int itemType)
+        {
+            var tempItem = new Item();
+            tempItem.SetDefaults(itemType);
+            return tempItem.maxStack;
+        }
+
+        // A relocated stack keeps everything that identifies it, or defragmenting would quietly
+        // strip the per-instance data the identity rule just protected.
+        private static StoredItemStack CopyStackWithCount(StoredItemStack source, int count)
+            => new StoredItemStack
+            {
+                ItemType       = source.ItemType,
+                Stack          = count,
+                PrefixId       = source.PrefixId,
+                InsertionOrder = source.InsertionOrder,
+                ModData        = source.ModData,
+                FullItemTag    = source.FullItemTag
+            };
 
         private static void DBG(string msg)
         {

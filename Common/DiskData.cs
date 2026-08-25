@@ -92,37 +92,41 @@ namespace TerraStorage.Common
             return remaining;
         }
 
-        // Extract up to 'count' of the given item type. Returns the items extracted.
         public Item ExtractItem(int itemType, int count, int prefixId = -1)
+            => ExtractItem(itemType, count, prefixId, true, out _);
+
+        // Extract up to 'count' of the given item type. Returns the items extracted.
+        // uniqueStack reports that the result carries per-instance mod data and therefore stands for
+        // exactly the one stack it came from — callers must not fold any other count into it.
+        // allowUniqueFallback lets a caller that is already carrying plain items refuse the fallback,
+        // so a unique stack is never pulled out only to be mixed in with something else.
+        public Item ExtractItem(int itemType, int count, int prefixId, bool allowUniqueFallback, out bool uniqueStack)
         {
             int extracted = 0;
             var toRemove = new List<StoredItemStack>();
-            // Track the mod data from the last fully-consumed stack. For items with unique
-            // per-instance mod data (e.g. disks, maxStack=1) only one stack is ever consumed,
-            // so this always captures the correct data. For regular stackable items it stays null.
             TagCompound extractedModData = null;
             TagCompound extractedFullTag = null;
 
-            foreach (var stored in Items)
+            // Which stacks to draw from, and whether the unique fallback applies, is decided by
+            // StackSelection so the rule can be asserted without NBT. Everything below just carries
+            // that plan out.
+            var matching = MatchingSlots(itemType, prefixId);
+            var draws = StackSelection.PlanWithdrawal(matching, count, allowUniqueFallback, out uniqueStack);
+
+            foreach (var draw in draws)
             {
-                if (!stored.Matches(itemType, prefixId))
-                    continue;
+                var stored = Items[draw.Index];
+                stored.Stack -= draw.Count;
+                extracted += draw.Count;
 
-                int canTake = Math.Min(count - extracted, stored.Stack);
-                stored.Stack -= canTake;
-                extracted += canTake;
-
-                if (stored.Stack <= 0)
+                if (uniqueStack)
                 {
-                    toRemove.Add(stored);
-                    if (stored.ModData != null)
-                        extractedModData = stored.ModData;
-                    if (stored.FullItemTag != null)
-                        extractedFullTag = stored.FullItemTag;
+                    extractedModData = stored.ModData;
+                    extractedFullTag = stored.FullItemTag;
                 }
 
-                if (extracted >= count)
-                    break;
+                if (stored.Stack <= 0)
+                    toRemove.Add(stored);
             }
 
             foreach (var r in toRemove)
@@ -152,6 +156,29 @@ namespace TerraStorage.Common
             }
 
             return result;
+        }
+
+        // The stacks a withdrawal of this item type may draw from, in storage order, reduced to
+        // what the selection rules need.
+        private List<StackSlot> MatchingSlots(int itemType, int prefixId)
+        {
+            var matching = new List<StackSlot>();
+
+            for (int index = 0; index < Items.Count; index++)
+            {
+                var stored = Items[index];
+                if (!stored.Matches(itemType, prefixId))
+                    continue;
+
+                matching.Add(new StackSlot
+                {
+                    Index = index,
+                    Stack = stored.Stack,
+                    IsUnique = HasPerInstanceData(stored)
+                });
+            }
+
+            return matching;
         }
 
         // Extract the specific per-instance stack whose ModData matches <paramref name="targetModData"/>
@@ -244,6 +271,18 @@ namespace TerraStorage.Common
         // mod-attached state (e.g. two unenchanted items both carrying default CalamityGlobalItem)
         // are still allowed to merge, while items with differing enchantments are not.
         // 
+        // True if this stack carries per-instance state that makes it a distinct item — a ModItem's
+        // own save data, or another mod's GlobalItem state riding in the full tag. Such a stack may
+        // never be merged with a plain one; anything that reorganises stacks must ask this first.
+        public static bool HasPerInstanceData(StoredItemStack stack)
+            => stack.ModData != null || stack.FullItemTag?.ContainsKey("globalData") == true;
+
+        // True if two stored stacks are the same item identity and may be merged.
+        public static bool CanMergeStacks(StoredItemStack a, StoredItemStack b)
+            => a.ItemType == b.ItemType
+               && a.PrefixId == b.PrefixId
+               && PerInstanceDataMatches(a.FullItemTag, b.FullItemTag, a.ModData, b.ModData);
+
         private static bool PerInstanceDataMatches(
             TagCompound storedFullTag, TagCompound incomingFullTag,
             TagCompound storedModData, TagCompound incomingModData)

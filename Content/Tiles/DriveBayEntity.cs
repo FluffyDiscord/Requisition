@@ -35,6 +35,13 @@ namespace TerraStorage.Content.Tiles
         // and on world load (starts at -1 so first tick always triggers).
         private long _lastSeenVersion = -1;
 
+        // HasTerminalNearby walks every tile entity in the world, so each bay rescans only
+        // every TerminalScanIntervalTicks ticks (staggered by entity ID to spread the cost),
+        // not every tick. ≤0.5 s of connection-light latency on terminal place/remove is
+        // cosmetic; disk operations still refresh immediately via the StorageVersion compare.
+        private const uint TerminalScanIntervalTicks = 30;
+        private bool _cachedTerminalNearby;
+
         public override void OnNetPlace()
         {
             InitializeSlots();
@@ -46,11 +53,13 @@ namespace TerraStorage.Content.Tiles
             var sys = StorageWorldSystem.Instance;
             if (sys == null) return;
 
-            bool connected = StorageNetwork.HasTerminalNearby(Position);
-            if (connected != IsConnected || sys.StorageVersion != _lastSeenVersion)
+            if (_lastSeenVersion == -1 || (Main.GameUpdateCount + (uint)ID) % TerminalScanIntervalTicks == 0)
+                _cachedTerminalNearby = StorageNetwork.HasTerminalNearby(Position);
+
+            if (_cachedTerminalNearby != IsConnected || sys.StorageVersion != _lastSeenVersion)
             {
                 _lastSeenVersion = sys.StorageVersion;
-                RefreshVisualState(connected);
+                RefreshVisualState(_cachedTerminalNearby);
             }
         }
 

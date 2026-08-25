@@ -21,6 +21,13 @@ namespace TerraStorage.Helpers.Resolver
         private readonly List<(int type, int amount)> _undo = new();
         private readonly HashSet<int> _feasibilityResolving = new();
 
+        // Depth at which a query about one of a recipe's INGREDIENTS starts. ResolveRecursive enters
+        // a recipe at depth 0 and resolves its ingredients at depth + 1, so a feasibility query that
+        // begins at the ingredient is already one level in. Starting such a query at 0 hands it an
+        // extra level of budget, and the list flag then accepts chains the craft button refuses —
+        // exactly at MaxDepth == chainLength - 1. Item-level queries still start at 0.
+        private const int IngredientDepth = 1;
+
         public CoreResolver(IRecipeEnvironment env)
         {
             _env = env;
@@ -103,8 +110,14 @@ namespace TerraStorage.Helpers.Resolver
                 available[itemType] = 0;
             }
 
+            // Partial stock is spent above, before we know a plan exists. Every false path from here
+            // has to hand it back: the contract is "returns false if it cannot be met", and a caller
+            // that reads its pool afterwards must not find it quietly drained.
             if (!resolving.Add(itemType))
+            {
+                if (have > 0) available[itemType] = have;
                 return false;
+            }
 
             var recipes = _env.RecipesProducing(itemType);
 
@@ -159,6 +172,7 @@ namespace TerraStorage.Helpers.Resolver
             }
 
             resolving.Remove(itemType);
+            if (have > 0) available[itemType] = have;
             return false;
         }
 
@@ -166,6 +180,66 @@ namespace TerraStorage.Helpers.Resolver
         // sub-steps and this recipe's step, credits overproduction back to the pool, returns true.
         // On ingredient failure rolls the pool back and returns false. Caller owns the `resolving`
         // entry for itemType and the per-recipe condition check.
+        // Fills ONE ingredient slot, recording what it actually costs into `consumed`.
+        //
+        // A recipe-group slot draws from every accepted member, not just one: vanilla counts the
+        // group in aggregate, so 3 gold bars plus 7 platinum bars fill a 10-bar slot. Committing the
+        // whole slot to a single concrete type made holding a few of the named item turn a craftable
+        // recipe uncraftable. Stock is taken first, cheapest to reason about, and only the remainder
+        // is sub-crafted — through the named type where possible, otherwise through a substitute.
+        //
+        // `consumed` accumulates because a recipe may name one item in two slots, and it drives how
+        // much ExecutePlan extracts; overwriting recorded only the last slot.
+        private bool ResolveIngredientSlot(CoreRecipe recipe, int ingredientType, int needed,
+            Dictionary<int, int> available, List<CoreStep> steps, HashSet<int> resolving, int depth,
+            Dictionary<int, int> consumed)
+        {
+            int remaining = needed;
+
+            foreach (int candidate in IngredientCandidates(recipe, ingredientType))
+            {
+                if (remaining <= 0) break;
+                if (!available.TryGetValue(candidate, out int have) || have <= 0) continue;
+
+                int taken = Math.Min(remaining, have);
+                available[candidate] = have - taken;
+                consumed.TryGetValue(candidate, out int already);
+                consumed[candidate] = already + taken;
+                remaining -= taken;
+            }
+
+            if (remaining <= 0)
+                return true;
+
+            foreach (int candidate in IngredientCandidates(recipe, ingredientType))
+            {
+                if (!ResolveRecursive(candidate, remaining, available, steps, resolving, depth + 1))
+                    continue;
+
+                consumed.TryGetValue(candidate, out int already);
+                consumed[candidate] = already + remaining;
+                return true;
+            }
+
+            return false;
+        }
+
+        // The item types that may fill a slot for `ingredientType`: the named type first, then the
+        // members of whichever accepted recipe group contains it.
+        private IEnumerable<int> IngredientCandidates(CoreRecipe recipe, int ingredientType)
+        {
+            yield return ingredientType;
+
+            foreach (int groupId in recipe.AcceptedGroups)
+            {
+                if (!_env.GroupContains(groupId, ingredientType)) continue;
+                foreach (int validItem in _env.GroupValidItems(groupId))
+                    if (validItem != ingredientType)
+                        yield return validItem;
+                yield break;
+            }
+        }
+
         public bool TryResolveRecipe(CoreRecipe recipe, int itemType, int deficit,
             Dictionary<int, int> available, List<CoreStep> steps, HashSet<int> resolving, int depth)
         {
@@ -179,11 +253,10 @@ namespace TerraStorage.Helpers.Resolver
 
             foreach (var ingredient in recipe.Ingredients)
             {
-                int resolvedType = ResolveIngredientType(recipe, ingredient.Type, available);
                 int ingredientNeeded = ingredient.Stack * craftsNeeded;
-                consumed[resolvedType] = ingredientNeeded;
 
-                if (!ResolveRecursive(resolvedType, ingredientNeeded, available, tempSteps, resolving, depth + 1))
+                if (!ResolveIngredientSlot(recipe, ingredient.Type, ingredientNeeded,
+                        available, tempSteps, resolving, depth, consumed))
                 {
                     available.Clear();
                     foreach (var kvp in availBackup)
@@ -229,8 +302,7 @@ namespace TerraStorage.Helpers.Resolver
             bool ok = true;
             foreach (var ingredient in recipe.Ingredients)
             {
-                int resolvedType = ResolveIngredientType(recipe, ingredient.Type, availableSnapshot);
-                if (!CanProduce(resolvedType, ingredient.Stack, availableSnapshot))
+                if (!CanFillSlot(recipe, ingredient.Type, ingredient.Stack, availableSnapshot, IngredientDepth))
                 {
                     ok = false;
                     break;
@@ -249,7 +321,7 @@ namespace TerraStorage.Helpers.Resolver
         {
             int mark = _undo.Count;
             _feasibilityResolving.Clear();
-            bool ok = CanProduce(targetItemType, quantity, availableSnapshot);
+            bool ok = CanProduce(targetItemType, quantity, availableSnapshot, 0);
             Rollback(availableSnapshot, mark);
             return ok;
         }
@@ -259,7 +331,7 @@ namespace TerraStorage.Helpers.Resolver
         // consumes from `avail` and records every change in _undo so a caller can roll back to a mark.
         // Returns true/false only — no steps. Mirrors ResolveRecursive's feasibility decisions
         // (cycle guard, deficit handling, overproduction credit) with zero allocation.
-        private bool CanProduce(int itemType, int needed, Dictionary<int, int> avail)
+        private bool CanProduce(int itemType, int needed, Dictionary<int, int> avail, int depth)
         {
             avail.TryGetValue(itemType, out int have);
             if (have >= needed)
@@ -268,6 +340,14 @@ namespace TerraStorage.Helpers.Resolver
                 _undo.Add((itemType, needed));
                 return true;
             }
+
+            // Mirrors ResolveRecursive's depth cut, which bounds RECIPE EXPANSION, not stock lookups:
+            // both sides take what is already in the pool for free (ResolveIngredientSlot draws stock
+            // before it ever recurses), so both must allow expansion at exactly depth <= MaxDepth.
+            // Without this the list flag and the preview accept chains the craft button refuses, and
+            // the recursion-depth slider changes nothing.
+            if (depth > MaxDepth)
+                return false;
 
             int deficit = needed;
             if (have > 0)
@@ -292,7 +372,7 @@ namespace TerraStorage.Helpers.Resolver
                 foreach (var ingredient in recipe.Ingredients)
                 {
                     int resolvedType = ResolveIngredientType(recipe, ingredient.Type, avail);
-                    if (!CanProduce(resolvedType, ingredient.Stack * craftsNeeded, avail))
+                    if (!CanProduce(resolvedType, ingredient.Stack * craftsNeeded, avail, depth + 1))
                     {
                         ok = false;
                         break;
@@ -453,7 +533,7 @@ namespace TerraStorage.Helpers.Resolver
         // a cheap per-ingredient pre-filter (memoised in ingCache), then a single shared-pool confirm
         // only when 2+ ingredients could contend for the same base material.
         public bool IsRecipeCraftable(CoreRecipe recipe, HashSet<int> reachable,
-            Dictionary<int, int> available, Dictionary<(int ctx, int type, int stack), bool> ingCache)
+            Dictionary<int, int> available, Dictionary<(int ctx, int group, int type, int stack), bool> ingCache)
         {
             // Fast reject using the precomputed reachable set — worthwhile when sweeping ALL recipes.
             // `reachable` is built from the full snapshot, so it stays a valid superset under the
@@ -467,8 +547,86 @@ namespace TerraStorage.Helpers.Resolver
         // where iterating all recipes (so the reachable fast-reject would pay off) is unnecessary.
         // Result is identical to IsRecipeCraftable: a recipe whose output is not reachable is not
         // craftable, so the omitted fast-reject only changes speed, never the answer.
+        // The first accepted group of this recipe that contains `itemType`, or 0 if none does.
+        // Identifies which substitutes may fill the slot, so an ingredient verdict can be cached.
+        private int AcceptedGroupFor(CoreRecipe recipe, int itemType)
+        {
+            foreach (int groupId in recipe.AcceptedGroups)
+                if (_env.GroupContains(groupId, itemType))
+                    return groupId;
+            return 0;
+        }
+
+        private static bool HasRepeatedIngredientType(CoreRecipe recipe)
+        {
+            var ingredients = recipe.Ingredients;
+            for (int i = 1; i < ingredients.Count; i++)
+                for (int j = 0; j < i; j++)
+                    if (ingredients[i].Type == ingredients[j].Type)
+                        return true;
+            return false;
+        }
+
+        // Feasibility of ONE ingredient slot, under the same rules the craft button plans by:
+        // the recipe's own output may not be produced inside its own subtree (ResolveRecursive holds
+        // it in `resolving`), and a recipe-group slot may be filled by any accepted substitute.
+        // IsFeasibleFromSnapshot alone does neither, which is why it cannot serve as the prefilter.
+        private bool IsIngredientFeasible(CoreRecipe recipe, int ingredientType, int stack, Dictionary<int, int> available)
+        {
+            int mark = _undo.Count;
+            _feasibilityResolving.Clear();
+            _feasibilityResolving.Add(recipe.OutputType);
+            bool ok = CanFillSlot(recipe, ingredientType, stack, available, IngredientDepth);
+            Rollback(available, mark);
+            return ok;
+        }
+
+        // Feasibility mirror of ResolveIngredientSlot: take stock across every accepted group member,
+        // then sub-craft whatever is left through any of them. Deducts into the caller's snapshot and
+        // records the changes in _undo, so the caller rolls back to its own mark.
+        private bool CanFillSlot(CoreRecipe recipe, int ingredientType, int needed,
+            Dictionary<int, int> avail, int depth)
+        {
+            int remaining = needed;
+
+            foreach (int candidate in IngredientCandidates(recipe, ingredientType))
+            {
+                if (remaining <= 0) break;
+                if (!avail.TryGetValue(candidate, out int have) || have <= 0) continue;
+
+                int taken = Math.Min(remaining, have);
+                avail[candidate] = have - taken;
+                _undo.Add((candidate, taken));
+                remaining -= taken;
+            }
+
+            if (remaining <= 0)
+                return true;
+
+            foreach (int candidate in IngredientCandidates(recipe, ingredientType))
+            {
+                int mark = _undo.Count;
+                if (CanProduce(candidate, remaining, avail, depth))
+                    return true;
+                Rollback(avail, mark);
+            }
+
+            return false;
+        }
+
+        // CanProduce with the recipe's output seeded into the cycle guard and the snapshot restored.
+        private bool CanProduceForRecipe(CoreRecipe recipe, int itemType, int quantity, Dictionary<int, int> available)
+        {
+            int mark = _undo.Count;
+            _feasibilityResolving.Clear();
+            _feasibilityResolving.Add(recipe.OutputType);
+            bool ok = CanProduce(itemType, quantity, available, IngredientDepth);
+            Rollback(available, mark);
+            return ok;
+        }
+
         public bool RecheckRecipeCraftable(CoreRecipe recipe,
-            Dictionary<int, int> available, Dictionary<(int ctx, int type, int stack), bool> ingCache)
+            Dictionary<int, int> available, Dictionary<(int ctx, int group, int type, int stack), bool> ingCache)
         {
             foreach (int t in recipe.RequiredTiles)
                 if (!_env.IsStationSatisfied(t)) return false;
@@ -503,16 +661,26 @@ namespace TerraStorage.Helpers.Resolver
 
                     allDirect = false;
 
-                    var key = (ctx, ing.Type, ing.Stack);
+                    // The verdict depends on which recipe group may fill this slot, so the group is
+                    // part of the key — without it two recipes naming the same item with different
+                    // accepted groups would share one answer.
+                    int groupId = AcceptedGroupFor(recipe, ing.Type);
+                    var key = (ctx, groupId, ing.Type, ing.Stack);
                     if (!ingCache.TryGetValue(key, out bool ok))
                     {
-                        ok = IsFeasibleFromSnapshot(ing.Type, ing.Stack, available);
+                        ok = IsIngredientFeasible(recipe, ing.Type, ing.Stack, available);
                         ingCache[key] = ok;
                     }
                     if (!ok) return false;
                 }
 
-                bool needsSharedConfirm = realIngredients >= 2 && (!allDirect || usedGroupSubstitute);
+                // The shared confirm is the only check that DEDUCTS, so it is also the only one that
+                // catches two slots drawing on the same stock. Slots of distinct types that are each
+                // directly satisfied cannot contend — unless a group substitute is in play, or the
+                // recipe names one item in two slots, which the per-slot checks both measure against
+                // the full stock.
+                bool needsSharedConfirm = realIngredients >= 2
+                    && (!allDirect || usedGroupSubstitute || HasRepeatedIngredientType(recipe));
                 if (needsSharedConfirm && !IsRecipeFeasibleShared(recipe, available))
                     return false;
 
@@ -535,33 +703,45 @@ namespace TerraStorage.Helpers.Resolver
         public List<IngredientView> ComputeIngredientPreview(CoreRecipe recipe, Dictionary<int, int> available, int craftAmount)
         {
             var views = new List<IngredientView>();
-            var seen = new HashSet<int>();
             var pool = new Dictionary<int, int>(available);
 
-            foreach (var ingredient in recipe.Ingredients)
+            // One view per distinct item type, needing the SUM of its slots. A recipe may list the
+            // same item twice; taking only the first slot's stack understates the need, and every
+            // slot then reads satisfied while the recipe cannot be crafted.
+            var neededByType = new Dictionary<int, int>();
+            var order = new List<int>();
+            foreach (var ing in recipe.Ingredients)
             {
-                if (!seen.Add(ingredient.Type)) continue;
+                if (!neededByType.ContainsKey(ing.Type))
+                {
+                    neededByType[ing.Type] = 0;
+                    order.Add(ing.Type);
+                }
+                neededByType[ing.Type] += ing.Stack * craftAmount;
+            }
 
-                int needed = ingredient.Stack * craftAmount;
-                bool hasRecipe = _env.RecipesProducing(ingredient.Type).Count > 0;
+            foreach (int ingredientType in order)
+            {
+                int needed = neededByType[ingredientType];
+                bool hasRecipe = _env.RecipesProducing(ingredientType).Count > 0;
 
                 bool isGroup = false;
                 foreach (int gid in recipe.AcceptedGroups)
                 {
-                    if (_env.GroupContains(gid, ingredient.Type)) { isGroup = true; break; }
+                    if (_env.GroupContains(gid, ingredientType)) { isGroup = true; break; }
                 }
 
                 // Draw this slot's need from the shared pool: own type first, then group substitutes.
                 int have = 0;
-                have += DrawFromPool(pool, ingredient.Type, needed - have);
+                have += DrawFromPool(pool, ingredientType, needed - have);
                 if (have < needed)
                 {
                     foreach (int gid in recipe.AcceptedGroups)
                     {
-                        if (!_env.GroupContains(gid, ingredient.Type)) continue;
+                        if (!_env.GroupContains(gid, ingredientType)) continue;
                         foreach (int v in _env.GroupValidItems(gid))
                         {
-                            if (v == ingredient.Type) continue;
+                            if (v == ingredientType) continue;
                             have += DrawFromPool(pool, v, needed - have);
                             if (have >= needed) break;
                         }
@@ -569,17 +749,63 @@ namespace TerraStorage.Helpers.Resolver
                     }
                 }
 
+                bool satisfiable = have >= needed
+                    || CanSubCraftRemainder(recipe, ingredientType, needed - have, pool);
+
                 views.Add(new IngredientView
                 {
-                    Type = ingredient.Type,
+                    Type = ingredientType,
                     TotalHave = have,
                     Needed = needed,
                     HasRecipe = hasRecipe,
-                    IsGroup = isGroup
+                    IsGroup = isGroup,
+                    Satisfiable = satisfiable
                 });
             }
 
             return views;
+        }
+
+        // Sub-crafts the part of a slot that direct stock could not cover, drawing on the SAME
+        // deducting pool the direct draws use — so a later slot cannot re-spend a base material an
+        // earlier slot already claimed. A successful attempt keeps its deductions (the pool must
+        // carry them forward); a failed one rolls back, leaving the pool intact for the next slot.
+        // The recipe's own output seeds the cycle guard, matching force-craft semantics: a slot is
+        // not satisfiable by looping back through the very item being crafted.
+        private bool CanSubCraftRemainder(CoreRecipe recipe, int ingredientType, int remaining, Dictionary<int, int> pool)
+        {
+            int mark = _undo.Count;
+            _feasibilityResolving.Clear();
+            _feasibilityResolving.Add(recipe.OutputType);
+
+            // Force-craft semantics, as RecheckRecipeCraftable applies them: existing stock of the
+            // output is not a material. Seeding the cycle guard alone is not enough — the stock has
+            // to leave the pool too, or a slot reads satisfiable off the very item being crafted.
+            bool hasOutputStock = pool.TryGetValue(recipe.OutputType, out int outputStock) && outputStock > 0;
+            if (hasOutputStock) pool.Remove(recipe.OutputType);
+            try
+            {
+                // Any accepted group member may cover the remainder, matching what the plan does.
+                foreach (int candidate in IngredientCandidates(recipe, ingredientType))
+                {
+                    int attempt = _undo.Count;
+                    if (!CanProduce(candidate, remaining, pool, IngredientDepth))
+                    {
+                        Rollback(pool, attempt);
+                        continue;
+                    }
+
+                    _undo.RemoveRange(mark, _undo.Count - mark);
+                    return true;
+                }
+
+                Rollback(pool, mark);
+                return false;
+            }
+            finally
+            {
+                if (hasOutputStock) pool[recipe.OutputType] = outputStock;
+            }
         }
 
         // Takes up to `want` units of `type` from the pool, deducting what it takes. Returns the

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Terraria;
@@ -255,8 +256,10 @@ namespace TerraStorage.Content.UI.Elements
                 bool craftable = false;
                 if (have < need)
                 {
-                    var plan = RecipeResolver.Resolve(itemType, need - have, _diskIds, _stations, _conditions);
-                    craftable = plan != null && plan.IsFeasible;
+                    // Resolve the FULL need: asking for `need - have` lets the resolver count the
+                    // stock we just subtracted a second time and call it a free direct extract.
+                    var plan = RecipeResolver.Resolve(itemType, need, _diskIds, _stations, _conditions);
+                    craftable = plan is { IsFeasible: true } && plan.Steps.Count > 0;
                 }
                 result.Add(new IngredientState { ItemType = itemType, Need = need, Have = have, Craftable = craftable });
             }
@@ -282,20 +285,12 @@ namespace TerraStorage.Content.UI.Elements
                 return;
             }
 
-            // For each ingredient: craft any shortfall first, then consume from storage.
-            foreach (var s in _ingredientStates)
+            // All-or-nothing: the upgrade is only installed if every material was actually consumed.
+            var materials = _ingredientStates.Select(s => (s.ItemType, s.Need));
+            if (!RecipeResolver.TryConsumeMaterials(_diskIds, materials, _stations, _conditions))
             {
-                if (s.Have < s.Need)
-                {
-                    var plan = RecipeResolver.Resolve(s.ItemType, s.Need - s.Have, _diskIds, _stations, _conditions);
-                    if (plan != null && plan.IsFeasible)
-                    {
-                        var crafted = RecipeResolver.ExecutePlan(plan, _diskIds);
-                        if (!crafted.IsAir)
-                            StorageWorldSystem.Instance.InsertItem(_diskIds, crafted);
-                    }
-                }
-                StorageWorldSystem.Instance.ExtractItem(_diskIds, s.ItemType, s.Need);
+                Refresh();
+                return;
             }
 
             // Build the upgraded disk item and carry the existing GUID across.

@@ -88,7 +88,10 @@ namespace TerraStorage.Content.Items
                     Stack = s.Stack,
                     PrefixId = s.PrefixId,
                     InsertionOrder = s.InsertionOrder,
-                    ModData = s.ModData
+                    ModData = s.ModData,
+                    // Carries other mods' per-instance GlobalItem state. Save and network both keep
+                    // it; dropping it here silently stripped enchantments on every MP bay insert.
+                    FullItemTag = s.FullItemTag
                 }).ToList();
             return clone;
         }
