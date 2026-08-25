@@ -123,12 +123,6 @@ namespace TerraStorage.Content.UI
 
         public DriveBayEntity OpenEntity => _isOpen ? _uiState?.Entity : null;
 
-        public override void PreUpdatePlayers()
-        {
-            if (!Main.dedServ && IsMouseOverPanel())
-                Main.LocalPlayer.mouseInterface = true;
-        }
-
         public override void UpdateUI(GameTime gameTime)
         {
             if (_isOpen)
