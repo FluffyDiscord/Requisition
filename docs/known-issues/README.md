@@ -4,9 +4,14 @@ Defects found during the 2026-08-24 audit. One file each, numbered by severity a
 Every entry was verified against the source or by a runnable probe before being fixed — none were
 speculative.
 
-**All 22 defects are fixed and awaiting testing / human review.** Each file carries a
+**All 32 defects are fixed and awaiting testing / human review.** Each file carries a
 `## Fix applied` section describing what changed and, where the change has no unit-test surface,
 what still needs to be exercised in-game.
+
+A second audit on 2026-08-25 found nine more — three resolver, four networking, two performance —
+recorded together in [23](23-agent-audit-2026-08-25.md). Read it before touching the resolver: 23a,
+23b and 23c are each the same shape as a fix from the first audit that was applied at one site but
+not at the second or third encoding of the same rule.
 
 [22](22-aborted-plan-keeps-its-intermediates.md) was found on 2026-08-25 by doing the test-coverage
 work [21](21-untested-fixes.md) asked for — an aborted multi-step craft refunded the materials and
@@ -28,6 +33,10 @@ Not shipped in the `.tmod` (`build.txt` `buildIgnore` covers `*.md`).
 | [05](05-extractitem-stamps-tag-on-whole-withdrawal.md) | HIGH | `ExtractItem` stamped one stack's tag onto the whole withdrawal | `SL-*` |
 | [12](12-storagediskbase-clone-drops-fullitemtag.md) | MEDIUM | `StorageDiskBase.Clone` dropped `FullItemTag` | multiplayer |
 | [13](13-partial-deposit-reports-failure.md) | MEDIUM | Partial deposit reported failure, skipping the delta broadcast | `DP-*` |
+| [23d](23-agent-audit-2026-08-25.md) | HIGH | Abort refund overflowed a full network and destroyed materials | `AF-*` |
+| [23e](23-agent-audit-2026-08-25.md) | CRITICAL | Withdrawal routed by a client-supplied index; `-1` broadcast it | multiplayer |
+| [24](24-globaldata-treated-as-item-identity.md) | HIGH | A `globalData` key was read as "this stack is its own item" — nothing ever stacked | `SI-*` |
+| [25](25-craft-costed-against-a-count-it-cannot-withdraw.md) | HIGH | Craft costed against every stack, paid from what one withdrawal delivers — green button, silent no-op | `WD-*` `BD-*` `FX-*` |
 
 ## Recipe grid disagreed with the craft button
 
@@ -41,6 +50,9 @@ Not shipped in the `.tmod` (`build.txt` `buildIgnore` covers `*.md`).
 | [17](17-resolverecursive-leaves-pool-spent.md) | LOW | `ResolveRecursive` returned false with the caller's pool spent | `PR-*` |
 | [18](18-maxdepth-cut-precedes-stock-check.md) | LOW | Depth cut charged a level for a plain stock lookup | `DL-*`, `MD-*` |
 | [19](19-preview-collapses-duplicate-slots.md) | HIGH | Preview collapsed duplicate ingredient slots | `DS-*` |
+| [23a](23-agent-audit-2026-08-25.md) | HIGH | Preview filled a slot from the stock of the item being crafted | `FD-*` |
+| [23b](23-agent-audit-2026-08-25.md) | HIGH | A group slot one level down committed to a single member | `NG-*` |
+| [23c](23-agent-audit-2026-08-25.md) | HIGH | Ingredient cache keyed without the cycle-guard seed | `IO-*` |
 | [20](20-depth-origin-off-by-one.md) | CRITICAL | Feasibility queries started one depth level too shallow | `MD-*`, `DL-*` |
 
 [20](20-depth-origin-off-by-one.md) was **introduced by the fix for [07](07-canproduce-ignores-maxdepth.md)**
@@ -82,17 +94,22 @@ rather than adding a one-off test when this area changes again.
 
 ## Known remaining divergence
 
-The preview's direct draw fills a group slot from a mix of members; `ResolveIngredientType` (used
-only by the shared-confirm ordering now) still commits to one. After the [10](10-resolveingredienttype-partial-stock-lockin.md)
-fix the plan and preview agree, but the two code paths express the rule twice. Worth collapsing
-into one helper the next time this area is touched.
+**Resolved 2026-08-25.** This section previously claimed `ResolveIngredientType` was "used only by
+the shared-confirm ordering now" and that "the plan and preview agree". Both were false:
+`CanProduce` still called it, so every recursive feasibility check committed a group slot to one
+member — see [23b](23-agent-audit-2026-08-25.md). `CanProduce` now calls `CanFillSlot`, and the two
+encodings are one helper.
+
+Still open, from the same audit: `Defragment` rescans the target's stacks linearly for every donor
+stack. Allocation is fixed; the O(n*m) time is not. An identity-keyed index would fix it.
 
 ## Test suite
 
-`cd Tests && dotnet run` — 357 assertions, zero dependencies, links the shipped source directly.
+`cd Tests && dotnet run` — 432 assertions, zero dependencies, links the shipped source directly.
 The real-game benchmark reads `ts_recipe_dump.txt` from the tModLoader save folder when present
 (produce one in-game with `/tsdump` next to a Terminal); full craftability revalidation over
-14 178 recipes runs in 3 ms.
+14 178 recipes runs in 2 ms. Scenario fixtures live in `Tests/Fixtures/*.tsdump.txt` — scoped
+slices of a real dump, so a failure names the recipe that broke.
 
 Coverage was uneven until 2026-08-25: everything in the resolver group was asserted and the
 item-movement and UI groups were not, because the runner cannot link files that touch
@@ -102,4 +119,5 @@ row visibility, and the deposit arithmetic — and what deliberately stays in-ga
 
 Suite prefixes, so a failure names its area: `TX`/`PX` transaction, `SL`/`DF` stack selection,
 `RC` panel refresh, `HR` hit rects, `DP` deposit, `MD`/`DL`/`SA`/`LF` resolver depth and agreement,
-`FC`/`TC` UI caches and click arbitration.
+`FC`/`TC` UI caches and click arbitration, `FD`/`NG`/`IO`/`AF` the 2026-08-25 audit,
+`WD`/`BD`/`FX` the crafting pool versus what a withdrawal delivers.

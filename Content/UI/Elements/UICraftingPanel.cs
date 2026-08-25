@@ -176,6 +176,10 @@ namespace TerraStorage.Content.UI.Elements
         private string _craftBtnText = "";
         private readonly List<(int itemType, string label)> _chainLabels = new();
 
+        // Scratch lookup for SyncFilteredRecipesIncremental, kept alive so its backing arrays are
+        // allocated once instead of on every incremental sync. See the comment at its use site.
+        private readonly Dictionary<Recipe, bool> _desiredScratch = new();
+
         // Output-slot stock, recounted lazily in draw only when _refresh says it is stale —
         // replaces a per-frame CountItem over every disk.
         private int _outputInStorage;
@@ -328,7 +332,7 @@ namespace TerraStorage.Content.UI.Elements
             }
 
             // Phase 1: fast direct-check only — no BFS or recursive feasibility
-            _cachedAvailable = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
+            _cachedAvailable = StorageWorldSystem.Instance.GetWithdrawableCounts(_diskIds);
             _allRecipes = RecipeResolver.GetAllRecipesDirect(_diskIds, _availableStations, _availableConditions);
 
             RebuildIngredientIndex();
@@ -491,7 +495,7 @@ namespace TerraStorage.Content.UI.Elements
             if (_diskIds.Count == 0 || _allRecipes.Count == 0) return;
 
             // Fast count-only lookup — no ConsolidatedItem allocation
-            var current = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
+            var current = StorageWorldSystem.Instance.GetWithdrawableCounts(_diskIds);
             var changedTypes = new HashSet<int>();
 
             foreach (var kvp in current)
@@ -587,7 +591,7 @@ namespace TerraStorage.Content.UI.Elements
         {
             if (_deferredRecursiveActive)
             {
-                _cachedAvailable = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
+                _cachedAvailable = StorageWorldSystem.Instance.GetWithdrawableCounts(_diskIds);
                 _recursiveRestartPending = true;
                 _recursiveRestartTick = Main.GameUpdateCount;
                 return;
@@ -603,7 +607,7 @@ namespace TerraStorage.Content.UI.Elements
         // Everything else keeps its flag. This is the recursive analogue of UpdateCanCraftFlags.
         private void RecursiveTargetedUpdate()
         {
-            var current = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
+            var current = StorageWorldSystem.Instance.GetWithdrawableCounts(_diskIds);
             if (_diskIds.Count == 0 || _allRecipes.Count == 0) { _cachedAvailable = current; return; }
 
             var increased = new HashSet<int>();
@@ -662,6 +666,8 @@ namespace TerraStorage.Content.UI.Elements
         {
             var player = StoragePlayerSystem.Local;
             bool hasSearch = !string.IsNullOrEmpty(_searchText);
+            // Parsed once: the query is the same for every recipe in the sweep below.
+            var (searchMode, searchQuery) = ItemSearchHelper.Parse(_searchText);
             bool hasCategory = _categoryFilter != null;
 
             _filteredRecipes.Clear();
@@ -674,7 +680,7 @@ namespace TerraStorage.Content.UI.Elements
 
                 if (isFav)
                 {
-                    if (hasSearch && !ItemSearchHelper.Matches(itemType, _searchText))
+                    if (hasSearch && !ItemSearchHelper.Matches(itemType, searchMode, searchQuery))
                         continue;
                     if (hasCategory && !_categoryFilter.PassesFilter(itemType))
                         continue;
@@ -684,7 +690,7 @@ namespace TerraStorage.Content.UI.Elements
                 {
                     if (!_showUncraftable && !entry.canCraft)
                         continue;
-                    if (hasSearch && !ItemSearchHelper.Matches(itemType, _searchText))
+                    if (hasSearch && !ItemSearchHelper.Matches(itemType, searchMode, searchQuery))
                         continue;
                     if (hasCategory && !_categoryFilter.PassesFilter(itemType))
                         continue;
@@ -723,16 +729,23 @@ namespace TerraStorage.Content.UI.Elements
         {
             var player = StoragePlayerSystem.Local;
             bool hasSearch = !string.IsNullOrEmpty(_searchText);
+            // Parsed once: the query is the same for every recipe in the sweep below.
+            var (searchMode, searchQuery) = ItemSearchHelper.Parse(_searchText);
             bool hasCategory = _categoryFilter != null;
 
             // Build a lookup of which recipes should be visible and their current canCraft state.
-            var desired = new Dictionary<Recipe, bool>(_allRecipes.Count);
+            // Reused rather than reallocated: on a 14 000-recipe world a fresh dictionary is ~400 KB,
+            // over the 85 KB Large Object Heap threshold, and the deferred recursive pass calls this
+            // several times a second — which was buying a gen2 collection every ten calls. Nothing
+            // here escapes the method, so clearing and refilling one instance is safe.
+            var desired = _desiredScratch;
+            desired.Clear();
             foreach (var entry in _allRecipes)
             {
                 int itemType = entry.recipe.createItem.type;
                 bool isFav = player.IsRecipeFavorited(entry.recipe);
                 if (!isFav && !_showUncraftable && !entry.canCraft) continue;
-                if (hasSearch && !ItemSearchHelper.Matches(itemType, _searchText)) continue;
+                if (hasSearch && !ItemSearchHelper.Matches(itemType, searchMode, searchQuery)) continue;
                 if (hasCategory && !_categoryFilter.PassesFilter(itemType)) continue;
                 desired[entry.recipe] = entry.canCraft;
             }
@@ -906,7 +919,10 @@ namespace TerraStorage.Content.UI.Elements
             if (cached)
                 return _maxCraftAmount;
 
-            var available = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
+            // Withdrawable stock, not raw counts: a stack carrying mod data stands for itself and
+            // cannot be pooled into a craft, so pricing MAX against the raw count would offer an
+            // amount the withdrawal cannot pay for.
+            var available = StorageWorldSystem.Instance.GetWithdrawableCounts(_diskIds);
             var core = new CoreResolver(new TerrariaRecipeEnvironment(_availableStations, _availableConditions))
                 { MaxDepth = _recursionDepth };
             var coreRecipe = TerrariaRecipeEnvironment.ToCore(_selectedRecipe);
@@ -995,7 +1011,7 @@ namespace TerraStorage.Content.UI.Elements
             // is coverable by sub-crafting is conveyed by Satisfiable, NOT by inflating the stock
             // count. The core also folds duplicate slots of one item into a single view, so the
             // needed figure here is the recipe's real total for that item.
-            var available = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
+            var available = StorageWorldSystem.Instance.GetWithdrawableCounts(_diskIds);
             var core = new CoreResolver(new TerrariaRecipeEnvironment(_availableStations, _availableConditions))
                 { MaxDepth = _recursionDepth };
             var coreRecipe = TerrariaRecipeEnvironment.ToCore(_selectedRecipe);
@@ -1312,6 +1328,14 @@ namespace TerraStorage.Content.UI.Elements
                 UpdatePlan();
         }
 
+        // Every way a craft can come to nothing used to return here in silence, so a click on a
+        // green CRAFT button was indistinguishable from a click on dead panel background.
+        private static void ReportCraftFailed(string reason)
+        {
+            Main.NewText(reason, 255, 100, 100);
+            Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.MenuTick);
+        }
+
         // Executes the current crafting plan. If the plan resolved as a direct
         // extract (item already in storage), forces a proper craft so materials are
         // consumed and the recipe chain runs as intended. The crafted result is
@@ -1343,7 +1367,10 @@ namespace TerraStorage.Content.UI.Elements
                 : RecipeResolver.ResolveForceCraft(_selectedRecipe.createItem.type, craftQty, _diskIds, _availableStations, _availableConditions);
 
             if (planToUse == null || !planToUse.IsFeasible)
+            {
+                ReportCraftFailed("Requisition: this recipe cannot be crafted from what the network can hand over.");
                 return;
+            }
 
             // Pre-check: block the craft if neither storage nor player inventory
             // has room. This prevents consuming ingredients with nowhere to put the result.
@@ -1354,17 +1381,25 @@ namespace TerraStorage.Content.UI.Elements
             if (_craftToInventory)
             {
                 if (!PlayerHasRoomFor(Main.LocalPlayer, resultPreview))
+                {
+                    ReportCraftFailed("Requisition: no room in your inventory for the result.");
                     return;
+                }
             }
             else
             {
                 bool storageHasRoom = StorageWorldSystem.Instance.HasRoomFor(_diskIds, resultPreview);
                 if (!storageHasRoom && !PlayerHasRoomFor(Main.LocalPlayer, resultPreview))
+                {
+                    ReportCraftFailed("Requisition: no room in storage or your inventory for the result.");
                     return;
+                }
             }
 
             var result = RecipeResolver.ExecutePlan(planToUse, _diskIds, _cleanCraft);
-            if (!result.IsAir)
+            if (result.IsAir)
+                ReportCraftFailed("Requisition: the craft was cancelled and nothing was consumed — a material could not be withdrawn in one go.");
+            else
             {
                 if (_craftToInventory)
                 {

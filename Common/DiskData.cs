@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Terraria;
+using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
 
 namespace TerraStorage.Common
@@ -52,18 +53,27 @@ namespace TerraStorage.Common
             // Always capture the full serialized tag so globalData (enchantments from mods,
             // e.g. CalamityGlobalItem, Entropy enchantments) is preserved on extraction.
             var fullSave = preSerializedTag ?? ItemIO.Save(item);
-            TagCompound fullItemTag = (modData != null || fullSave.ContainsKey("globalData"))
+            bool carriesModWrittenData = fullSave.ContainsKey("globalData");
+            TagCompound fullItemTag = StackIdentity.MustPreserveFullTag(modData != null, carriesModWrittenData)
                 ? fullSave : null;
+            bool incomingIsUnique = IsUniqueItem(item, modData);
+            bool anyFold = false;
 
-            // Merge with an existing stack only if per-instance data matches.
-            // Two vanilla iron bars have identical CalamityGlobalItem data → they merge.
-            // Two iron bars with different enchantments have different globalData → they don't.
+            // Merge on the game's own stacking rule, the one a chest and the player inventory use.
+            // Mod-written bytes ride along on every item in a modded world and say nothing about
+            // whether two of them are the same thing.
             foreach (var stored in Items)
             {
                 if (stored.Matches(item.type, item.prefix) && stored.Stack < item.maxStack
-                    && PerInstanceDataMatches(stored.FullItemTag, fullItemTag, stored.ModData, modData))
+                    && stored.StacksWith(item, incomingIsUnique))
                 {
                     int canAdd = Math.Min(remaining, item.maxStack - stored.Stack);
+                    if (!ModStateMatches(stored.FullItemTag, fullItemTag))
+                    {
+                        stored.FoldInModState(item, canAdd);
+                        anyFold = true;
+                    }
+
                     stored.Stack += canAdd;
                     if (insertionOrder > 0)
                         stored.InsertionOrder = insertionOrder;
@@ -72,6 +82,12 @@ namespace TerraStorage.Common
                         return 0;
                 }
             }
+
+            // A fold hands the incoming item to the mod, which may have drained state out of it.
+            // Whatever is left over has to be stored as it is now, not as it arrived.
+            if (anyFold)
+                fullItemTag = StackIdentity.MustPreserveFullTag(modData != null, carriesModWrittenData)
+                    ? ItemIO.Save(item) : null;
 
             // Add new stacks
             while (remaining > 0 && !IsFull)
@@ -113,13 +129,19 @@ namespace TerraStorage.Common
             var matching = MatchingSlots(itemType, prefixId);
             var draws = StackSelection.PlanWithdrawal(matching, count, allowUniqueFallback, out uniqueStack);
 
+            // Mod state is handed back only when every stack drawn from carried the same state.
+            // Plain stacks carry state too now that they pool, so keeping it is worth doing; but
+            // stamping one stack's state onto units drawn from another is how a single enchanted
+            // copy became a whole stack of them.
+            bool allDrawsShareModState = AllDrawsShareModState(draws);
+
             foreach (var draw in draws)
             {
                 var stored = Items[draw.Index];
                 stored.Stack -= draw.Count;
                 extracted += draw.Count;
 
-                if (uniqueStack)
+                if (allDrawsShareModState)
                 {
                     extractedModData = stored.ModData;
                     extractedFullTag = stored.FullItemTag;
@@ -156,6 +178,21 @@ namespace TerraStorage.Common
             }
 
             return result;
+        }
+
+        private bool AllDrawsShareModState(List<StackDraw> draws)
+        {
+            if (draws.Count <= 1)
+                return true;
+
+            var first = Items[draws[0].Index].FullItemTag;
+            for (int index = 1; index < draws.Count; index++)
+            {
+                if (!ModStateMatches(first, Items[draws[index].Index].FullItemTag))
+                    return false;
+            }
+
+            return true;
         }
 
         // The stacks a withdrawal of this item type may draw from, in storage order, reduced to
@@ -266,47 +303,60 @@ namespace TerraStorage.Common
             return a.Equals(b);
         }
 
-        // Returns true if two items have compatible per-instance data for merging.
-        // Compares globalData and modData independently so that items with identical
-        // mod-attached state (e.g. two unenchanted items both carrying default CalamityGlobalItem)
-        // are still allowed to merge, while items with differing enchantments are not.
-        // 
-        // True if this stack carries per-instance state that makes it a distinct item — a ModItem's
-        // own save data, or another mod's GlobalItem state riding in the full tag. Such a stack may
-        // never be merged with a plain one; anything that reorganises stacks must ask this first.
-        public static bool HasPerInstanceData(StoredItemStack stack)
-            => stack.ModData != null || stack.FullItemTag?.ContainsKey("globalData") == true;
+        // True if this stack stands for one particular item and may never be merged with a plain
+        // one; anything that reorganises stacks must ask this first.
+        public static bool HasPerInstanceData(StoredItemStack stack) => stack.IsUnique;
 
-        // True if two stored stacks are the same item identity and may be merged.
+        // True if two stored stacks are the same item identity and may be merged. Defragmenting
+        // asks this for every pair it considers, so stacks carrying different mod state are kept
+        // apart rather than folded: folding them would need the game's OnStack hook, and paying for
+        // that inside an O(n^2) sweep is not worth what it buys.
         public static bool CanMergeStacks(StoredItemStack a, StoredItemStack b)
-            => a.ItemType == b.ItemType
-               && a.PrefixId == b.PrefixId
-               && PerInstanceDataMatches(a.FullItemTag, b.FullItemTag, a.ModData, b.ModData);
+            => a.StacksWith(b) && ModStateMatches(a.FullItemTag, b.FullItemTag);
 
-        private static bool PerInstanceDataMatches(
-            TagCompound storedFullTag, TagCompound incomingFullTag,
-            TagCompound storedModData, TagCompound incomingModData)
+        // Whether two stacks carry the same mod-written state, so folding one into the other loses
+        // nothing. Not an identity test - that is the game's job - but a "would anything be
+        // discarded" test, and byte equality is exactly the right answer to that.
+        public static bool ModStateMatches(TagCompound first, TagCompound second)
         {
-            // Compare modData (ModItem.SaveData)
-            if (storedModData == null != (incomingModData == null)) return false;
-            if (storedModData != null && !TagCompoundEquals(storedModData, incomingModData)) return false;
-
-            // Compare globalData (GlobalItem state from mods — extract just that key)
-            bool storedHas  = storedFullTag?.ContainsKey("globalData")   == true;
-            bool incomingHas = incomingFullTag?.ContainsKey("globalData") == true;
-            if (storedHas != incomingHas) return false;
-            if (!storedHas) return true; // neither has globalData
+            bool firstHas = first?.ContainsKey("globalData") == true;
+            bool secondHas = second?.ContainsKey("globalData") == true;
+            if (firstHas != secondHas)
+                return false;
+            if (!firstHas)
+                return true;
 
             try
             {
-                var wrapA = new TagCompound(); wrapA["g"] = storedFullTag["globalData"];
-                var wrapB = new TagCompound(); wrapB["g"] = incomingFullTag["globalData"];
-                return TagCompoundEquals(wrapA, wrapB);
+                var wrappedFirst = new TagCompound { ["g"] = first["globalData"] };
+                var wrappedSecond = new TagCompound { ["g"] = second["globalData"] };
+                return TagCompoundEquals(wrappedFirst, wrappedSecond);
             }
             catch
             {
                 return false;
             }
+        }
+
+        // Whether a live item stands for one particular item rather than so many units of a type.
+        public static bool IsUniqueItem(Item item, TagCompound modData)
+        {
+            var plain = PlainItemCache.Get(item.type, item.prefix);
+            return StackIdentity.IsUnique(modData != null, !StoredItemStack.GameAllowsStacking(plain, item));
+        }
+
+        public static bool IsUniqueItem(Item item)
+        {
+            TagCompound modData = null;
+            if (item.ModItem != null)
+            {
+                var tag = new TagCompound();
+                item.ModItem.SaveData(tag);
+                if (tag.Count > 0)
+                    modData = tag;
+            }
+
+            return IsUniqueItem(item, modData);
         }
 
         // Count how many of a given item type are stored.

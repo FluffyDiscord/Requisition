@@ -42,10 +42,47 @@ namespace TerraStorage.Common
         public List<int> NewSlots { get; } = new();
 
         public int LeftOnDonor;
+
+        // Defragmenting plans one move per donor stack, which at the supported maximum is tens of
+        // thousands of plans. Reusing one instance keeps that out of the allocator entirely.
+        public void Reset()
+        {
+            MoveWholeStack = false;
+            LeftOnDonor = 0;
+            Merges.Clear();
+            NewSlots.Clear();
+        }
     }
 
     public static class StackSelection
     {
+        // How many units of a type a withdrawal could actually hand over, which is not the same
+        // number as counting every matching stack. That count is what every craftability path used
+        // to read, so a material held as stacks that each stand for themselves looked like bulk
+        // stock: the recipe went green and the craft could not be paid for.
+        //
+        // Mirrors PlanWithdrawal exactly - the plain stacks pool, and when none matched, the one
+        // unique stack the fallback would take.
+        public static int WithdrawableCount(IReadOnlyList<StackSlot> matching)
+        {
+            int plain = 0;
+            int largestUnique = 0;
+
+            foreach (StackSlot slot in matching)
+            {
+                if (slot.IsUnique)
+                {
+                    if (slot.Stack > largestUnique)
+                        largestUnique = slot.Stack;
+                    continue;
+                }
+
+                plain += slot.Stack;
+            }
+
+            return plain > 0 ? plain : largestUnique;
+        }
+
         // Plans a withdrawal of `count` units from the stacks matching an item type.
         //
         // Per-instance data belongs to ONE stack, and a withdrawal returns ONE item. So plain
@@ -86,18 +123,26 @@ namespace TerraStorage.Common
             if (!nothingPlainMatched || !allowUniqueFallback)
                 return draws;
 
+            // The biggest one, not the first: storage order is arbitrary, and WithdrawableCount
+            // offers the biggest, so taking any other stack would promise more than it hands back.
+            StackSlot best = default;
+            bool foundUnique = false;
             foreach (StackSlot slot in matching)
             {
-                if (!slot.IsUnique)
+                if (!slot.IsUnique || slot.Stack <= 0)
                     continue;
 
-                int canTake = Math.Min(count, slot.Stack);
-                if (canTake <= 0)
-                    continue;
+                if (!foundUnique || slot.Stack > best.Stack)
+                {
+                    best = slot;
+                    foundUnique = true;
+                }
+            }
 
-                draws.Add(new StackDraw { Index = slot.Index, Count = canTake });
+            if (foundUnique)
+            {
+                draws.Add(new StackDraw { Index = best.Index, Count = Math.Min(count, best.Stack) });
                 uniqueStack = true;
-                break;
             }
 
             return draws;
@@ -107,8 +152,15 @@ namespace TerraStorage.Common
         // of the same identity first, then take fresh slots while any remain free.
         public static DonorMovePlan PlanDonorMove(IReadOnlyList<MergeTarget> targets, int donorStack,
             int maxStack, int freeSlots, bool donorIsUnique)
+            => PlanDonorMove(targets, donorStack, maxStack, freeSlots, donorIsUnique, new DonorMovePlan());
+
+        // Fills a caller-owned plan, so a defragment sweep can reuse one instead of allocating per
+        // donor stack.
+        public static DonorMovePlan PlanDonorMove(IReadOnlyList<MergeTarget> targets, int donorStack,
+            int maxStack, int freeSlots, bool donorIsUnique, DonorMovePlan plan)
         {
-            var plan = new DonorMovePlan { LeftOnDonor = donorStack };
+            plan.Reset();
+            plan.LeftOnDonor = donorStack;
 
             if (donorStack <= 0 || maxStack <= 0)
                 return plan;

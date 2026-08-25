@@ -114,14 +114,21 @@ namespace TerraStorage.Systems
             var snapshot = new List<StoredItemStack>(items.Count);
             foreach (var s in items)
             {
-                snapshot.Add(new StoredItemStack
+                var copy = new StoredItemStack
                 {
                     ItemType = s.ItemType,
                     Stack = s.Stack,
                     PrefixId = s.PrefixId,
                     InsertionOrder = s.InsertionOrder,
-                    ModData = s.ModData
-                });
+                    ModData = s.ModData,
+                    FullItemTag = s.FullItemTag
+                };
+
+                // Every server operation snapshots every disk. Rebuilding each copy's item to
+                // re-decide what the original already knows would put a full deserialization per
+                // stack on the netcode path.
+                copy.CopyIdentityVerdictFrom(s);
+                snapshot.Add(copy);
             }
             return snapshot;
         }
@@ -131,8 +138,8 @@ namespace TerraStorage.Systems
         {
             var delta = new DiskDelta();
 
-            // Build lookup: (itemType, prefixId) → total stack for items WITHOUT mod data.
-            // Items WITH mod data are unique and tracked individually.
+            // Build lookup: (itemType, prefixId) → total stack for items that pool.
+            // Items that stand for themselves are tracked individually.
             var beforeCounts = new Dictionary<(int type, int prefix), int>();
             var afterCounts = new Dictionary<(int type, int prefix), int>();
             var beforeUnique = new List<StoredItemStack>();
@@ -140,14 +147,14 @@ namespace TerraStorage.Systems
 
             foreach (var s in before)
             {
-                if (s.ModData != null) { beforeUnique.Add(s); continue; }
+                if (s.IsUnique) { beforeUnique.Add(s); continue; }
                 var key = (s.ItemType, s.PrefixId);
                 beforeCounts.TryGetValue(key, out int existing);
                 beforeCounts[key] = existing + s.Stack;
             }
             foreach (var s in after)
             {
-                if (s.ModData != null) { afterUnique.Add(s); continue; }
+                if (s.IsUnique) { afterUnique.Add(s); continue; }
                 var key = (s.ItemType, s.PrefixId);
                 afterCounts.TryGetValue(key, out int existing);
                 afterCounts[key] = existing + s.Stack;
@@ -222,12 +229,53 @@ namespace TerraStorage.Systems
             return counts;
         }
 
+        // itemType → how many units a withdrawal could actually hand over, which is what every
+        // craftability decision needs. GetItemCounts answers a different question: it sums every
+        // stack, including ones that stand for themselves and can only ever be taken alone. A
+        // recipe costed against that count went green and then could not be paid for, so clicking
+        // craft did nothing at all.
+        public Dictionary<int, int> GetWithdrawableCounts(IEnumerable<Guid> diskIds)
+        {
+            var pooled = new Dictionary<int, int>();
+            var largestUnique = new Dictionary<int, int>();
+
+            foreach (var diskId in diskIds)
+            {
+                if (!_allDiskData.TryGetValue(diskId, out var disk))
+                    continue;
+
+                foreach (var stored in disk.Items)
+                {
+                    if (stored.IsUnique)
+                    {
+                        largestUnique.TryGetValue(stored.ItemType, out int biggest);
+                        if (stored.Stack > biggest)
+                            largestUnique[stored.ItemType] = stored.Stack;
+                        continue;
+                    }
+
+                    pooled.TryGetValue(stored.ItemType, out int existing);
+                    pooled[stored.ItemType] = existing + stored.Stack;
+                }
+            }
+
+            // A unique stack is only ever drawn when nothing pooled matched, so it contributes only
+            // where the type has no pooled stock at all.
+            foreach (var entry in largestUnique)
+            {
+                if (!pooled.ContainsKey(entry.Key))
+                    pooled[entry.Key] = entry.Value;
+            }
+
+            return pooled;
+        }
+
         // Get all items across multiple disks, consolidated by type+prefix.
         public List<ConsolidatedItem> GetConsolidatedItems(IEnumerable<Guid> diskIds)
         {
             var consolidated = new Dictionary<(int type, int prefix), ConsolidatedItem>();
-            // Items with per-instance mod data (UnloadedItems, disks, etc.) are unique and
-            // must never be merged — each gets its own grid slot.
+            // Items that stand for themselves (UnloadedItems, disks, anything the game refuses to
+            // stack) must never be merged — each gets its own grid slot.
             var uniqueEntries = new List<ConsolidatedItem>();
 
             foreach (var diskId in diskIds)
@@ -237,7 +285,7 @@ namespace TerraStorage.Systems
 
                 foreach (var stored in disk.Items)
                 {
-                    if (stored.ModData != null || stored.FullItemTag != null)
+                    if (stored.IsUnique)
                     {
                         uniqueEntries.Add(new ConsolidatedItem
                         {
@@ -293,8 +341,8 @@ namespace TerraStorage.Systems
             // per-instance GlobalItem state, so serializing the clone can lose that data.
             var originalTag = ItemIO.Save(item);
 
-            // Always pass the pre-serialized tag so DiskData can compare globalData
-            // between the incoming item and stored items to decide whether to merge.
+            // Always pass the pre-serialized tag so the stack keeps every byte the original
+            // item carried, whatever it later pools with.
             TagCompound tagToPreserve = originalTag;
 
             foreach (var diskId in diskIds)
@@ -324,24 +372,19 @@ namespace TerraStorage.Systems
             if (item == null || item.IsAir) return true;
             int remaining = item.stack;
 
-            // Items with per-instance mod data don't stack — only check free slots.
-            bool hasModData = false;
-            if (item.ModItem != null)
-            {
-                var tag = new TagCompound();
-                item.ModItem.SaveData(tag);
-                hasModData = tag.Count > 0;
-            }
+            // An item that stands for itself never pools — only free slots can take it.
+            bool isUnique = DiskData.IsUniqueItem(item);
 
             foreach (var diskId in diskIds)
             {
                 if (!_allDiskData.TryGetValue(diskId, out var disk)) continue;
 
-                if (!hasModData)
+                if (!isUnique)
                 {
                     foreach (var stored in disk.Items)
                     {
-                        if (stored.ItemType == item.type && stored.PrefixId == item.prefix && stored.Stack < item.maxStack)
+                        if (stored.ItemType == item.type && stored.PrefixId == item.prefix
+                            && !stored.IsUnique && stored.Stack < item.maxStack)
                         {
                             remaining -= item.maxStack - stored.Stack;
                             if (remaining <= 0) return true;
@@ -368,35 +411,48 @@ namespace TerraStorage.Systems
             Item result = null;
             int totalExtracted = 0;
 
+            // Pooled stock first, across the WHOLE network. Letting the first disk fall back to a
+            // unique stack ended the withdrawal there and returned one item, even when a later disk
+            // held hundreds of pooled ones.
             foreach (var diskId in diskIds)
             {
                 if (!_allDiskData.TryGetValue(diskId, out var disk))
                     continue;
 
                 int needed = count - totalExtracted;
-                // Once plain items are in hand, refuse a unique stack rather than pull one out and
-                // have to fold it into a count it does not describe.
                 var extracted = disk.ExtractItem(itemType, needed, prefixId,
-                    allowUniqueFallback: totalExtracted == 0, out bool uniqueStack);
+                    allowUniqueFallback: false, out _);
                 if (extracted.IsAir)
                     continue;
 
                 _modifiedTracker?.Add(diskId);
-
-                // A unique stack stands for itself: its mod state describes those units and no
-                // others, so it is returned as-is rather than absorbing counts from other disks.
-                if (uniqueStack)
-                {
-                    StorageVersion++;
-                    BackupSystem.MarkDirty();
-                    return extracted;
-                }
-
                 totalExtracted += extracted.stack;
                 result ??= extracted;
 
                 if (totalExtracted >= count)
                     break;
+            }
+
+            // Nothing pooled anywhere, so the fallback applies - this is how a disk, always its own
+            // item, still comes out. Its mod state describes those units and no others, so it is
+            // returned as-is rather than absorbing counts from another stack.
+            if (result == null)
+            {
+                foreach (var diskId in diskIds)
+                {
+                    if (!_allDiskData.TryGetValue(diskId, out var disk))
+                        continue;
+
+                    var extracted = disk.ExtractItem(itemType, count, prefixId,
+                        allowUniqueFallback: true, out _);
+                    if (extracted.IsAir)
+                        continue;
+
+                    _modifiedTracker?.Add(diskId);
+                    StorageVersion++;
+                    BackupSystem.MarkDirty();
+                    return extracted;
+                }
             }
 
             if (result == null)
@@ -462,6 +518,36 @@ namespace TerraStorage.Systems
             return total;
         }
 
+        // One type's share of GetWithdrawableCounts: what a single withdrawal could hand over.
+        public int CountWithdrawable(IEnumerable<Guid> diskIds, int itemType, int prefixId = -1)
+        {
+            int pooled = 0;
+            int largestUnique = 0;
+
+            foreach (var diskId in diskIds)
+            {
+                if (!_allDiskData.TryGetValue(diskId, out var disk))
+                    continue;
+
+                foreach (var stored in disk.Items)
+                {
+                    if (!stored.Matches(itemType, prefixId))
+                        continue;
+
+                    if (!stored.IsUnique)
+                    {
+                        pooled += stored.Stack;
+                        continue;
+                    }
+
+                    if (stored.Stack > largestUnique)
+                        largestUnique = stored.Stack;
+                }
+            }
+
+            return pooled > 0 ? pooled : largestUnique;
+        }
+
         // Register a disk ID with a given tier (ensures data exists).
         public void RegisterDisk(Guid diskId, DiskTier tier)
         {
@@ -522,6 +608,14 @@ namespace TerraStorage.Systems
 
             var modified = new HashSet<Guid>();
 
+            // One plan is built per donor stack, which at the supported maximum (40 disks x 2048
+            // stacks) is tens of thousands. Allocating the buffers per stack churned hundreds of
+            // megabytes through a single defrag, so they are hoisted and reused. maxStack needs an
+            // Item to read, which is far too expensive to rebuild per stack.
+            var mergeTargets = new List<MergeTarget>();
+            var movePlan = new DonorMovePlan();
+            var maxStackCache = new Dictionary<int, int>();
+
             for (int ti = 0; ti < disks.Count - 1; ti++)
             {
                 var target = disks[ti];
@@ -542,11 +636,11 @@ namespace TerraStorage.Systems
                         // ModItem data: merging on type+prefix alone destroyed enchantments one way
                         // and duplicated them the other.
                         bool isUnique = DiskData.HasPerInstanceData(stack);
-                        var mergeTargets = BuildMergeTargets(target, stack);
+                        BuildMergeTargets(target, stack, mergeTargets);
                         int freeSlots = target.MaxStacks - target.UsedStacks;
 
                         var plan = StackSelection.PlanDonorMove(mergeTargets, stack.Stack,
-                            GetMaxStack(stack.ItemType), freeSlots, isUnique);
+                            GetMaxStack(stack.ItemType, maxStackCache), freeSlots, isUnique, movePlan);
 
                         if (plan.MoveWholeStack)
                         {
@@ -587,35 +681,39 @@ namespace TerraStorage.Systems
         }
 
         // Every stack already on the target, with the identity verdict for this donor attached.
-        private static List<MergeTarget> BuildMergeTargets(DiskData target, StoredItemStack donorStack)
+        // Fills a caller-owned buffer: this runs once per donor stack inside the defrag sweep.
+        private static void BuildMergeTargets(DiskData target, StoredItemStack donorStack, List<MergeTarget> into)
         {
-            var mergeTargets = new List<MergeTarget>(target.Items.Count);
+            into.Clear();
 
             for (int index = 0; index < target.Items.Count; index++)
             {
                 var existing = target.Items[index];
-                mergeTargets.Add(new MergeTarget
+                into.Add(new MergeTarget
                 {
                     Index = index,
                     Stack = existing.Stack,
                     Accepts = DiskData.CanMergeStacks(existing, donorStack)
                 });
             }
-
-            return mergeTargets;
         }
 
-        private static int GetMaxStack(int itemType)
+        private static int GetMaxStack(int itemType, Dictionary<int, int> cache)
         {
+            if (cache.TryGetValue(itemType, out int cached))
+                return cached;
+
             var tempItem = new Item();
             tempItem.SetDefaults(itemType);
+            cache[itemType] = tempItem.maxStack;
             return tempItem.maxStack;
         }
 
         // A relocated stack keeps everything that identifies it, or defragmenting would quietly
         // strip the per-instance data the identity rule just protected.
         private static StoredItemStack CopyStackWithCount(StoredItemStack source, int count)
-            => new StoredItemStack
+        {
+            var copy = new StoredItemStack
             {
                 ItemType       = source.ItemType,
                 Stack          = count,
@@ -624,6 +722,10 @@ namespace TerraStorage.Systems
                 ModData        = source.ModData,
                 FullItemTag    = source.FullItemTag
             };
+
+            copy.CopyIdentityVerdictFrom(source);
+            return copy;
+        }
 
         private static void DBG(string msg)
         {
