@@ -70,8 +70,8 @@ namespace TerraStorage.Tests
             FavoritesRowCacheTests();
             VanillaMouseBlockingStaysInTheUIPhase();
             StackIdentityTests();
-            CraftingPoolMatchesWhatAWithdrawalDelivers();
-            BandOfDoorIsNotOfferedWhatItCannotPay();
+            BandOfDoorIsPayableFromStacksThatStandAlone();
+            SeparateStacksKeepTheirStateThroughARefund();
             BandOfDoorFixtureBuildsTheReportedPlan();
 
             Console.WriteLine($"\n=== {_pass} passed, {_fail} failed ===");
@@ -2074,66 +2074,15 @@ namespace TerraStorage.Tests
         }
 
         // Builds the execution steps for a plan: each entry is (what it costs, what it makes).
-
-        // ---- The count a craft is offered must be a count a withdrawal can pay ----
-        // Band of Door: the panel counted 18 Door Pants held as 18 stacks that each stand for
-        // themselves, painted the CRAFT button green, and the plan's last step could withdraw one
-        // of them. ExecutePlan aborted and ExecuteCraft returned without a sound, a message or a
-        // visible change - the reported "clicking craft does nothing".
-        private static void CraftingPoolMatchesWhatAWithdrawalDelivers()
+        // ---- A withdrawal must be able to pay for what a recipe lists ----
+        // Band of Door = 1 Shackle + 20 Door Pants at a Work Bench. Door Pants are armour, so 18 of
+        // them are 18 stacks, and in the build this was reported from every stack stood for itself.
+        // Extract hands back one such stack per call, so the step that asked for twenty got one:
+        // the plan aborted and ExecuteCraft returned without a sound, a message or a change.
+        private static void BandOfDoorIsPayableFromStacksThatStandAlone()
         {
-            Section("The crafting pool promises only what a withdrawal can deliver");
-
-            var doorPants = UniqueOnes(20);
-            Eq(doorPants.Sum(s => s.Stack), 20, "WD-01 the raw count sums every stack");
-            Eq(StackSelection.WithdrawableCount(doorPants), 1,
-                "WD-02 but a bulk withdrawal can only ever take one of them");
-
-            var plain = PlainStacks(40, 40, 40);
-            Eq(StackSelection.WithdrawableCount(plain), 120, "WD-03 pooled stacks are unaffected");
-
-            var mixed = new List<StackSlot>(plain) { new StackSlot { Index = 3, Stack = 9, IsUnique = true } };
-            Eq(StackSelection.WithdrawableCount(mixed), 120,
-                "WD-04 a unique stack adds nothing a bulk draw can use");
-
-            var uneven = UniqueStacks(1, 7, 3);
-            Eq(StackSelection.WithdrawableCount(uneven), 7,
-                "WD-05 with nothing plain, the biggest single stack is the ceiling");
-
-            Eq(StackSelection.WithdrawableCount(new List<StackSlot>()), 0, "WD-06 nothing stored offers nothing");
-
-            // The invariant the defect broke, over every shape: the amount a craft is offered is
-            // the amount a withdrawal of that amount actually hands back.
-            var shapes = new (List<StackSlot> slots, string label)[]
-            {
-                (doorPants, "twenty single unique stacks"),
-                (plain,     "three pooled stacks"),
-                (mixed,     "pooled stacks with a unique one among them"),
-                (uneven,    "unique stacks of different sizes"),
-                (UniqueStacks(4), "one unique stack")
-            };
-
-            foreach (var (slots, label) in shapes)
-            {
-                int offered = StackSelection.WithdrawableCount(slots);
-                var draws = StackSelection.PlanWithdrawal(slots, offered, true, out _);
-                Eq(draws.Sum(d => d.Count), offered, $"WD-07 {label}: the offered count is the delivered count");
-            }
-        }
-
-        // ---- The reported recipe, end to end ----
-        // Band of Door = 1 Shackle + 20 Door Pants, at a Work Bench. Door Pants are armour: 18 of
-        // them are 18 stacks, and in a modded world each stack stands for itself.
-        private static void BandOfDoorIsNotOfferedWhatItCannotPay()
-        {
-            Section("A recipe is not offered when its material cannot be withdrawn in bulk");
+            Section("Band of Door: twenty stacks that each stand alone pay for one recipe");
             const int BAND = 18120, SHACKLE = 216, DOOR_PANTS = 18121, WOODEN_DOOR = 25, WOOD = 9;
-            const int WORK_BENCH = 18;
-
-            var env = new FakeEnvironment().WithStations(WORK_BENCH);
-            env.AddRecipe(BAND, 1, new[] { (SHACKLE, 1), (DOOR_PANTS, 20) }, new[] { WORK_BENCH });
-            env.AddRecipe(DOOR_PANTS, 1, new[] { (WOODEN_DOOR, 2) }, new[] { WORK_BENCH });
-            env.AddRecipe(WOODEN_DOOR, 1, new[] { (WOOD, 6) }, new[] { WORK_BENCH });
 
             var storage = new FakeStorage()
                 .WithUniqueType(DOOR_PANTS)
@@ -2141,70 +2090,81 @@ namespace TerraStorage.Tests
                 .With(SHACKLE, 1)
                 .With(DOOR_PANTS, 18);
 
-            var core = new CoreResolver(env) { MaxDepth = 10 };
+            Eq(storage.CountItem(DOOR_PANTS), 18, "BD-01 eighteen Door Pants, each its own stack");
 
-            var counted = new Dictionary<int, int>
-            {
-                [WOOD] = storage.CountItem(WOOD),
-                [SHACKLE] = storage.CountItem(SHACKLE),
-                [DOOR_PANTS] = storage.CountItem(DOOR_PANTS)
-            };
-            var countedSteps = new List<CoreStep>();
-            IsTrue(core.ResolveRecursive(BAND, 1, counted, countedSteps, new HashSet<int>(), 0),
-                "BD-01 counting every stack makes the recipe look craftable");
-
-            var withdrawable = new Dictionary<int, int>
-            {
-                [WOOD] = storage.WithdrawableCount(WOOD),
-                [SHACKLE] = storage.WithdrawableCount(SHACKLE),
-                [DOOR_PANTS] = storage.WithdrawableCount(DOOR_PANTS)
-            };
-            Eq(withdrawable[DOOR_PANTS], 1, "BD-02 only one Door Pant can actually be withdrawn");
-
-            // The honest pool no longer lets the stock stand in for units the withdrawal cannot
-            // hand over: the resolver plans the shortfall instead of assuming it away.
-            var honestSteps = new List<CoreStep>();
-            IsTrue(core.ResolveRecursive(BAND, 1, withdrawable, honestSteps, new HashSet<int>(), 0),
-                "BD-03 the honest pool still reaches the item through its own recipe");
-            int drawnFromStock = honestSteps
-                .Where(s => s.ProducedType == DOOR_PANTS)
-                .Sum(s => s.ProducedCount);
-            Eq(drawnFromStock, 19, "BD-03a and plans every unit the stock cannot supply");
-
-            // Executing the plan the raw count produced is the reported no-op - and each attempt
-            // left a Door Pant behind, which is how the player's 18 became 20.
             var steps = Steps(
                 (new[] { (WOOD, 24) }, WOODEN_DOOR, 4),
                 (new[] { (WOODEN_DOOR, 4) }, DOOR_PANTS, 2),
                 (new[] { (SHACKLE, 1), (DOOR_PANTS, 20) }, BAND, 1));
+            var band = new PlanExecutor<FakeItem>(storage).Run(steps, 1, new FakeStepProducer(steps));
+
+            Eq(storage.StackOf(band), 1, "BD-02 the craft goes through");
+            Eq(storage.CountItem(DOOR_PANTS), 0, "BD-02a spending all twenty");
+            Eq(storage.CountItem(SHACKLE), 0, "BD-02b and the shackle");
+            Eq(storage.CountItem(WOOD), 4448, "BD-02c leaving the wood the chain actually cost");
+
+            // One short is still one short: the step must not be part-paid into a product.
+            var short1 = new FakeStorage()
+                .WithUniqueType(DOOR_PANTS)
+                .With(SHACKLE, 1)
+                .With(DOOR_PANTS, 19);
+            var lastStep = Steps((new[] { (SHACKLE, 1), (DOOR_PANTS, 20) }, BAND, 1));
+            var nothing = new PlanExecutor<FakeItem>(short1).Run(lastStep, 1, new FakeStepProducer(lastStep));
+            Eq(short1.StackOf(nothing), 0, "BD-03 nineteen cannot pay for twenty");
+            Eq(short1.CountItem(DOOR_PANTS), 19, "BD-03a and every stack came back");
+            Eq(short1.CountItem(SHACKLE), 1, "BD-03b along with the shackle");
+        }
+
+        // ---- Drawing several stacks must not blur them into one ----
+        // Issue 05: the reason a withdrawal only ever took one stack that stands for itself was
+        // that ONE item handle cannot carry two stacks' mod state. Taking them as separate handles
+        // is what makes drawing twenty safe - each goes back as the stack it came from.
+        private static void SeparateStacksKeepTheirStateThroughARefund()
+        {
+            Section("A multi-stack draw refunds each stack with the state it came with");
+            const int CHARM = 7, IRON = 3, TARGET = 4, GOLD = 8;
+
+            var storage = new FakeStorage()
+                .WithUniqueType(CHARM)
+                .WithUniqueStack(CHARM, 1, "enchanted")
+                .WithUniqueStack(CHARM, 1, "charged")
+                .WithUniqueStack(CHARM, 1, "plain");
+
+            // The iron is absent, so the step cannot be paid for and everything drawn goes back.
+            var steps = Steps((new[] { (CHARM, 3), (IRON, 1) }, TARGET, 1));
             var made = new PlanExecutor<FakeItem>(storage).Run(steps, 1, new FakeStepProducer(steps));
 
-            Eq(storage.StackOf(made), 0, "BD-04 the craft produces nothing");
-            Eq(storage.CountItem(DOOR_PANTS), 18, "BD-05 and leaves no intermediate behind");
-            Eq(storage.CountItem(WOOD), 4472, "BD-06 the materials came back");
-            Eq(storage.CountItem(SHACKLE), 1, "BD-07 including the partial payment");
-            Eq(storage.CountItem(WOODEN_DOOR), 0, "BD-08 and the first step's product was discarded");
+            Eq(storage.StackOf(made), 0, "ID-01 the unpayable step produces nothing");
+            Eq(storage.CountItem(CHARM), 3, "ID-01a all three charms came back");
+            string marks = string.Join(",", storage.MarksOf(CHARM));
+            Check(marks == "charged,enchanted,plain",
+                $"ID-02 each with the state it went in with, none copied over another  [got {marks}]");
 
-            // Armour holds one unit per stack, so the 18 pieces are 18 stacks either way. What
-            // decides the craft is whether they pool: once they do, the withdrawal spans all of
-            // them and the same recipe goes through.
-            var pooling = new FakeStorage()
-                .With(WOOD, 4472)
-                .With(SHACKLE, 1)
-                .WithStacks(DOOR_PANTS, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1);
-            Eq(pooling.WithdrawableCount(DOOR_PANTS), 18, "BD-09 pooled stacks offer every unit");
+            // The case that decides which handles a refund keeps: the run makes two charms of its
+            // own, a later step cannot be paid for, and the three the player owned must be the
+            // three that come back. Dropping conjured units from the front of the ledger instead
+            // of the end put the right COUNT back and the wrong items - two of the player's
+            // stacks destroyed, two stateless copies in their place.
+            var withConjured = new FakeStorage()
+                .WithUniqueType(CHARM)
+                .WithUniqueStack(CHARM, 1, "own-a")
+                .WithUniqueStack(CHARM, 1, "own-b")
+                .WithUniqueStack(CHARM, 1, "own-c")
+                .With(IRON, 2);
 
-            var payable = Steps(
-                (new[] { (WOOD, 24) }, WOODEN_DOOR, 4),
-                (new[] { (WOODEN_DOOR, 4) }, DOOR_PANTS, 2),
-                (new[] { (SHACKLE, 1), (DOOR_PANTS, 20) }, BAND, 1));
-            var band = new PlanExecutor<FakeItem>(pooling).Run(payable, 1, new FakeStepProducer(payable));
+            var chain = Steps(
+                (new[] { (IRON, 2) }, CHARM, 2),
+                (new[] { (CHARM, 5), (GOLD, 1) }, TARGET, 1));
+            var never = new PlanExecutor<FakeItem>(withConjured).Run(chain, 1, new FakeStepProducer(chain));
 
-            Eq(pooling.StackOf(band), 1, "BD-10 and the craft goes through");
-            Eq(pooling.CountItem(DOOR_PANTS), 0, "BD-10a spending all twenty");
-            Eq(pooling.CountItem(SHACKLE), 0, "BD-10b and the shackle");
-            Eq(pooling.CountItem(WOOD), 4448, "BD-10c leaving the wood the chain actually cost");
+            Eq(withConjured.StackOf(never), 0, "ID-03 the chain cannot be paid for");
+            Eq(withConjured.CountItem(CHARM), 3, "ID-03a three charms are back by count");
+            string kept = string.Join(",", withConjured.MarksOf(CHARM));
+            Check(kept == "own-a,own-b,own-c",
+                $"ID-04 and they are the player's own three, not the run's copies  [got {kept}]");
+            Eq(withConjured.CountItem(IRON), 2, "ID-04a with the iron refunded");
         }
+
 
         // ---- The reported recipe, against the real recipe graph ----
         // A three-hop slice of the /tsdump the bug was reported from, so the plan under test is the
@@ -2239,12 +2199,22 @@ namespace TerraStorage.Tests
             Eq(steps[0].Consumed[WOOD], 24, "FX-05a costing the wood the dump had");
 
             // Held as stacks that each stand for themselves - which is what the build the bug was
-            // reported from made of every stack - one withdrawal hands over one of the twenty.
+            // Executed against storage laid out the way the report's build laid it out - every
+            // stack standing for itself - the plan the dump produced now goes through.
             var asStoredThen = new FakeStorage()
                 .WithUniqueType(DOOR_PANTS)
+                .With(WOOD, counted[WOOD])
+                .With(SHACKLE, counted[SHACKLE])
                 .With(DOOR_PANTS, counted[DOOR_PANTS]);
-            Eq(asStoredThen.WithdrawableCount(DOOR_PANTS), 1,
-                "FX-06 so the step could never have been paid for");
+
+            var executable = Steps(
+                (new[] { (WOOD, steps[0].Consumed[WOOD]) }, WOODEN_DOOR, steps[0].ProducedCount),
+                (new[] { (WOODEN_DOOR, steps[1].Consumed[WOODEN_DOOR]) }, DOOR_PANTS, steps[1].ProducedCount),
+                (new[] { (SHACKLE, 1), (DOOR_PANTS, 20) }, BAND, 1));
+            var band = new PlanExecutor<FakeItem>(asStoredThen).Run(executable, 1, new FakeStepProducer(executable));
+
+            Eq(asStoredThen.StackOf(band), 1, "FX-06 and the craft the player asked for goes through");
+            Eq(asStoredThen.CountItem(DOOR_PANTS), 0, "FX-06a spending every Door Pant");
         }
 
         private static List<StackSlot> UniqueOnes(int count)

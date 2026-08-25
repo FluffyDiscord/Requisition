@@ -139,7 +139,7 @@ namespace TerraStorage.Content.UI
             if (_rowCache.NeedsStorageRefresh(storageVersion, _diskIdsToken))
             {
                 _storageCounts = _diskIds.Count > 0
-                    ? StorageWorldSystem.Instance.GetWithdrawableCounts(_diskIds)
+                    ? StorageWorldSystem.Instance.GetItemCounts(_diskIds)
                     : new Dictionary<int, int>();
                 _rowCache.MarkStorageRefreshed(storageVersion, _diskIdsToken);
             }

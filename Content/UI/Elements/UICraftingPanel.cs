@@ -312,7 +312,7 @@ namespace TerraStorage.Content.UI.Elements
             }
 
             // Phase 1: fast direct-check only — no BFS or recursive feasibility
-            _cachedAvailable = StorageWorldSystem.Instance.GetWithdrawableCounts(_diskIds);
+            _cachedAvailable = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
             _allRecipes = RecipeResolver.GetAllRecipesDirect(_diskIds, _availableStations, _availableConditions);
 
             RebuildIngredientIndex();
@@ -475,7 +475,7 @@ namespace TerraStorage.Content.UI.Elements
             if (_diskIds.Count == 0 || _allRecipes.Count == 0) return;
 
             // Fast count-only lookup — no ConsolidatedItem allocation
-            var current = StorageWorldSystem.Instance.GetWithdrawableCounts(_diskIds);
+            var current = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
             var changedTypes = new HashSet<int>();
 
             foreach (var kvp in current)
@@ -571,7 +571,7 @@ namespace TerraStorage.Content.UI.Elements
         {
             if (_deferredRecursiveActive)
             {
-                _cachedAvailable = StorageWorldSystem.Instance.GetWithdrawableCounts(_diskIds);
+                _cachedAvailable = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
                 _recursiveRestartPending = true;
                 _recursiveRestartTick = Main.GameUpdateCount;
                 return;
@@ -587,7 +587,7 @@ namespace TerraStorage.Content.UI.Elements
         // Everything else keeps its flag. This is the recursive analogue of UpdateCanCraftFlags.
         private void RecursiveTargetedUpdate()
         {
-            var current = StorageWorldSystem.Instance.GetWithdrawableCounts(_diskIds);
+            var current = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
             if (_diskIds.Count == 0 || _allRecipes.Count == 0) { _cachedAvailable = current; return; }
 
             var increased = new HashSet<int>();
@@ -893,14 +893,14 @@ namespace TerraStorage.Content.UI.Elements
             foreach (var ingredient in _selectedRecipe.requiredItem)
             {
                 if (ingredient.type <= ItemID.None || ingredient.stack <= 0) continue;
-                int have = StorageWorldSystem.Instance.CountWithdrawable(_diskIds, ingredient.type);
+                int have = StorageWorldSystem.Instance.CountItem(_diskIds, ingredient.type);
                 foreach (int gid in _selectedRecipe.acceptedGroups)
                 {
                     var grp = RecipeGroup.recipeGroups[gid];
                     if (!grp.ContainsItem(ingredient.type)) continue;
                     foreach (int v in grp.ValidItems)
                         if (v != ingredient.type)
-                            have += StorageWorldSystem.Instance.CountWithdrawable(_diskIds, v);
+                            have += StorageWorldSystem.Instance.CountItem(_diskIds, v);
                     break;
                 }
                 max = Math.Min(max, have / ingredient.stack);
@@ -985,7 +985,7 @@ namespace TerraStorage.Content.UI.Elements
             // is coverable by sub-crafting is conveyed by Satisfiable, NOT by inflating the stock
             // count. The core also folds duplicate slots of one item into a single view, so the
             // needed figure here is the recipe's real total for that item.
-            var available = StorageWorldSystem.Instance.GetWithdrawableCounts(_diskIds);
+            var available = StorageWorldSystem.Instance.GetItemCounts(_diskIds);
             var core = new CoreResolver(new TerrariaRecipeEnvironment(_availableStations, _availableConditions))
                 { MaxDepth = _recursionDepth };
             var coreRecipe = TerrariaRecipeEnvironment.ToCore(_selectedRecipe);
@@ -1327,7 +1327,9 @@ namespace TerraStorage.Content.UI.Elements
                     NetworkHandler.SendCraftRequest(mod, _diskIds, _selectedRecipe.createItem.type,
                         _craftAmount * _selectedRecipe.createItem.stack, _availableStations, _availableConditions, _cleanCraft, _craftToInventory,
                         _lockRecipe ? _selectedRecipe.RecipeIndex : -1);
-                    Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.Grab);
+                    // No pickup sound here: the server has not answered yet, and playing the sound
+                    // of a successful craft on SEND told the player a refused craft had worked.
+                    Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.MenuTick);
                 }
                 return;
             }
@@ -1372,7 +1374,7 @@ namespace TerraStorage.Content.UI.Elements
 
             var result = RecipeResolver.ExecutePlan(planToUse, _diskIds, _cleanCraft);
             if (result.IsAir)
-                ReportCraftFailed("Requisition: the craft was cancelled and nothing was consumed — a material could not be withdrawn in one go.");
+                ReportCraftFailed("Requisition: the craft was cancelled — storage no longer holds what the plan was costed against.");
             else
             {
                 if (_craftToInventory)

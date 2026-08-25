@@ -30,6 +30,7 @@ namespace TerraStorage.Tests
             public int Type;
             public int Count;
             public bool IsUnique;
+            public string Mark;
         }
 
         private readonly List<Stack> _stacks = new();
@@ -61,6 +62,22 @@ namespace TerraStorage.Tests
             return this;
         }
 
+        // One stack carrying per-instance state, so a refund can be shown to put back the stack it
+        // took rather than an equivalent count.
+        public FakeStorage WithUniqueStack(int itemType, int count, string mark)
+        {
+            _uniqueTypes.Add(itemType);
+            _stacks.Add(new Stack { Type = itemType, Count = count, IsUnique = true, Mark = mark });
+            return this;
+        }
+
+        public List<string> MarksOf(int itemType)
+        {
+            var marks = _stacks.Where(s => s.Type == itemType && s.Mark != null).Select(s => s.Mark).ToList();
+            marks.Sort(StringComparer.Ordinal);
+            return marks;
+        }
+
         public int TotalUnits => _stacks.Sum(s => s.Count);
 
         public FakeItem Nothing => null;
@@ -68,17 +85,18 @@ namespace TerraStorage.Tests
         public int CountItem(int itemType)
             => _stacks.Where(s => s.Type == itemType).Sum(s => s.Count);
 
-        // What a withdrawal of this type could actually hand over, which is not the same number as
-        // CountItem whenever unique stacks are involved.
-        public int WithdrawableCount(int itemType)
-            => StackSelection.WithdrawableCount(MatchingSlots(itemType));
-
         public FakeItem Extract(int itemType, int amount)
         {
             var matching = MatchingSlots(itemType);
             var draws = StackSelection.PlanWithdrawal(matching, amount, allowUniqueFallback: true, out _);
 
             int taken = 0;
+            // Mirrors DiskData.AllDrawsShareModState: state rides along when every stack drawn from
+            // carried the same state, and is dropped when they disagree - not merely when one stack
+            // was drawn. A fake that dropped it on any multi-draw could not catch a regression that
+            // stamps one stack's state onto units from another.
+            string mark = AllDrawsShareMark(draws) ? _stacks[draws[0].Index].Mark : null;
+
             foreach (var draw in draws)
             {
                 var stack = _stacks[draw.Index];
@@ -92,7 +110,7 @@ namespace TerraStorage.Tests
             if (taken <= 0)
                 return null;
 
-            return new FakeItem { Type = itemType, Stack = taken };
+            return new FakeItem { Type = itemType, Stack = taken, Mark = mark };
         }
 
         // Mirrors StorageWorldSystem.InsertItem: reports what did not fit and leaves the caller's
@@ -107,7 +125,7 @@ namespace TerraStorage.Tests
             Log.Add($"insert {item}->{stored}");
 
             if (stored > 0)
-                AddStacks(item.Type, stored);
+                AddStacks(item.Type, stored, item.Mark);
 
             return item.Stack - stored;
         }
@@ -121,16 +139,31 @@ namespace TerraStorage.Tests
             return part;
         }
 
-        private void AddStacks(int itemType, int count)
+        private void AddStacks(int itemType, int count, string mark = null)
         {
             if (!_uniqueTypes.Contains(itemType))
             {
-                _stacks.Add(new Stack { Type = itemType, Count = count });
+                _stacks.Add(new Stack { Type = itemType, Count = count, Mark = mark });
                 return;
             }
 
             for (int unit = 0; unit < count; unit++)
-                _stacks.Add(new Stack { Type = itemType, Count = 1, IsUnique = true });
+                _stacks.Add(new Stack { Type = itemType, Count = 1, IsUnique = true, Mark = mark });
+        }
+
+        private bool AllDrawsShareMark(List<StackDraw> draws)
+        {
+            if (draws.Count <= 1)
+                return draws.Count == 1;
+
+            string first = _stacks[draws[0].Index].Mark;
+            for (int index = 1; index < draws.Count; index++)
+            {
+                if (_stacks[draws[index].Index].Mark != first)
+                    return false;
+            }
+
+            return true;
         }
 
         private List<StackSlot> MatchingSlots(int itemType)

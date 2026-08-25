@@ -36,7 +36,7 @@ Not shipped in the `.tmod` (`build.txt` `buildIgnore` covers `*.md`).
 | [23d](23-agent-audit-2026-08-25.md) | HIGH | Abort refund overflowed a full network and destroyed materials | `AF-*` |
 | [23e](23-agent-audit-2026-08-25.md) | CRITICAL | Withdrawal routed by a client-supplied index; `-1` broadcast it | multiplayer |
 | [24](24-globaldata-treated-as-item-identity.md) | HIGH | A `globalData` key was read as "this stack is its own item" — nothing ever stacked | `SI-*` |
-| [25](25-craft-costed-against-a-count-it-cannot-withdraw.md) | HIGH | Craft costed against every stack, paid from what one withdrawal delivers — green button, silent no-op | `WD-*` `BD-*` `FX-*` |
+| [25](25-craft-costed-against-a-count-it-cannot-withdraw.md) | HIGH | A step paid for twenty units with one `Extract` call and took one — green button, silent no-op | `BD-*` `ID-*` `FX-*` |
 
 ## Recipe grid disagreed with the craft button
 
@@ -105,7 +105,7 @@ stack. Allocation is fixed; the O(n*m) time is not. An identity-keyed index woul
 
 ## Test suite
 
-`cd Tests && dotnet run` — 432 assertions, zero dependencies, links the shipped source directly.
+`cd Tests && dotnet run` — 423 assertions, zero dependencies, links the shipped source directly.
 The real-game benchmark reads `ts_recipe_dump.txt` from the tModLoader save folder when present
 (produce one in-game with `/tsdump` next to a Terminal); full craftability revalidation over
 14 178 recipes runs in 2 ms. Scenario fixtures live in `Tests/Fixtures/*.tsdump.txt` — scoped
@@ -120,4 +120,4 @@ row visibility, and the deposit arithmetic — and what deliberately stays in-ga
 Suite prefixes, so a failure names its area: `TX`/`PX` transaction, `SL`/`DF` stack selection,
 `RC` panel refresh, `HR` hit rects, `DP` deposit, `MD`/`DL`/`SA`/`LF` resolver depth and agreement,
 `FC`/`TC` UI caches and click arbitration, `FD`/`NG`/`IO`/`AF` the 2026-08-25 audit,
-`WD`/`BD`/`FX` the crafting pool versus what a withdrawal delivers.
+`BD`/`ID`/`FX` paying for a step from stacks that each stand for themselves.

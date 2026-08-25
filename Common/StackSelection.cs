@@ -56,33 +56,6 @@ namespace TerraStorage.Common
 
     public static class StackSelection
     {
-        // How many units of a type a withdrawal could actually hand over, which is not the same
-        // number as counting every matching stack. That count is what every craftability path used
-        // to read, so a material held as stacks that each stand for themselves looked like bulk
-        // stock: the recipe went green and the craft could not be paid for.
-        //
-        // Mirrors PlanWithdrawal exactly - the plain stacks pool, and when none matched, the one
-        // unique stack the fallback would take.
-        public static int WithdrawableCount(IReadOnlyList<StackSlot> matching)
-        {
-            int plain = 0;
-            int largestUnique = 0;
-
-            foreach (StackSlot slot in matching)
-            {
-                if (slot.IsUnique)
-                {
-                    if (slot.Stack > largestUnique)
-                        largestUnique = slot.Stack;
-                    continue;
-                }
-
-                plain += slot.Stack;
-            }
-
-            return plain > 0 ? plain : largestUnique;
-        }
-
         // Plans a withdrawal of `count` units from the stacks matching an item type.
         //
         // Per-instance data belongs to ONE stack, and a withdrawal returns ONE item. So plain
@@ -123,26 +96,18 @@ namespace TerraStorage.Common
             if (!nothingPlainMatched || !allowUniqueFallback)
                 return draws;
 
-            // The biggest one, not the first: storage order is arbitrary, and WithdrawableCount
-            // offers the biggest, so taking any other stack would promise more than it hands back.
-            StackSlot best = default;
-            bool foundUnique = false;
             foreach (StackSlot slot in matching)
             {
-                if (!slot.IsUnique || slot.Stack <= 0)
+                if (!slot.IsUnique)
                     continue;
 
-                if (!foundUnique || slot.Stack > best.Stack)
-                {
-                    best = slot;
-                    foundUnique = true;
-                }
-            }
+                int canTake = Math.Min(count, slot.Stack);
+                if (canTake <= 0)
+                    continue;
 
-            if (foundUnique)
-            {
-                draws.Add(new StackDraw { Index = best.Index, Count = Math.Min(count, best.Stack) });
+                draws.Add(new StackDraw { Index = slot.Index, Count = canTake });
                 uniqueStack = true;
+                break;
             }
 
             return draws;
