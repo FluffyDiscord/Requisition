@@ -78,7 +78,16 @@ namespace TerraStorage.Content.UI
             base.Update(gameTime);
 
             bool justClicked = Main.mouseLeft && !_prevMouseLeft && !UIClickBlocker.IsConsumed;
-            _prevMouseLeft = Main.mouseLeft;
+            _prevMouseLeft = UIClickBlocker.RealMouseLeft;
+
+            // Claimed before the ghost-mode return below: a ghost panel is still visible and still
+            // occludes whatever is under it, and ghost mode only happens with the inventory closed --
+            // exactly when the Crafting Tree and Encyclopedia can be open underneath it.
+            // IsMouseOverPanel(), not GetPanelRect().Contains(): this is the same hit-test the
+            // registry uses, so the region the panel claims and the region it reports hovering are
+            // the same one, down to the boundary pixel.
+            UIClickBlocker.ClaimIfPressed(IsMouseOverPanel(),
+                Main.mouseLeft, Main.mouseRight, Main.mouseMiddle);
 
             // Ghost mode: pinned but inventory is closed — only the collapse button works.
             bool ghostMode = IsPinned && !Main.playerInventory;
@@ -105,13 +114,12 @@ namespace TerraStorage.Content.UI
             {
                 Main.LocalPlayer.mouseInterface = true;
                 Terraria.GameInput.PlayerInput.LockVanillaMouseScroll("TerraStorage:FavPanel");
-                if (justClicked)
-                    UIClickBlocker.Consume();
             }
 
             if (_dragging)
             {
-                if (!Main.mouseLeft)
+                UIClickBlocker.MarkGesture();
+                if (!UIClickBlocker.RealMouseLeft)
                 {
                     _dragging = false;
                     UIPositionStore.Save("favpanel", PanelLeft, PanelTop);
@@ -165,6 +173,7 @@ namespace TerraStorage.Content.UI
                 if (_headerRect.Contains(Main.MouseScreen.ToPoint()))
                 {
                     _dragging   = true;
+                    UIClickBlocker.MarkGesture();
                     _dragOffset = Main.MouseScreen - new Vector2(PanelLeft, PanelTop);
                 }
             }

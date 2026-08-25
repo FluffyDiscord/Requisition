@@ -51,6 +51,40 @@ namespace TerraStorage.Content.UI
                 _panel.PanelLeft = px;
                 _panel.PanelTop  = py;
             }
+
+            RequisitionWindows.Register(
+                "TerraStorage: Favorited Recipes Panel",
+                isOpen: () => _visible,
+                isMouseOver: () => _panel.IsMouseOverPanel(),
+                update: gameTime => _ui.Update(gameTime),
+                draw: DrawPanel);
+
+            // A free-floating button, not part of any panel, and live on every frame the inventory
+            // is open. It gets its own z-entry so clicks on it stop at Requisition -- but note it
+            // must NOT hide the vanilla crafting menu, or that menu would vanish permanently.
+            RequisitionWindows.Register(
+                "TerraStorage: Favorites Toggle Button",
+                isOpen: () => Main.playerInventory,
+                isMouseOver: IsMouseOverButton,
+                update: _ => UpdateButton(),
+                draw: DrawToggleButton);
+        }
+
+        private bool IsMouseOverButton()
+        {
+            var btnRect = new Rectangle((int)_btnX, (int)_btnY, (int)BtnSize, (int)BtnSize);
+            return btnRect.Contains(Main.MouseScreen.ToPoint()) || _btnMiddleDragging;
+        }
+
+        private bool DrawPanel()
+        {
+            if (_panel.IsMouseOverPanel())
+            {
+                Main.HoverItem = new Item();
+                Main.hoverItemName = string.Empty;
+            }
+            _ui.Draw(Main.spriteBatch, new GameTime());
+            return true;
         }
 
         public void SetDiskIds(List<Guid> ids) => _panel?.SetDiskIds(ids);
@@ -98,13 +132,6 @@ namespace TerraStorage.Content.UI
                 _wasVisibleBeforeClose = false;
                 ShowPanel();
             }
-
-            if (_visible)
-                UIDrawHelpers.SafeUpdate(_ui, gameTime);
-
-            // Toggle button input (inventory open only)
-            if (inventoryOpen)
-                UpdateButton();
         }
 
         private void UpdateButton()
@@ -113,12 +140,19 @@ namespace TerraStorage.Content.UI
             bool middleJustDown = middleDown && !_prevMiddle;
             bool leftDown = Main.mouseLeft;
             bool leftJustDown = leftDown && !_prevLeft;
-            _prevMiddle = middleDown;
-            _prevLeft   = leftDown;
+            _prevMiddle = UIClickBlocker.RealMouseMiddle;
+            _prevLeft   = UIClickBlocker.RealMouseLeft;
 
             if (_btnMiddleDragging)
             {
-                if (!middleDown)
+                UIClickBlocker.MarkGesture();
+
+                // Claimed on every drag frame, not just the press: this block returns early, so
+                // without it the drag frames stopped claiming and a middle-drag across the Terminal
+                // grid ended up toggling a favourite on whatever item it was released over.
+                UIClickBlocker.ClaimIfPressed(true, Main.mouseLeft, Main.mouseRight, Main.mouseMiddle);
+
+                if (!UIClickBlocker.RealMouseMiddle)
                 {
                     _btnMiddleDragging = false;
                     UIPositionStore.Save(BtnKey, _btnX, _btnY);
@@ -139,48 +173,20 @@ namespace TerraStorage.Content.UI
 
             Main.LocalPlayer.mouseInterface = true;
 
-            if (middleJustDown)
+            if (middleJustDown && !UIClickBlocker.IsConsumed)
             {
                 _btnMiddleDragging = true;
+                UIClickBlocker.MarkGesture();
                 _btnDragOffset = Main.MouseScreen - new Vector2(_btnX, _btnY);
             }
             else if (leftJustDown && !UIClickBlocker.IsConsumed)
             {
-                UIClickBlocker.Consume();
                 TogglePanel();
             }
-        }
 
-        public override void ModifyInterfaceLayers(List<GameInterfaceLayer> layers)
-        {
-            int idx = layers.FindIndex(l => l.Name.Equals("Vanilla: Inventory"));
-            if (idx == -1) return;
-
-            if (_visible)
-            {
-                layers.Insert(idx + 1, new LegacyGameInterfaceLayer(
-                    "TerraStorage: Favorited Recipes Panel",
-                    delegate
-                    {
-                        if (_panel.IsMouseOverPanel())
-                        {
-                            Main.HoverItem = new Item();
-                            Main.hoverItemName = string.Empty;
-                        }
-                        _ui.Draw(Main.spriteBatch, new GameTime());
-                        return true;
-                    },
-                    InterfaceScaleType.UI));
-            }
-
-            // Always draw the toggle button when inventory is open
-            if (Main.playerInventory)
-            {
-                layers.Insert(idx + (_visible ? 2 : 1), new LegacyGameInterfaceLayer(
-                    "TerraStorage: Favorites Toggle Button",
-                    DrawToggleButton,
-                    InterfaceScaleType.UI));
-            }
+            // Whatever the button: the button is the topmost thing under the cursor, so nothing
+            // beneath it should also act on this press.
+            UIClickBlocker.ClaimIfPressed(true, Main.mouseLeft, Main.mouseRight, Main.mouseMiddle);
         }
 
         private bool DrawToggleButton()

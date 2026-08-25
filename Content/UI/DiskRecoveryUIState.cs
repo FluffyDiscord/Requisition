@@ -431,7 +431,12 @@ namespace TerraStorage.Content.UI
                 Main.LocalPlayer.mouseInterface = true;
 
             bool justClicked = Main.mouseLeft && !_prevMouseLeft && !UIClickBlocker.IsConsumed;
-            _prevMouseLeft = Main.mouseLeft;
+            _prevMouseLeft = UIClickBlocker.RealMouseLeft;
+
+            // Claim the frame's click whatever the button was: a right- or middle-click must stop
+            // at this window too, or every window beneath it acts on the same press.
+            UIClickBlocker.ClaimIfPressed(_panel.ContainsPoint(Main.MouseScreen),
+                Main.mouseLeft, Main.mouseRight, Main.mouseMiddle);
 
             if (justClicked && _panel.ContainsPoint(Main.MouseScreen))
                 UIClickBlocker.Consume();
@@ -439,7 +444,8 @@ namespace TerraStorage.Content.UI
             // Dragging
             if (_dragging)
             {
-                if (!Main.mouseLeft)
+                UIClickBlocker.MarkGesture();
+                if (!UIClickBlocker.RealMouseLeft)
                     _dragging = false;
                 else
                 {
@@ -485,6 +491,7 @@ namespace TerraStorage.Content.UI
                 if (Main.MouseScreen.Y < dims.Y + 30)
                 {
                     _dragging = true;
+                    UIClickBlocker.MarkGesture();
                     _panel.HAlign = 0f;
                     _panel.VAlign = 0f;
                     _panel.Left.Set(dims.X, 0f);

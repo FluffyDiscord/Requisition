@@ -772,6 +772,12 @@ namespace TerraStorage.Content.UI.Encyclopedia
         {
             base.Update(gameTime);
 
+            // Claim the frame's click whatever the button. Without this the Encyclopedia only ever
+            // stood down for windows above it and never stopped the ones below, so a click in an
+            // overlap was acted on by both -- over the Terminal's grid that withdrew an item.
+            UIClickBlocker.ClaimIfPressed(IsMouseOverPanel(),
+                Main.mouseLeft, Main.mouseRight, Main.mouseMiddle);
+
             if (_mainPanel.ContainsPoint(Main.MouseScreen))
             {
                 Main.LocalPlayer.mouseInterface = true;

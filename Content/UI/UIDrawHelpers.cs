@@ -129,33 +129,6 @@ namespace TerraStorage.Content.UI
             return _tileToItemCache.TryGetValue(tileId, out int itemType) ? itemType : 0;
         }
 
-        // Calls UserInterface.Update while suppressing mouse clicks if UIClickBlocker
-        // has already consumed the click this frame. Prevents click-through between
-        // overlapping mod UIs.
-        public static void SafeUpdate(UserInterface ui, GameTime gameTime)
-        {
-            if (!UIClickBlocker.IsConsumed)
-            {
-                ui.Update(gameTime);
-                return;
-            }
-
-            // Another UI consumed the click — suppress mouse buttons during Update
-            bool savedLeft = Main.mouseLeft;
-            bool savedRight = Main.mouseRight;
-            Main.mouseLeft = false;
-            Main.mouseRight = false;
-            try
-            {
-                ui.Update(gameTime);
-            }
-            finally
-            {
-                Main.mouseLeft = savedLeft;
-                Main.mouseRight = savedRight;
-            }
-        }
-
         //Draws a 1px border rectangle.
         public static void DrawRectBorder(SpriteBatch sb, Rectangle rect, Color color, int thickness = 1)
         {

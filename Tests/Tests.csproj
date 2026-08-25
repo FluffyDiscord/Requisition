@@ -16,6 +16,10 @@
     <!-- Link the shipped core source directly, so the tests exercise the exact code, not a copy. -->
     <Compile Include="..\Helpers\Resolver\CoreModels.cs" />
     <Compile Include="..\Helpers\Resolver\CoreResolver.cs" />
+    <!-- UI click arbitration: all three are Terraria-free precisely so they can be tested here. -->
+    <Compile Include="..\Content\UI\WindowStackCore.cs" />
+    <Compile Include="..\Content\UI\DepositGate.cs" />
+    <Compile Include="..\Content\UI\UIClickBlocker.cs" />
     <Compile Include="FakeEnvironment.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>

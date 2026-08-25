@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
 using Terraria;
@@ -39,7 +38,49 @@ namespace TerraStorage.Content.UI
                 _recoveryInterface = new UserInterface();
                 _recoveryState = new DiskRecoveryUIState();
                 _recoveryState.Activate();
+
+                RequisitionWindow driveBay = RequisitionWindows.Register(
+                    "TerraStorage: Storage Block UI",
+                    isOpen: () => _isOpen,
+                    isMouseOver: () => _uiState.IsMouseOverPanel(),
+                    update: gameTime => _userInterface.Update(gameTime),
+                    draw: DrawDriveBay,
+                    hidesVanillaCraftingMenu: true);
+
+                // Its own window, not folded into the Drive Bay's: it stacks above that panel, and
+                // the arbiter has to be able to tell a click on one from a click on the other.
+                // keepAbove pins it over its parent, so clicking the Drive Bay behind it cannot
+                // bury the dialog the Drive Bay itself opened.
+                RequisitionWindows.Register(
+                    "TerraStorage: Disk Recovery UI",
+                    isOpen: () => _isOpen && _recoveryOpen,
+                    isMouseOver: () => _recoveryState.IsMouseOverPanel(),
+                    update: gameTime => _recoveryInterface.Update(gameTime),
+                    draw: DrawDiskRecovery,
+                    keepAbove: driveBay.Handle);
             }
+        }
+
+        private bool DrawDriveBay()
+        {
+            if (_uiState.IsMouseOverPanel())
+            {
+                Main.HoverItem = new Item();
+                Main.hoverItemName = string.Empty;
+            }
+            _userInterface.Draw(Main.spriteBatch, new GameTime());
+            return true;
+        }
+
+        private bool DrawDiskRecovery()
+        {
+            if (_recoveryState.IsMouseOverPanel())
+            {
+                Main.HoverItem = new Item();
+                Main.hoverItemName = string.Empty;
+            }
+            _recoveryInterface.Draw(Main.spriteBatch, new GameTime());
+            return true;
         }
 
         public void OpenDriveBay(DriveBayEntity entity)
@@ -84,11 +125,8 @@ namespace TerraStorage.Content.UI
 
         public override void PreUpdatePlayers()
         {
-            if (_isOpen && !Main.dedServ)
-            {
-                if (_uiState.IsMouseOverPanel() || (_recoveryOpen && _recoveryState.IsMouseOverPanel()))
-                    Main.LocalPlayer.mouseInterface = true;
-            }
+            if (!Main.dedServ && IsMouseOverPanel())
+                Main.LocalPlayer.mouseInterface = true;
         }
 
         public override void UpdateUI(GameTime gameTime)
@@ -107,46 +145,6 @@ namespace TerraStorage.Content.UI
                 {
                     CloseDriveBay();
                     return;
-                }
-
-                if (_recoveryOpen)
-                    UIDrawHelpers.SafeUpdate(_recoveryInterface, gameTime);
-
-                UIDrawHelpers.SafeUpdate(_userInterface, gameTime);
-            }
-        }
-
-        public override void ModifyInterfaceLayers(List<GameInterfaceLayer> layers)
-        {
-            int inventoryIndex = layers.FindIndex(layer => layer.Name.Equals("Vanilla: Inventory"));
-            if (inventoryIndex != -1 && _isOpen)
-            {
-                Main.hidePlayerCraftingMenu = true;
-
-                layers.Insert(inventoryIndex + 1, new LegacyGameInterfaceLayer(
-                    "TerraStorage: Storage Block UI",
-                    delegate
-                    {
-                        if (_uiState.IsMouseOverPanel() || (_recoveryOpen && _recoveryState.IsMouseOverPanel()))
-                        {
-                            Main.HoverItem = new Item();
-                            Main.hoverItemName = string.Empty;
-                        }
-                        _userInterface.Draw(Main.spriteBatch, new GameTime());
-                        return true;
-                    },
-                    InterfaceScaleType.UI));
-
-                if (_recoveryOpen)
-                {
-                    layers.Insert(inventoryIndex + 2, new LegacyGameInterfaceLayer(
-                        "TerraStorage: Disk Recovery UI",
-                        delegate
-                        {
-                            _recoveryInterface.Draw(Main.spriteBatch, new GameTime());
-                            return true;
-                        },
-                        InterfaceScaleType.UI));
                 }
             }
         }

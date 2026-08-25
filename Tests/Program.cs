@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using TerraStorage.Content.UI;
 using TerraStorage.Helpers.Resolver;
 
 namespace TerraStorage.Tests
@@ -33,10 +34,15 @@ namespace TerraStorage.Tests
             StationShadowingSubCraft();
             StationFallbackOrderIndependent();
             DirectAndSimpleSanity();
+            NoOpRecipesAreUncraftable();
             ReachabilityEquivalence();
             ReachabilityScaleBenchmark();
             ReachabilityRealisticScaleBenchmark();
             RealDumpBenchmark();
+
+            WindowStackTests();
+            DepositGateTests();
+            ClickBlockerTests();
 
             Console.WriteLine($"\n=== {_pass} passed, {_fail} failed ===");
             if (_fail > 0)
@@ -107,6 +113,58 @@ namespace TerraStorage.Tests
             // 5 ore is not enough for 2 demonite (needs 6).
             var fiveOre = new Dictionary<int, int> { [DEMO_ORE] = 5 };
             IsFalse(r.IsFeasibleFromSnapshot(CRIM, 2, fiveOre), "S2 resolver: 2 CRIM NOT craftable from 5 DEMO_ORE");
+        }
+
+        // ---- Scenario: "Nothing to Craft" recipes must not show as craftable in the list ----
+        // The craft button force-crafts (ResolveForceCraft ignores existing stock of the output), so a
+        // recipe whose ingredients are only reachable by looping back through its own output does
+        // nothing when clicked. The list flag used to count that stock and advertise it as craftable,
+        // which is the mismatch the user reported: green in the list, "Nothing to Craft" on the button.
+        private static void NoOpRecipesAreUncraftable()
+        {
+            Section("No-op recipes are uncraftable in the list");
+            const int DEMO_ORE = 20, DEMO = 21, CRIM = 22, FURNACE = 100;
+
+            var env = new FakeEnvironment().WithStations(FURNACE);
+            env.AddRecipe(DEMO, 1, new[] { (DEMO_ORE, 3) }, tiles: new[] { FURNACE });
+            var crimRecipe = env.AddRecipe(CRIM, 1, new[] { (DEMO, 1) }, tiles: new[] { FURNACE });
+            env.AddRecipe(DEMO, 1, new[] { (CRIM, 1) }, tiles: new[] { FURNACE }); // reverse: CRIM -> DEMO
+            var r = new CoreResolver(env);
+
+            // Hold ONLY crimtane. CRIM's recipe needs DEMO, and the only way to get DEMO is to convert
+            // the crimtane we already hold — force-crafting removes it, so the craft is a pure no-op.
+            var onlyCrim = new Dictionary<int, int> { [CRIM] = 5 };
+            IsFalse(ListCraftable(r, crimRecipe, onlyCrim),
+                "NC-001 CRIM recipe NOT craftable when only its own output is in stock (no-op loop)");
+
+            // Same stock, but the ore for a real demonite bar is present -> a genuine craft exists.
+            var crimAndOre = new Dictionary<int, int> { [CRIM] = 5, [DEMO_ORE] = 3 };
+            IsTrue(ListCraftable(r, crimRecipe, crimAndOre),
+                "NC-002 CRIM recipe craftable when DEMO is reachable without consuming CRIM");
+
+            // Holding the output must not suppress an otherwise-real craft.
+            var crimAndDemo = new Dictionary<int, int> { [CRIM] = 5, [DEMO] = 1 };
+            IsTrue(ListCraftable(r, crimRecipe, crimAndDemo),
+                "NC-003 holding the output does not block a recipe whose ingredients are really in stock");
+
+            // A recipe that consumes its own output is a no-op under force-craft, even with stock.
+            var env2 = new FakeEnvironment();
+            var selfRecipe = env2.AddRecipe(CRIM, 2, new[] { (CRIM, 1), (DEMO_ORE, 1) });
+            var r2 = new CoreResolver(env2);
+            var selfStock = new Dictionary<int, int> { [CRIM] = 5, [DEMO_ORE] = 5 };
+            IsFalse(ListCraftable(r2, selfRecipe, selfStock),
+                "NC-004 recipe consuming its own output is NOT craftable (force-craft drops the stock)");
+
+            // Every recipe for an item being a no-op => the item is uncraftable outright.
+            var env3 = new FakeEnvironment();
+            var a = env3.AddRecipe(CRIM, 1, new[] { (DEMO, 1) });
+            var b = env3.AddRecipe(CRIM, 1, new[] { (DEMO_ORE, 1) });
+            env3.AddRecipe(DEMO, 1, new[] { (CRIM, 1) });
+            env3.AddRecipe(DEMO_ORE, 1, new[] { (CRIM, 1) });
+            var r3 = new CoreResolver(env3);
+            var loopOnly = new Dictionary<int, int> { [CRIM] = 5 };
+            IsFalse(ListCraftable(r3, a, loopOnly), "NC-005 variant A is a no-op loop");
+            IsFalse(ListCraftable(r3, b, loopOnly), "NC-006 variant B is a no-op loop");
         }
 
         // ---- Scenario 3: recipe-group contention (copper/tin bars share a group) ----
@@ -370,7 +428,7 @@ namespace TerraStorage.Tests
             var reachable = core.ComputeReachableTypes(available);
             long reachMs = sw.ElapsedMilliseconds;
             var canCraft = new bool[recipes.Count];
-            var ingCacheFull = new Dictionary<(int, int), bool>();
+            var ingCacheFull = new Dictionary<(int ctx, int type, int stack), bool>();
             for (int i = 0; i < recipes.Count; i++)
                 canCraft[i] = core.IsRecipeCraftable(recipes[i], reachable, available, ingCacheFull);
             sw.Stop();
@@ -395,7 +453,7 @@ namespace TerraStorage.Tests
             // Oracle: a FULL recompute after the craft (the authoritative result every variant is checked against).
             var reachableAfter = core.ComputeReachableTypes(after);
             var fullAfter = new bool[recipes.Count];
-            var ingCacheO = new Dictionary<(int, int), bool>();
+            var ingCacheO = new Dictionary<(int ctx, int type, int stack), bool>();
             for (int i = 0; i < recipes.Count; i++)
                 fullAfter[i] = core.IsRecipeCraftable(recipes[i], reachableAfter, after, ingCacheO);
 
@@ -445,7 +503,7 @@ namespace TerraStorage.Tests
             long aF = GC.GetAllocatedBytesForCurrentThread();
             int gF = GC.CollectionCount(0);
             var rchF = core.ComputeReachableTypes(available);
-            var icF = new Dictionary<(int, int), bool>();
+            var icF = new Dictionary<(int ctx, int type, int stack), bool>();
             for (int i = 0; i < recipes.Count; i++) core.IsRecipeCraftable(recipes[i], rchF, available, icF);
             double fullMB = (GC.GetAllocatedBytesForCurrentThread() - aF) / 1048576.0;
             int fullGen0 = GC.CollectionCount(0) - gF;
@@ -454,7 +512,7 @@ namespace TerraStorage.Tests
             long aT = GC.GetAllocatedBytesForCurrentThread();
             int gT = GC.CollectionCount(0);
             var rchT = core.ComputeReachableTypes(after);
-            var icT = new Dictionary<(int, int), bool>();
+            var icT = new Dictionary<(int ctx, int type, int stack), bool>();
             foreach (int i in affectedB) core.IsRecipeCraftable(recipes[i], rchT, after, icT);
             double targMB = (GC.GetAllocatedBytesForCurrentThread() - aT) / 1048576.0;
             int targGen0 = GC.CollectionCount(0) - gT;
@@ -475,7 +533,7 @@ namespace TerraStorage.Tests
             CoreResolver core, IReadOnlyList<CoreRecipe> recipes, HashSet<int> affected,
             HashSet<int> reachableAfter, Dictionary<int, int> after, bool[] fullAfter, bool[] canCraft, bool useGate)
         {
-            var ingCache = new Dictionary<(int, int), bool>();
+            var ingCache = new Dictionary<(int ctx, int type, int stack), bool>();
             var result = new Dictionary<int, bool>();
             var sw = Stopwatch.StartNew();
             foreach (int i in affected)
@@ -668,11 +726,226 @@ namespace TerraStorage.Tests
         private static bool ListCraftable(CoreResolver r, CoreRecipe recipe, Dictionary<int, int> available)
         {
             var reachable = r.ComputeReachableTypes(available);
-            var ingCache = new Dictionary<(int type, int stack), bool>();
+            var ingCache = new Dictionary<(int ctx, int type, int stack), bool>();
             return r.IsRecipeCraftable(recipe, reachable, available, ingCache);
         }
 
         private static IngredientView View(List<IngredientView> views, int type) => views.First(v => v.Type == type);
+
+        // The window a click belongs to is the topmost one under the cursor. Before this, the
+        // window that consumed a click was whichever ModSystem happened to update first, which had
+        // nothing to do with what the player saw on top.
+        private static void WindowStackTests()
+        {
+            Section("WindowStackCore - z-order arbitration");
+
+            var stack = new WindowStackCore();
+            int a = stack.Register();
+            int b = stack.Register();           // registered last, so it sits on top
+            Eq(stack.TopMatching(new[] { true, true }), b, "TC-001 both hovered -> topmost wins");
+
+            stack.Raise(a);
+            Eq(stack.TopMatching(new[] { true, true }), a, "TC-002 raise(A) -> A now wins");
+
+            var fallThrough = new WindowStackCore();
+            int belowA = fallThrough.Register();
+            fallThrough.Register();
+            Eq(fallThrough.TopMatching(new[] { true, false }), belowA,
+                "TC-003 cursor outside the top window -> falls through to the one below");
+            Eq(fallThrough.TopMatching(new[] { false, false }), -1, "TC-004 nothing hovered -> -1");
+
+            var withClosed = new WindowStackCore();
+            withClosed.Register();
+            withClosed.Register();
+            int top = withClosed.Register();
+            Eq(withClosed.TopMatching(new[] { true, false, true }), top,
+                "TC-005 a closed window is never an arbitration target");
+
+            var reordered = new WindowStackCore();
+            int first = reordered.Register();
+            int second = reordered.Register();
+            int third = reordered.Register();
+            reordered.Raise(first);
+            IsTrue(reordered.ZOrder.SequenceEqual(new[] { second, third, first }),
+                "TC-006 raise is move-to-top and preserves the order of the rest");
+
+            var alreadyTop = new WindowStackCore();
+            int low = alreadyTop.Register();
+            int high = alreadyTop.Register();
+            alreadyTop.Raise(high);
+            IsTrue(alreadyTop.ZOrder.SequenceEqual(new[] { low, high }),
+                "TC-007 raising the top window is a no-op");
+
+            var empty = new WindowStackCore();
+            Eq(empty.TopMatching(Array.Empty<bool>()), -1, "TC-008 empty stack -> -1");
+            empty.Raise(999);
+            Eq(empty.ZOrder.Count, 0, "TC-008 raising an unknown handle is a silent no-op");
+
+            var cleared = new WindowStackCore();
+            cleared.Register();
+            cleared.Register();
+            cleared.Clear();
+            Eq(cleared.ZOrder.Count, 0, "TC-009 Clear empties the stack");
+            Eq(cleared.TopMatching(new[] { true, true }), -1, "TC-009 Clear -> nothing to arbitrate");
+
+            // A child dialog (Disk Recovery) must not be buried by the panel that opened it
+            // (the Drive Bay), even though clicking that panel raises it.
+            var parented = new WindowStackCore();
+            int other = parented.Register();
+            int driveBay = parented.Register();
+            int recovery = parented.Register(keepAbove: driveBay);
+            parented.Raise(driveBay);
+            IsTrue(parented.ZOrder.SequenceEqual(new[] { other, driveBay, recovery }),
+                "TC-010 raising a parent lifts its child back above it");
+            Eq(parented.TopMatching(new[] { false, true, true }), recovery,
+                "TC-010 the child still wins the click where they overlap");
+        }
+
+        // A held item is deposited only over the item grid. It used to deposit anywhere on the
+        // window, so clicking the search bar or a tab silently swallowed whatever you were holding.
+        private static void DepositGateTests()
+        {
+            Section("DepositGate - deposit only over the item grid");
+
+            // Baseline: a fresh press over an empty grid cell, Storage tab, item on the cursor.
+            const bool PressEdge = true, Armed = true, StorageTab = true, HasItem = true;
+            const bool NoAnimation = false, InsideGrid = true, OverOccupiedSlot = false;
+
+            IsTrue(
+                DepositGate.ShouldDeposit(PressEdge, Armed, StorageTab, HasItem, NoAnimation, InsideGrid, OverOccupiedSlot),
+                "TC-101 press on an empty grid cell -> deposit");
+
+            IsFalse(
+                DepositGate.ShouldDeposit(PressEdge, Armed, StorageTab, HasItem, NoAnimation, false, OverOccupiedSlot),
+                "TC-102 press outside the grid (search bar, tabs, title bar, scrollbar) -> no deposit");
+
+            IsFalse(
+                DepositGate.ShouldDeposit(PressEdge, Armed, StorageTab, HasItem, NoAnimation, InsideGrid, true),
+                "TC-103 press on an occupied slot -> no deposit, OnItemClicked handles it");
+
+            IsFalse(
+                DepositGate.ShouldDeposit(false, Armed, StorageTab, HasItem, NoAnimation, InsideGrid, OverOccupiedSlot),
+                "TC-104 button held rather than newly pressed -> no deposit mid-drag");
+
+            IsFalse(
+                DepositGate.ShouldDeposit(PressEdge, Armed, StorageTab, false, NoAnimation, InsideGrid, OverOccupiedSlot),
+                "TC-105 empty cursor -> no deposit");
+
+            IsFalse(
+                DepositGate.ShouldDeposit(PressEdge, Armed, false, HasItem, NoAnimation, InsideGrid, OverOccupiedSlot),
+                "TC-106 not the Storage tab -> no deposit");
+
+            IsFalse(
+                DepositGate.ShouldDeposit(PressEdge, Armed, StorageTab, HasItem, true, InsideGrid, OverOccupiedSlot),
+                "TC-107 item use animation active -> no deposit");
+
+            IsFalse(
+                DepositGate.ShouldDeposit(PressEdge, false, StorageTab, HasItem, NoAnimation, InsideGrid, OverOccupiedSlot),
+                "TC-108 the very click that opened the Terminal -> no deposit");
+
+            // Empty storage is TC-101's input exactly (no slot is occupied, so none can be hovered);
+            // that it still deposits is a wiring property of TerminalUIState, covered by IT-004.
+        }
+
+        // The frame clock used to be Main.uCount, which vanilla resets to zero every second. A
+        // consume at count K therefore came back to life every time the counter wrapped onto K
+        // again -- one frame per second where every click in the mod was silently dropped.
+        private static void ClickBlockerTests()
+        {
+            Section("UIClickBlocker - consumption must not outlive its frame");
+
+            UIClickBlocker.ResetForTests();
+            UIClickBlocker.Consume();
+            IsFalse(UIClickBlocker.IsConsumed,
+                "TC-200 a consume before the first frame cannot latch (it would kill every click forever)");
+
+            UIClickBlocker.ResetForTests();
+            UIClickBlocker.BeginFrame(mouseLeft: false, mouseRight: false, mouseMiddle: false);
+            IsFalse(UIClickBlocker.IsConsumed, "TC-201 a fresh frame starts unconsumed");
+
+            UIClickBlocker.Consume();
+            IsTrue(UIClickBlocker.IsConsumed, "TC-202 Consume() holds for the rest of the frame");
+
+            UIClickBlocker.BeginFrame(mouseLeft: false, mouseRight: false, mouseMiddle: false);
+            IsFalse(UIClickBlocker.IsConsumed, "TC-203 the next frame starts unconsumed again");
+
+            // The regression: consume once, then run well past a second's worth of frames and
+            // assert the stale consume never resurfaces on any of them.
+            UIClickBlocker.ResetForTests();
+            UIClickBlocker.BeginFrame(mouseLeft: false, mouseRight: false, mouseMiddle: false);
+            UIClickBlocker.BeginFrame(mouseLeft: false, mouseRight: false, mouseMiddle: false);
+            UIClickBlocker.BeginFrame(mouseLeft: false, mouseRight: false, mouseMiddle: false);
+            UIClickBlocker.BeginFrame(mouseLeft: false, mouseRight: false, mouseMiddle: false);
+            UIClickBlocker.BeginFrame(mouseLeft: false, mouseRight: false, mouseMiddle: false);
+            UIClickBlocker.Consume();
+
+            bool resurfaced = false;
+            for (int frame = 0; frame < 300; frame++)
+            {
+                UIClickBlocker.BeginFrame(mouseLeft: false, mouseRight: false, mouseMiddle: false);
+                if (UIClickBlocker.IsConsumed)
+                    resurfaced = true;
+            }
+            IsFalse(resurfaced, "TC-204 a consume never resurfaces on a later frame (uCount wrap bug)");
+
+            // Suppressing a window zeroes Main.mouseLeft around its update. A window that latches
+            // its previous-button state from Main.mouseLeft therefore records "released" for a
+            // button still held, and fires a phantom press on the first unsuppressed frame. The
+            // real button state is captured at BeginFrame, where suppression cannot reach it.
+            UIClickBlocker.ResetForTests();
+            UIClickBlocker.BeginFrame(mouseLeft: true, mouseRight: true, mouseMiddle: true);
+            bool prevLeft = UIClickBlocker.RealMouseLeft;
+            bool prevRight = UIClickBlocker.RealMouseRight;
+            bool prevMiddle = UIClickBlocker.RealMouseMiddle;
+
+            IsTrue(prevLeft && prevRight && prevMiddle,
+                "TC-205 every held button survives a suppressed frame");
+
+            // Every button, not just left: a phantom right-press in the Terminal withdraws a stack
+            // from storage, and a phantom middle-press starts a drag.
+            UIClickBlocker.BeginFrame(mouseLeft: true, mouseRight: true, mouseMiddle: true);
+            IsFalse(UIClickBlocker.RealMouseLeft && !prevLeft,
+                "TC-206 a held LEFT button never looks like a fresh press");
+            IsFalse(UIClickBlocker.RealMouseRight && !prevRight,
+                "TC-207 a held RIGHT button never looks like a fresh press (phantom withdraw)");
+            IsFalse(UIClickBlocker.RealMouseMiddle && !prevMiddle,
+                "TC-208 a held MIDDLE button never looks like a fresh press");
+
+            // A window must claim the frame's click whatever the button. Claiming only left-clicks
+            // is what let a right-click be acted on by every window under the cursor at once.
+            UIClickBlocker.ResetForTests();
+            UIClickBlocker.BeginFrame(mouseLeft: false, mouseRight: true, mouseMiddle: false);
+            UIClickBlocker.ClaimIfPressed(hovered: true, left: false, right: true, middle: false);
+            IsTrue(UIClickBlocker.IsConsumed, "TC-209 a RIGHT-click is claimed, not just a left one");
+
+            UIClickBlocker.ResetForTests();
+            UIClickBlocker.BeginFrame(mouseLeft: false, mouseRight: false, mouseMiddle: true);
+            UIClickBlocker.ClaimIfPressed(hovered: true, left: false, right: false, middle: true);
+            IsTrue(UIClickBlocker.IsConsumed, "TC-210 a MIDDLE-click is claimed");
+
+            UIClickBlocker.ResetForTests();
+            UIClickBlocker.BeginFrame(mouseLeft: true, mouseRight: false, mouseMiddle: false);
+            UIClickBlocker.ClaimIfPressed(hovered: false, left: true, right: false, middle: false);
+            IsFalse(UIClickBlocker.IsConsumed, "TC-211 a window the cursor is not over claims nothing");
+
+            UIClickBlocker.ResetForTests();
+            UIClickBlocker.BeginFrame(mouseLeft: false, mouseRight: false, mouseMiddle: false);
+            UIClickBlocker.ClaimIfPressed(hovered: true, left: false, right: false, middle: false);
+            IsFalse(UIClickBlocker.IsConsumed, "TC-212 hovering with no button pressed claims nothing");
+
+            // The z-order must not be reshuffled under the player's hand mid-drag.
+            UIClickBlocker.ResetForTests();
+            UIClickBlocker.BeginFrame(mouseLeft: true, mouseRight: false, mouseMiddle: false);
+            IsFalse(UIClickBlocker.GestureActive, "TC-213 no gesture -> the press may raise a window");
+
+            UIClickBlocker.MarkGesture();
+            UIClickBlocker.BeginFrame(mouseLeft: true, mouseRight: false, mouseMiddle: false);
+            IsTrue(UIClickBlocker.GestureActive, "TC-214 a gesture in progress blocks the raise");
+
+            UIClickBlocker.BeginFrame(mouseLeft: false, mouseRight: false, mouseMiddle: false);
+            UIClickBlocker.BeginFrame(mouseLeft: false, mouseRight: false, mouseMiddle: false);
+            IsFalse(UIClickBlocker.GestureActive, "TC-215 the gesture grace expires once it ends");
+        }
 
         // ---- tiny assert framework ----
         private static void Section(string title) => Console.WriteLine($"-- {title}");

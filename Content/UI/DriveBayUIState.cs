@@ -133,7 +133,12 @@ namespace TerraStorage.Content.UI
             bool shift = Main.keyState.IsKeyDown(Keys.LeftShift) || Main.keyState.IsKeyDown(Keys.RightShift);
 
             bool justClicked = Main.mouseLeft && !_prevMouseLeft && !UIClickBlocker.IsConsumed;
-            _prevMouseLeft = Main.mouseLeft;
+            _prevMouseLeft = UIClickBlocker.RealMouseLeft;
+
+            // Claim the frame's click whatever the button was: a right- or middle-click must stop
+            // at this window too, or every window beneath it acts on the same press.
+            UIClickBlocker.ClaimIfPressed(_panel.ContainsPoint(Main.MouseScreen),
+                Main.mouseLeft, Main.mouseRight, Main.mouseMiddle);
 
             if (justClicked)
             {
