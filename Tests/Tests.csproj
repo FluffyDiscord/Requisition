@@ -24,6 +24,9 @@
     <Compile Include="..\Common\StackIdentity.cs" />
     <!-- Which stacks on a disk a donor could merge into, without asking the rule about all of them. -->
     <Compile Include="..\Common\MergeCandidateIndex.cs" />
+    <!-- The defragment sweep itself. StorageWorldSystem.Defragment is now a caller of this, so the
+         loop nesting, the merge index bookkeeping and the guards run here rather than a copy. -->
+    <Compile Include="..\Common\DefragmentCore.cs" />
     <!-- Whether a count a packet supplied may size an allocation. -->
     <Compile Include="..\Common\WireCount.cs" />
     <!-- Whether the sender of a packet may name a particular disk GUID. -->
@@ -51,6 +54,8 @@
     <Compile Include="FakeStorage.cs" />
     <Compile Include="HotPathBenchmarks.cs" />
     <Compile Include="FakeDiskNetwork.cs" />
+    <!-- Stored stacks with no Terraria in them, and the mod state the merge rule compares. -->
+    <Compile Include="FakeDefragmentRules.cs" />
     <!-- The pre-change withdrawal rule, kept so "unchanged for one-item callers" stays checkable. -->
     <Compile Include="LegacySingleHandleDrain.cs" />
     <Compile Include="Program.cs" />

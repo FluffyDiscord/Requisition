@@ -18,7 +18,7 @@ and one in-game build**. The untested half was also the half that moves items:
 | [01](01-disk-upgrade-undercharges.md) disk upgrade undercharge | `TryConsumeMaterials` | `TX-01`..`TX-07` |
 | [02](02-server-upgrade-no-material-check.md) server upgrade gate | same | `TX-*` |
 | [03](03-executeplan-unchecked-extract-insert.md) `ExecutePlan` refund | checked extract + abort | `PX-01`..`PX-06` |
-| [04](04-defragment-destroys-per-instance-data.md) defragment identity | `CanMergeStacks` | `DF-01`..`DF-06` |
+| [04](04-defragment-destroys-per-instance-data.md) defragment identity | `CanMergeStacks` | `DF-01`..`DF-06`, `DG-*` |
 | [05](05-extractitem-stamps-tag-on-whole-withdrawal.md) extract tag stamping | two-pass extract | `SL-01`..`SL-06` |
 | [09](09-output-slot-cache-ignores-disk-set.md) output-slot cache | version reset | `RC-01`..`RC-04a` |
 | [12](12-storagediskbase-clone-drops-fullitemtag.md) clone drops tag | one field | still in-game only |
@@ -127,6 +127,55 @@ sweep rather than a copy of it.
 `Tests/LegacySingleHandleDrain.cs` keeps the pre-change rule so `NW-12` can assert a one-item
 withdrawal still agrees with it across a matrix of layouts — `BuggyPreview`'s trick applied to
 item movement.
+
+### 7. `DefragmentCore` — closes 04's last untested half, and 23i's recommended follow-up
+
+`Common/DefragmentCore.cs`, added 2026-08-26. The defragment sweep itself: the target/donor/slot loop
+nesting, the merge-candidate index bookkeeping, the stale-slot bounds check, the self-donor guard and
+the application of `PlanDonorMove`'s output. `StorageWorldSystem.Defragment` is now a caller of it.
+
+Extractions 1–6 all handed the core an interface and kept the collection behind it. This one does the
+opposite, following `ICraftingStorage<TItem>` rather than `IWithdrawalNetwork`: `Sweep<TStack, TRules>`
+takes the caller's own `List<TStack>` and does every `Add`, `RemoveAt` and count assignment itself.
+That is the whole point — an interface that owned the mutations would have put the descending donor
+walk, the same-object relocation and the self-donor guard on the *fake's* side, which is the second
+encoding this file keeps warning about. `IDefragmentRules<TStack>` carries only what needs Terraria:
+eight one-line bindings, of which `CanMerge` is `DiskData.CanMergeStacks` and nothing else.
+
+`TRules` is a type parameter rather than the interface so a `readonly struct` implementation is
+specialised and inlined by the JIT. Measured: without it the sweep gave back ~30% on the bulk-storage
+fixture, because the rules are asked several times per candidate stack.
+
+`DG-01`..`DG-18c` — 42 assertions — drive the shipped sweep. Nine deliberate mutations of it were
+tried and **eight turned a specific assertion red**; the one for `DG-02` (two donors of one identity
+must end as one stack, which needs the index fed before every append) turned **nothing** in `DF-*` or
+`MX-*` red, which is the measurement of what this gap was worth.
+
+The ninth is recorded because it did not: swapping `Items.Add` and `Items.RemoveAt` in the whole-move
+branch changes nothing. The core holds the stack in a local before either call, so the ordering has
+no observable consequence — it was a real constraint only in a rejected design where the sweep passed
+slot positions across an interface and the removal invalidated the handle. No assertion covers it
+because there is nothing there to cover.
+
+Two of the first-draft assertions were themselves vacuous and were caught by review rather than by
+the suite, which is worth recording as the same lesson one level up. `DG-12b` — the one certifying
+that a stack of another item shifted into a recorded slot is never credited — passed unchanged when
+the merge rule was mutated to accept everything: `PlanDonorMove` stops as soon as the donor is
+placed, so a 6-unit donor never reached the second candidate. Enlarging the donor to 200 fixes it.
+Then it passed *again*, because the fixture sprang its trap from inside `CanMerge`, the very call the
+mutation deleted. The trigger moved to `GetCount`, which the sweep reads for every candidate whatever
+the rule answers.
+
+`Tests/HotPathBenchmarks.cs` no longer transcribes the sweep either: `DisksHoldTheSame` now compares
+the shipped sweep against the linear rescan it replaced, at six scales up to 65 520 stacks. The old
+"indexed" replica had neither the bounds check nor the self-donor guard, so it had been measuring
+something cheaper than what ships.
+
+**What is still in-game only**, and it is the residual gap: `StoredStackRules`' eight bindings and
+`CopyStackWithCount`. Issue 04's third fix bullet — carry `ModData` and `FullItemTag` onto a split
+stack — lives in `CopyStackWithCount`, and until this pass it had **no assertion of any kind**.
+`MX-14` adds a source match, which is the only mechanism available for a method that builds a
+`StoredItemStack`. The sweep around it is now executable; the field copy at its centre is not.
 
 ## Still not extracted
 

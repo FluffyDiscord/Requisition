@@ -729,105 +729,29 @@ namespace TerraStorage.Systems
             return items;
         }
 
-        // Defragments the given disks (in the order provided) by moving item stacks from
-        // later disks into free space on earlier disks.  Respects item identity:
-        //   • Stacks without ModData are merged up to maxStack with matching type+prefix stacks.
-        //   • Stacks with ModData (unique items) are moved whole to an empty slot only.
+        // Defragments the given disks, in the order provided, by moving stacks from later disks into
+        // free space on earlier ones. The sweep is DefragmentCore.Sweep; this resolves the GUIDs it
+        // works over and supplies the rules that need Terraria.
         // Returns the GUIDs of every disk whose Items list was modified.
         public List<Guid> Defragment(List<Guid> orderedDiskIds)
         {
-            var disks = orderedDiskIds
+            var diskData = orderedDiskIds
                 .Select(id => _allDiskData.TryGetValue(id, out var d) ? d : null)
                 .Where(d => d != null)
                 .ToList();
 
+            var disks = new List<DefragmentDisk<StoredItemStack>>(diskData.Count);
+            foreach (var data in diskData)
+                disks.Add(new DefragmentDisk<StoredItemStack>(data.Items, data.MaxStacks));
+
+            List<int> movedDiskIndices = DefragmentCore.Sweep(disks,
+                new StoredStackRules(new Dictionary<int, int>()));
+
+            // A disk named twice in the request is two indices for one GUID, so the ids are
+            // deduplicated rather than the indices.
             var modified = new HashSet<Guid>();
-
-            // One plan is built per donor stack, which at the supported maximum (40 disks x 2048
-            // stacks) is tens of thousands. Allocating the buffers per stack churned hundreds of
-            // megabytes through a single defrag, so they are hoisted and reused. maxStack needs an
-            // Item to read, which is far too expensive to rebuild per stack.
-            var mergeTargets = new List<MergeTarget>();
-            var movePlan = new DonorMovePlan();
-            var maxStackCache = new Dictionary<int, int>();
-
-            // Asking the merge rule about every stack on the target for every donor stack is
-            // O(donors x target stacks), and at the supported maximum that froze the game thread for
-            // a third of a second - issue 23i. The index keeps the target's stacks under the type
-            // and prefix a merge needs anyway, so a donor is only asked about stacks that could
-            // say yes.
-            var mergeCandidates = new MergeCandidateIndex();
-
-            for (int ti = 0; ti < disks.Count - 1; ti++)
-            {
-                var target = disks[ti];
-                if (target.IsFull) continue;
-
-                // Rebuilt per target, because a disk that donated to an earlier target arrives here
-                // with its own stacks already moved.
-                IndexTargetStacks(target, mergeCandidates);
-
-                for (int di = ti + 1; di < disks.Count && !target.IsFull; di++)
-                {
-                    var donor = disks[di];
-
-                    // The disk list arrives off the wire (NetworkHandler.HandleDefragRequest) and is
-                    // only checked for reachability, never for repeats. A list naming one disk twice
-                    // makes it its own donor, and then removing a stack from the donor shifts every
-                    // slot the target just recorded - counts land on a stack of another item type.
-                    if (ReferenceEquals(target, donor)) continue;
-
-                    if (donor.Items.Count == 0) continue;
-
-                    for (int si = donor.Items.Count - 1; si >= 0 && !target.IsFull; si--)
-                    {
-                        var stack = donor.Items[si];
-
-                        // What may merge with what is DiskData's identity rule, which needs NBT;
-                        // what that verdict then means for stacks and slots is StackSelection's,
-                        // which does not. "Unique" covers a mod's GlobalItem state as well as
-                        // ModItem data: merging on type+prefix alone destroyed enchantments one way
-                        // and duplicated them the other.
-                        bool isUnique = DiskData.HasPerInstanceData(stack);
-                        int maxStack = GetMaxStack(stack.ItemType, maxStackCache);
-                        BuildMergeTargets(target, stack, isUnique, maxStack, mergeCandidates, mergeTargets);
-                        int freeSlots = target.MaxStacks - target.UsedStacks;
-
-                        var plan = StackSelection.PlanDonorMove(mergeTargets, stack.Stack,
-                            maxStack, freeSlots, isUnique, movePlan);
-
-                        if (plan.MoveWholeStack)
-                        {
-                            mergeCandidates.Add(stack.ItemType, stack.PrefixId, target.Items.Count);
-                            target.Items.Add(stack);
-                            donor.Items.RemoveAt(si);
-                            modified.Add(target.DiskId);
-                            modified.Add(donor.DiskId);
-                            continue;
-                        }
-
-                        foreach (var merge in plan.Merges)
-                            target.Items[merge.Index].Stack += merge.Count;
-
-                        foreach (int addAmount in plan.NewSlots)
-                        {
-                            mergeCandidates.Add(stack.ItemType, stack.PrefixId, target.Items.Count);
-                            target.Items.Add(CopyStackWithCount(stack, addAmount));
-                        }
-
-                        if (plan.LeftOnDonor < stack.Stack)
-                        {
-                            modified.Add(target.DiskId);
-                            modified.Add(donor.DiskId);
-                        }
-
-                        if (plan.LeftOnDonor == 0)
-                            donor.Items.RemoveAt(si);
-                        else
-                            stack.Stack = plan.LeftOnDonor;
-                    }
-                }
-            }
+            foreach (int diskIndex in movedDiskIndices)
+                modified.Add(diskData[diskIndex].DiskId);
 
             if (modified.Count > 0)
             {
@@ -838,74 +762,45 @@ namespace TerraStorage.Systems
             return modified.ToList();
         }
 
-        // Every stack on the target this donor could merge into, with the identity verdict attached.
-        // Fills a caller-owned buffer: this runs once per donor stack inside the defrag sweep.
-        //
-        // The index narrows the field to stacks sharing the donor's type and prefix, and
-        // DiskData.CanMergeStacks still decides every one of them. That split is deliberate:
-        // StoredItemStack.StacksWith refuses a different type or prefix before it tests anything
-        // else, so sharing them is a necessary condition of merging and never a sufficient one.
-        // Letting the index answer instead of the rule is issues 04 and 24 all over again.
-        private static void BuildMergeTargets(DiskData target, StoredItemStack donorStack,
-            bool donorIsUnique, int maxStack, MergeCandidateIndex mergeCandidates, List<MergeTarget> into)
+        // The live bindings for the sweep: every question about a stored stack that needs a
+        // TagCompound or an Item, and nothing else. The sweep itself is Terraria-free and lives in
+        // Common/DefragmentCore.cs, where it runs under test.
+        private readonly struct StoredStackRules : IDefragmentRules<StoredItemStack>
         {
-            into.Clear();
+            // maxStack needs an Item to read, which is far too expensive to rebuild per stack.
+            private readonly Dictionary<int, int> _maxStackByItemType;
 
-            // A stack that stands for itself moves whole into a free slot or stays put, so
-            // PlanDonorMove never reads the targets for one.
-            if (donorIsUnique)
-                return;
-
-            var candidates = mergeCandidates.GetCandidates(donorStack.ItemType, donorStack.PrefixId);
-            for (int candidate = 0; candidate < candidates.Count; candidate++)
+            public StoredStackRules(Dictionary<int, int> maxStackByItemType)
             {
-                int index = candidates[candidate];
-
-                // The index records slots, and it is only correct while nothing removes from the
-                // target mid-sweep - which nothing does today. Should that ever change, a slot past
-                // the end must cost a merge, never credit whatever moved into its place.
-                if (index >= target.Items.Count)
-                    continue;
-
-                var existing = target.Items[index];
-
-                // A stack already at capacity has no room, and PlanDonorMove would pass over it
-                // anyway. Skipping it here spares the identity comparison, which is the expensive
-                // one - a bulk-storage disk holds hundreds of full stacks under a single identity.
-                if (existing.Stack >= maxStack)
-                    continue;
-
-                into.Add(new MergeTarget
-                {
-                    Index = index,
-                    Stack = existing.Stack,
-                    Accepts = DiskData.CanMergeStacks(existing, donorStack)
-                });
+                _maxStackByItemType = maxStackByItemType;
             }
-        }
 
-        // The target's stacks under the identity a merge needs, in ascending slot order so a donor
-        // still tops up the earliest partial stack first.
-        private static void IndexTargetStacks(DiskData target, MergeCandidateIndex mergeCandidates)
-        {
-            mergeCandidates.Clear();
+            public int GetItemType(StoredItemStack stack) => stack.ItemType;
 
-            for (int index = 0; index < target.Items.Count; index++)
+            public int GetPrefixId(StoredItemStack stack) => stack.PrefixId;
+
+            public int GetCount(StoredItemStack stack) => stack.Stack;
+
+            public void SetCount(StoredItemStack stack, int count) => stack.Stack = count;
+
+            public bool IsUnique(StoredItemStack stack) => DiskData.HasPerInstanceData(stack);
+
+            public bool CanMerge(StoredItemStack target, StoredItemStack donor)
+                => DiskData.CanMergeStacks(target, donor);
+
+            public StoredItemStack CopyWithCount(StoredItemStack source, int count)
+                => CopyStackWithCount(source, count);
+
+            public int GetMaxStack(StoredItemStack stack)
             {
-                var stack = target.Items[index];
-                mergeCandidates.Add(stack.ItemType, stack.PrefixId, index);
+                if (_maxStackByItemType.TryGetValue(stack.ItemType, out int cached))
+                    return cached;
+
+                var tempItem = new Item();
+                tempItem.SetDefaults(stack.ItemType);
+                _maxStackByItemType[stack.ItemType] = tempItem.maxStack;
+                return tempItem.maxStack;
             }
-        }
-
-        private static int GetMaxStack(int itemType, Dictionary<int, int> cache)
-        {
-            if (cache.TryGetValue(itemType, out int cached))
-                return cached;
-
-            var tempItem = new Item();
-            tempItem.SetDefaults(itemType);
-            cache[itemType] = tempItem.maxStack;
-            return tempItem.maxStack;
         }
 
         // A relocated stack keeps everything that identifies it, or defragmenting would quietly

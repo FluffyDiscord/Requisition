@@ -42,7 +42,7 @@ Not shipped in the `.tmod` (`build.txt` `buildIgnore` covers `*.md`).
 | [02](02-server-upgrade-no-material-check.md) | HIGH | Server upgraded a disk with no material check | `TX-*`, multiplayer |
 | [03](03-executeplan-unchecked-extract-insert.md) | HIGH | `ExecutePlan` ignored extraction shortfall and insert leftover | `PX-*` |
 | [22](22-aborted-plan-keeps-its-intermediates.md) | HIGH | An aborted craft refunded the materials AND kept what it made | `PX-03c`, `TX-06b` |
-| [04](04-defragment-destroys-per-instance-data.md) | HIGH | `Defragment` destroyed and duplicated per-instance mod data | `DF-*` |
+| [04](04-defragment-destroys-per-instance-data.md) | HIGH | `Defragment` destroyed and duplicated per-instance mod data | `DF-*`, `DG-*` |
 | [05](05-extractitem-stamps-tag-on-whole-withdrawal.md) | HIGH | `ExtractItem` stamped one stack's tag onto the whole withdrawal — and later dropped the tag entirely when the draws disagreed | `SL-*` `SB-*` |
 | [12](12-storagediskbase-clone-drops-fullitemtag.md) | MEDIUM | `StorageDiskBase.Clone` dropped `FullItemTag` | multiplayer |
 | [13](13-partial-deposit-reports-failure.md) | MEDIUM | Partial deposit reported failure, skipping the delta broadcast | `DP-*` |
@@ -133,7 +133,7 @@ onto the cursor now hands over the first run of matching state rather than the w
 
 ## Test suite
 
-`cd Tests && dotnet run` — 770 assertions, zero dependencies, links the shipped source directly.
+`cd Tests && dotnet run` — 819 assertions, zero dependencies, links the shipped source directly.
 The real-game benchmark reads `ts_recipe_dump.txt` from the tModLoader save folder when present
 (produce one in-game with `/tsdump` next to a Terminal); full craftability revalidation over
 14 178 recipes runs in 2 ms. Scenario fixtures live in `Tests/Fixtures/*.tsdump.txt` — scoped
@@ -141,15 +141,17 @@ slices of a real dump, so a failure names the recipe that broke.
 
 Coverage was uneven until 2026-08-25: everything in the resolver group was asserted and the
 item-movement and UI groups were not, because the runner cannot link files that touch
-`Terraria.Item`, `TagCompound` or `Main.*`. [21](21-untested-fixes.md) records the five extractions
+`Terraria.Item`, `TagCompound` or `Main.*`. [21](21-untested-fixes.md) records the seven extractions
 that closed that gap — the transaction core, the stack-selection rules, the panel's refresh stamps,
-row visibility, and the deposit arithmetic — and what deliberately stays in-game-only.
+row visibility, the deposit arithmetic, the network drain, and the defragment sweep — and what
+deliberately stays in-game-only.
 
 Suite prefixes, so a failure names its area: `TX`/`PX` transaction, `SL`/`DF` stack selection,
 `RC` panel refresh, `HR` hit rects, `DP` deposit, `MD`/`DL`/`SA`/`LF` resolver depth and agreement,
 `FC`/`TC` UI caches and click arbitration, `FD`/`NG`/`IO`/`AF` the 2026-08-25 audit,
 `BD`/`ID`/`FX` paying for a step from stacks that each stand for themselves,
-`MX` the defragment merge-candidate index, `DN` the denial vocabulary sent to a refused client,
+`MX` the defragment merge-candidate index, `DG` the defragment sweep itself,
+`DN` the denial vocabulary sent to a refused client,
 `NW` the one-sweep network drain, `HB` taking back the stack the run made rather than the player's,
 `RF` refunding the player's stack rather than whichever was drawn last,
 `SB` a withdrawal ending at the state boundary rather than dropping the state,

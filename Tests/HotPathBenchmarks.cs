@@ -592,11 +592,11 @@ namespace TerraStorage.Tests
         // ================================================================================
         private static void DefragmentBenchmark(Action<bool, string> check)
         {
-            Console.WriteLine("\n-- StorageWorldSystem.Defragment: the target rescan per donor stack (StorageWorldSystem.cs:632)");
-            Console.WriteLine("   per-donor = the shape before 23i's allocation fix. shipped = master today.");
-            Console.WriteLine("   indexed   = the same sweep with the target bucketed by (ItemType, PrefixId).");
+            Console.WriteLine("\n-- The defragment sweep: DefragmentCore.Sweep against the linear rescan it replaced");
+            Console.WriteLine("   per-donor = the shape before 23i's allocation fix. rescan = the linear sweep it replaced.");
+            Console.WriteLine("   shipped   = Common/DefragmentCore.cs itself, linked and run - not a transcription of it.");
             Console.WriteLine();
-            Console.WriteLine("   disks x stacks | per-donor ms |    MB | shipped ms |   MB | indexed ms |   MB | speedup");
+            Console.WriteLine("   disks x stacks | per-donor ms |    MB |  rescan ms |   MB | shipped ms |   MB | speedup");
             Console.WriteLine("   ---------------|--------------|-------|------------|------|------------|------|--------");
 
             // JIT every sweep before the first row is timed, or the smallest network pays for
@@ -645,9 +645,12 @@ namespace TerraStorage.Tests
             Console.WriteLine("   The merge rule is unchanged: the index only decides which stacks it is asked about.");
 
             check(everyScaleAgreed,
-                "the indexed sweep moves exactly what the shipped sweep moves, at every scale");
-            check(indexedAtMax < shippedAtMax / 5,
-                $"the index cuts the defrag freeze at the supported maximum by at least 5x ({shippedAtMax:0.0} ms -> {indexedAtMax:0.0} ms)");
+                "the shipped sweep moves exactly what the linear rescan moves, at every scale");
+            // A floor near the measured ratio rather than the token 5x it replaced: the index is
+            // worth roughly 28x here, so a 5x floor left most of the win unguarded and a regression
+            // that gave back three quarters of it would still have passed.
+            check(indexedAtMax < shippedAtMax / 15,
+                $"the index cuts the defrag freeze at the supported maximum by at least 15x ({shippedAtMax:0.0} ms -> {indexedAtMax:0.0} ms)");
 
             BulkStorageDefragmentBenchmark(check);
         }
@@ -691,9 +694,12 @@ namespace TerraStorage.Tests
             Console.WriteLine("   rule about them - the comparison the index cannot remove is the expensive one.");
 
             check(everyScaleAgreed,
-                "the indexed sweep moves exactly what the shipped sweep moves over bulk storage too");
-            check(indexedAtMax < shippedAtMax,
-                $"the index still wins on the disk shape least suited to it ({shippedAtMax:0.0} ms -> {indexedAtMax:0.0} ms)");
+                "the shipped sweep moves exactly what the linear rescan moves over bulk storage too");
+            // Bulk storage is the shape least suited to a (type, prefix) index, so it is the row a
+            // regression shows up in first. Measured around 30x; the floor is set well under that
+            // and still an order of magnitude tighter than the bare "wins at all" it replaced.
+            check(indexedAtMax < shippedAtMax / 15,
+                $"the index still wins by at least 15x on the disk shape least suited to it ({shippedAtMax:0.0} ms -> {indexedAtMax:0.0} ms)");
 
             ModStateComparisonBenchmark(check);
         }
@@ -926,61 +932,48 @@ namespace TerraStorage.Tests
         // The same sweep, with the target's stacks bucketed by the only thing that can make two
         // stacks mergeable at all. A donor sees its own bucket instead of the whole disk; the
         // merge rule still has the final word on every candidate the bucket returns.
+        // No longer a replica: this runs the shipped sweep. DefragmentCore is Terraria-free precisely
+        // so it can be linked here, which makes DisksHoldTheSame a differential between the sweep
+        // that ships and the linear rescan it replaced, rather than between two transcriptions.
+        //
+        // The rules below are the same CanMergeStacks and HasPerInstanceData DefragmentHoisted uses,
+        // so the two sides of that differential share one identity rule and differ only in sweep.
         private static void DefragmentIndexed(List<Disk> disks)
         {
-            var scratch = new List<MergeTarget>();
-            var plan = new DonorMovePlan();
-            var index = new MergeCandidateIndex();
+            var shipped = new List<DefragmentDisk<Stack>>(disks.Count);
+            foreach (Disk disk in disks)
+                shipped.Add(new DefragmentDisk<Stack>(disk.Items, disk.MaxStacks));
 
-            for (int ti = 0; ti < disks.Count - 1; ti++)
+            DefragmentCore.Sweep(shipped, BenchmarkRules);
+        }
+
+        private static readonly BenchmarkStackRules BenchmarkRules = new();
+
+        private readonly struct BenchmarkStackRules : IDefragmentRules<Stack>
+        {
+            public int GetItemType(Stack stack) => stack.ItemType;
+
+            public int GetPrefixId(Stack stack) => stack.PrefixId;
+
+            public int GetCount(Stack stack) => stack.StackCount;
+
+            public void SetCount(Stack stack, int count) => stack.StackCount = count;
+
+            public bool IsUnique(Stack stack) => HasPerInstanceData(stack);
+
+            public int GetMaxStack(Stack stack) => MaxStackSize;
+
+            public bool CanMerge(Stack target, Stack donor) => CanMergeStacks(target, donor);
+
+            public Stack CopyWithCount(Stack source, int count) => new Stack
             {
-                var target = disks[ti];
-                if (target.IsFull) continue;
-
-                index.Clear();
-                for (int i = 0; i < target.Items.Count; i++)
-                    index.Add(target.Items[i].ItemType, target.Items[i].PrefixId, i);
-
-                for (int di = ti + 1; di < disks.Count && !target.IsFull; di++)
-                {
-                    var donor = disks[di];
-                    if (donor.Items.Count == 0) continue;
-
-                    for (int si = donor.Items.Count - 1; si >= 0 && !target.IsFull; si--)
-                    {
-                        var stack = donor.Items[si];
-                        bool isUnique = HasPerInstanceData(stack);
-
-                        scratch.Clear();
-                        if (!isUnique)
-                        {
-                            var candidates = index.GetCandidates(stack.ItemType, stack.PrefixId);
-                            for (int c = 0; c < candidates.Count; c++)
-                            {
-                                int targetIndex = candidates[c];
-                                var existing = target.Items[targetIndex];
-
-                                // Full stacks cannot take anything; PlanDonorMove skips them on
-                                // room <= 0. Skipping them here spares the identity comparison.
-                                if (existing.StackCount >= MaxStackSize) continue;
-
-                                scratch.Add(new MergeTarget
-                                {
-                                    Index = targetIndex,
-                                    Stack = existing.StackCount,
-                                    Accepts = CanMergeStacks(existing, stack)
-                                });
-                            }
-                        }
-
-                        int freeSlots = target.MaxStacks - target.UsedStacks;
-                        StackSelection.PlanDonorMove(scratch, stack.StackCount,
-                            MaxStackSize, freeSlots, isUnique, plan);
-
-                        ApplyPlanIndexed(target, donor, si, stack, plan, index);
-                    }
-                }
-            }
+                ItemType       = source.ItemType,
+                StackCount     = count,
+                PrefixId       = source.PrefixId,
+                InsertionOrder = source.InsertionOrder,
+                ModData        = source.ModData,
+                ModState       = source.ModState
+            };
         }
 
         private static List<MergeTarget> BuildMergeTargets(Disk target, Stack donorStack)
@@ -999,18 +992,12 @@ namespace TerraStorage.Tests
             return mergeTargets;
         }
 
+        // Only the two historical shapes apply a plan by hand now: the sweep that ships does its own
+        // list work inside DefragmentCore, so neither of these keeps a merge index any more.
         private static void ApplyPlan(Disk target, Disk donor, int si, Stack stack, DonorMovePlan plan)
-            => ApplyPlanIndexed(target, donor, si, stack, plan, null);
-
-        // The index, when one is being kept, learns about every stack the sweep appends to the
-        // target - a whole stack relocated, or a fresh slot taken - so a later donor of the same
-        // identity can still find it.
-        private static void ApplyPlanIndexed(Disk target, Disk donor, int si, Stack stack,
-            DonorMovePlan plan, MergeCandidateIndex index)
         {
             if (plan.MoveWholeStack)
             {
-                index?.Add(stack.ItemType, stack.PrefixId, target.Items.Count);
                 target.Items.Add(stack);
                 donor.Items.RemoveAt(si);
                 return;
@@ -1021,7 +1008,6 @@ namespace TerraStorage.Tests
 
             foreach (int addAmount in plan.NewSlots)
             {
-                index?.Add(stack.ItemType, stack.PrefixId, target.Items.Count);
                 target.Items.Add(new Stack
                 {
                     ItemType = stack.ItemType,
