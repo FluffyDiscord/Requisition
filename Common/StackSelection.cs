@@ -3,15 +3,20 @@ using System.Collections.Generic;
 
 namespace TerraStorage.Common
 {
-    // A stored stack reduced to what the selection rules actually need: how much is on it, and
-    // whether it carries per-instance state that makes it a distinct item. Deciding THAT is
-    // DiskData.HasPerInstanceData's job and needs NBT; deciding what to do about it does not, so
-    // these rules stay here where they can be exercised without Terraria.
+    // A stored stack reduced to what the selection rules actually need: how much is on it, whether
+    // it carries per-instance state that makes it a distinct item, and which run of mergeable
+    // stacks it belongs to. Deciding THOSE is DiskData's job and needs NBT; deciding what to do
+    // about them does not, so these rules stay here where they can be exercised without Terraria.
     public struct StackSlot
     {
         public int Index;
         public int Stack;
         public bool IsUnique;
+
+        // Which run of consecutive stacks this one merges into. Equal numbers mean folding the two
+        // into a single returned item discards nothing - the caller mints them, because answering
+        // that means comparing prefixes and serialized mod state.
+        public int StateGroup;
     }
 
     // Take `Count` units off the stack at `Index`.
@@ -64,6 +69,13 @@ namespace TerraStorage.Common
         // unique stack into a bulk withdrawal stamps its mod state onto every unit returned,
         // duplicating enchantments one way and erasing the unique cell the other.
         //
+        // Plain stacks pool, but only with the ones they merge with: the pass ends at the first
+        // stack whose StateGroup differs, so a plan never spans a state boundary. One returned item
+        // carries one state, and both ways of pretending otherwise lose an item - stamping the
+        // opening stack's state onto units drawn from another, or handing every unit back with none.
+        // The caller asks again for what is left, and its handle budget decides whether that opens
+        // a second item or ends the withdrawal.
+        //
         // allowUniqueFallback lets a caller already carrying plain items refuse the fallback, so a
         // unique stack is never pulled out only to be mixed into a count it does not describe.
         public static List<StackDraw> PlanWithdrawal(IReadOnlyList<StackSlot> matching, int count,
@@ -76,16 +88,26 @@ namespace TerraStorage.Common
                 return draws;
 
             int taken = 0;
+            int openStateGroup = 0;
+
             foreach (StackSlot slot in matching)
             {
                 if (slot.IsUnique)
                     continue;
 
+                // Read the group only for a stack actually drawn from. A slot with nothing on it is
+                // not a state boundary, and ending the pass over one would abandon every stack
+                // behind it.
                 int canTake = Math.Min(count - taken, slot.Stack);
                 if (canTake <= 0)
                     continue;
 
+                bool leavesTheOpenRun = draws.Count > 0 && slot.StateGroup != openStateGroup;
+                if (leavesTheOpenRun)
+                    break;
+
                 draws.Add(new StackDraw { Index = slot.Index, Count = canTake });
+                openStateGroup = slot.StateGroup;
                 taken += canTake;
 
                 if (taken >= count)
