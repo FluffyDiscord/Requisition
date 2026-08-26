@@ -82,6 +82,13 @@ bounded by what the run actually stored — a stack that grew past that also hol
 owned, and taking it whole would destroy them. Plain units have no state to match on and still
 recover by type, which is correct: they are interchangeable.
 
+The match is `DiskData.ExtractStoredStack`, on item type, prefix, mod item data and mod-written
+state **together**. `ExtractItemWithModData` was the obvious thing to reach for and is the wrong
+tool: it carries no item type, so `StorageDiskBase`'s `{"archived": true}` — written identically by
+every disk tier — matches across types, and it says nothing about `globalData`, so the player's
+enchanted copy answers for the plain one the run made. Routing recovery through it would have
+introduced a way to destroy an item of a different type than the one being recovered.
+
 `ICraftingStorage.Extract` was **replaced** by `ExtractStacks` rather than joined by it, so the
 re-entrant loop could not survive inside `TakeBack`.
 
@@ -106,12 +113,17 @@ re-entrant loop could not survive inside `TakeBack`.
   **`NW-09` is coupled to this defect**: the one-sweep drain folds into the most recent handle only,
   which is what preserves `_taken`'s order and therefore what end-withholding drops. When `Refund`
   recovers by identity, `NW-09`'s stated reason for existing becomes false and must be revisited.
-- **Recovery is precise by state, not by object.** `ExtractStored` matches the first stack whose tag
-  is byte-equal to the conjured handle's. That is handle-precision exactly when the conjured item's
-  state is distinct — the 25-C case, since a stack stands for itself *because* it carries
-  per-instance state. Where the player holds byte-identical state the two stacks are
-  indistinguishable in every observable respect, so taking either is equivalent; the guard is what
-  stops more units coming back than the run put in.
+- **Recovery by handle only reaches a product that landed as its own stack.** `ExtractStoredStack`
+  matches on item type, prefix, mod item data and mod-written state together. When the conjured
+  product *merged* into a stack the player already had, `DiskData.InsertItem` leaves the
+  destination's `FullItemTag` in place (or has the mod rewrite it through `FoldInModState`), so
+  nothing the handle can be re-serialised into will match it and the recovery falls back to the
+  by-type draw. That fallback is correct there — merging only happens when the game and the mod
+  agree those units are the same thing — but it does mean the precise path fires for stacks that
+  stand for themselves and not for stateful stock that still pools.
+  It is precision by **state**, not by object: two stacks carrying byte-identical state are
+  indistinguishable in every observable respect, so taking either is equivalent. The size guard is
+  what stops more units coming back than the run put in.
 - **Within one disk, two drawn plain stacks with different state still lose it.**
   `DiskData.ExtractItem` sets the returned tag only when `AllDrawsShareModState`, so a bulk
   withdrawal that draws two plain stacks carrying different `globalData` returns them with **no**
@@ -162,13 +174,15 @@ cannot be paid for now prints a reason.
 And, specific to this pass — **the two things no assertion can reach**, because
 `StorageWorldSystem.cs` and `DiskData.cs` still cannot be linked into the runner:
 
-- **That recovery by handle fires at all.** It depends on `ItemIO.Save` on the still-unmutated
-  produced item reproducing the tag `DiskData.InsertItem` stored for it, byte for byte. This was
-  **not verified against tModLoader source** — no tModLoader assembly is reachable from the build
-  environment. If it does not hold, every recovery quietly falls back to the type-based draw: today's
-  behaviour, never worse, but 25-C would not actually be fixed in-game. Craft a multi-step chain that
-  aborts while the player holds a stack of the intermediate's type, and confirm the player's stack is
-  the one still there.
+- **That recovery by handle fires at all.** For a product that landed as its own stack it depends on
+  `ItemIO.Save` on the still-unmutated produced item reproducing the tag `DiskData.InsertItem` stored
+  for it, byte for byte. This was **not verified against tModLoader source** — no tModLoader assembly
+  is reachable from the build environment. If it does not hold, every recovery quietly falls back to
+  the type-based draw: today's behaviour, never worse, but 25-C would not actually be fixed in-game.
+  Craft a multi-step chain that aborts while the player holds a stack of the intermediate's type, and
+  confirm the player's stack is the one still there.
+  `Tests/FakeStorage.cs` cannot stand in for this: its insert never merges, so it models only the
+  own-stack case.
 - **The adapter itself** — `DiskWithdrawal`'s state grouping, put-back, `_modifiedTracker` marking
   and `StorageVersion` bumping. The rule it carries out is asserted; the binding to real disks is not.
 

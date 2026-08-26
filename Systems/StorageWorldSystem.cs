@@ -371,7 +371,7 @@ namespace TerraStorage.Systems
             return drawn.Count == 0 ? new Item() : drawn[0];
         }
 
-        // Drains up to `count` across the network in ONE sweep, one item per group of units that
+        // Drains up to `count` across the network in ONE sweep, one item per run of consecutive draws that
         // share mod state. A caller that can hold several items - a crafting step paying for itself
         // out of stacks that each stand for themselves - no longer walks every disk once per stack.
         public List<Item> ExtractItemStacks(IEnumerable<Guid> diskIds, int itemType, int count, int prefixId = -1)
@@ -435,11 +435,13 @@ namespace TerraStorage.Systems
                     allowUniqueFallback: true, out bool standaloneStack, out TagCompound modState);
 
                 // Pooled stock is exhausted network-wide before this pass runs, so anything that is
-                // not a stack standing for itself means the disk had nothing left to give.
+                // not a stack standing for itself means the disk had nothing left to give. Should
+                // that ever stop holding, the draw goes back to the network rather than to the one
+                // disk, whose slot layout this draw may not match - dropping it would destroy it.
                 if (!standaloneStack)
                 {
                     if (!extracted.IsAir)
-                        disk.InsertItem(extracted, ++_storage._insertionCounter);
+                        _storage.InsertItem(_diskIds, extracted);
                     return DrawnUnits.Nothing(diskIndex);
                 }
 
@@ -515,19 +517,34 @@ namespace TerraStorage.Systems
             if (stored == null || stored.IsAir || refuseIfLargerThan <= 0)
                 return new Item();
 
-            TagCompound modData = ModItemDataOf(stored);
-            if (modData != null)
-            {
-                Item byModData = ExtractItemWithModData(diskIds, modData, refuseIfLargerThan);
-                if (!byModData.IsAir)
-                    return byModData;
-            }
+            TagCompound modItemData = ModItemDataOf(stored);
+            var fullItemTag = ItemIO.Save(stored);
 
-            var fullTag = ItemIO.Save(stored);
-            if (!StackIdentity.MustPreserveFullTag(modData != null, fullTag.ContainsKey("globalData")))
+            bool hasModItemData = modItemData != null;
+            bool carriesModWrittenData = fullItemTag.ContainsKey("globalData");
+
+            // Nothing to recognise it by, so there is nothing to be precise about: one plain unit is
+            // as good as another and the caller's draw by type is already right.
+            if (!StackIdentity.MustPreserveFullTag(hasModItemData, carriesModWrittenData))
                 return new Item();
 
-            return ExtractItemWithFullItemTag(diskIds, fullTag, refuseIfLargerThan);
+            foreach (var diskId in diskIds)
+            {
+                if (!_allDiskData.TryGetValue(diskId, out var disk))
+                    continue;
+
+                var extracted = disk.ExtractStoredStack(stored.type, stored.prefix, modItemData,
+                    fullItemTag, refuseIfLargerThan);
+                if (extracted.IsAir)
+                    continue;
+
+                StorageVersion++;
+                BackupSystem.MarkDirty();
+                _modifiedTracker?.Add(diskId);
+                return extracted;
+            }
+
+            return new Item();
         }
 
         private static TagCompound ModItemDataOf(Item item)
@@ -542,15 +559,14 @@ namespace TerraStorage.Systems
 
         // Extract a specific per-instance item (e.g. UnloadedItem) identified by its exact
         // ModData. Searches disks in order and returns the first matching stack.
-        public Item ExtractItemWithModData(IEnumerable<Guid> diskIds, TagCompound modData,
-            int refuseIfLargerThan = int.MaxValue)
+        public Item ExtractItemWithModData(IEnumerable<Guid> diskIds, TagCompound modData)
         {
             foreach (var diskId in diskIds)
             {
                 if (!_allDiskData.TryGetValue(diskId, out var disk))
                     continue;
 
-                var extracted = disk.ExtractItemWithModData(modData, refuseIfLargerThan);
+                var extracted = disk.ExtractItemWithModData(modData);
                 if (!extracted.IsAir)
                 {
                     StorageVersion++;
@@ -564,15 +580,14 @@ namespace TerraStorage.Systems
 
         // Extract a specific per-instance item identified by its exact FullItemTag.
         // Used for GlobalItem-backed items (e.g. Entropy enchantments) that have no ModData.
-        public Item ExtractItemWithFullItemTag(IEnumerable<Guid> diskIds, TagCompound fullItemTag,
-            int refuseIfLargerThan = int.MaxValue)
+        public Item ExtractItemWithFullItemTag(IEnumerable<Guid> diskIds, TagCompound fullItemTag)
         {
             foreach (var diskId in diskIds)
             {
                 if (!_allDiskData.TryGetValue(diskId, out var disk))
                     continue;
 
-                var extracted = disk.ExtractItemWithFullItemTag(fullItemTag, refuseIfLargerThan);
+                var extracted = disk.ExtractItemWithFullItemTag(fullItemTag);
                 if (!extracted.IsAir)
                 {
                     StorageVersion++;

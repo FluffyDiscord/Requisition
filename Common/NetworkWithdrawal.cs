@@ -52,7 +52,9 @@ namespace TerraStorage.Common
     public static class NetworkWithdrawal
     {
         // Drains up to `count` units across the whole network in ONE sweep, returning one handle per
-        // group of units that share mod state.
+        // run of consecutive draws that share mod state - a state that comes back after another
+        // opens a handle of its own rather than rejoining the earlier one, because `_taken`'s order
+        // is what RefundLedger.Refund withholds from.
         //
         // handleLimit is how many separate items the caller can hold. A withdrawal onto the mouse
         // cursor holds one, so it stops at the first state boundary and hands that draw straight

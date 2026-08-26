@@ -15,10 +15,10 @@ namespace TerraStorage.Helpers.Resolver
 
         int CountItem(int itemType);
 
-        // Drains up to `amount` in ONE sweep of the network, handing back one handle per group of
-        // units that share state, in draw order. Best-effort: an empty list, never null, when
-        // nothing came out. A type held as stacks that each stand for themselves comes back as one
-        // handle per stack, because folding them would stamp one stack's state onto another's units.
+        // Drains up to `amount` in ONE sweep of the network, handing back one handle per run of
+        // consecutive draws that share state, in draw order. Best-effort: an empty list, never null,
+        // when nothing came out. A type held as stacks that each stand for themselves comes back as
+        // one handle per stack, because folding them would stamp one stack's state onto another's.
         List<TItem> ExtractStacks(int itemType, int amount);
 
         // Units recovered carrying exactly the state `stored` was inserted with, or 0 when nothing

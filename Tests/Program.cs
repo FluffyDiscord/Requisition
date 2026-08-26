@@ -2908,8 +2908,14 @@ namespace TerraStorage.Tests
             Eq(NetworkWithdrawal.Drain(alternating, 30, unlimited).Count, 3,
                 "NW-09 a state that comes back later opens a new handle rather than rejoining the first");
 
-            Eq(NetworkWithdrawal.Drain(mixed, 0, unlimited).Count, 0, "NW-10a nothing asked for, nothing drawn");
-            Eq(NetworkWithdrawal.Drain(mixed, 5, 0).Count, 0, "NW-10b no handle to hold it, nothing drawn");
+            // Against a network that still holds stock, so dropping the guards would draw from it
+            // and turn these red rather than leaving them true by exhaustion.
+            var untouched = new FakeDiskNetwork().WithDisk();
+            untouched.WithPooled(0, 8, "A");
+            Eq(NetworkWithdrawal.Drain(untouched, 0, unlimited).Count, 0, "NW-10a nothing asked for, nothing drawn");
+            Eq(untouched.TotalUnits, 8, "NW-10a1 and the network is untouched");
+            Eq(NetworkWithdrawal.Drain(untouched, 5, 0).Count, 0, "NW-10b no handle to hold it, nothing drawn");
+            Eq(untouched.TotalUnits, 8, "NW-10b1 and the network is still untouched");
             Eq(NetworkWithdrawal.Drain(new FakeDiskNetwork(), 5, unlimited).Count, 0, "NW-10c an empty network draws nothing");
 
             var short1 = new FakeDiskNetwork().WithDisk();
@@ -2964,6 +2970,10 @@ namespace TerraStorage.Tests
                 () => Layout(net => net.WithPooled(0, 10, "A").WithPooled(2, 10, "B"), 3),
                 () => Layout(net => net.WithPooled(0, 3, "A").WithPooled(1, 3, "A").WithPooled(2, 3, "B"), 3),
                 () => Layout(net => net.WithStandalone(0, 2, 3).WithPooled(1, 5, "A"), 2),
+                // Pooled and standalone stock on the SAME disk: the one shape where a disk's own
+                // "unique only when nothing plain matched" rule meets the network-wide pooled pass.
+                () => Layout(net => net.WithPooled(0, 4, "A").WithStandalone(0, 3), 2),
+                () => Layout(net => net.WithStandalone(0, 3).WithPooled(0, 4, "A"), 2),
                 () => Layout(net => net, 2)
             };
 
@@ -2971,8 +2981,10 @@ namespace TerraStorage.Tests
             {
                 for (int count = 0; count <= 20; count++)
                 {
-                    var rewritten = NetworkWithdrawal.Drain(layout(), count, 1);
-                    var legacy = LegacySingleHandleDrain.Drain(layout(), count);
+                    var rewrittenNetwork = layout();
+                    var legacyNetwork = layout();
+                    var rewritten = NetworkWithdrawal.Drain(rewrittenNetwork, count, 1);
+                    var legacy = LegacySingleHandleDrain.Drain(legacyNetwork, count);
 
                     if (rewritten.Count != legacy.Count || TotalUnits(rewritten) != TotalUnits(legacy))
                         return false;
@@ -2981,6 +2993,14 @@ namespace TerraStorage.Tests
                     {
                         if (rewritten[handle].Units != legacy[handle].Units
                             || rewritten[handle].Draws.Count != legacy[handle].Draws.Count)
+                            return false;
+                    }
+
+                    // Equal totals drawn from the wrong disks, or a put-back left unrestored, would
+                    // pass every check above. Conservation lives in what the network holds after.
+                    for (int disk = 0; disk < rewrittenNetwork.DiskCount; disk++)
+                    {
+                        if (rewrittenNetwork.UnitsOn(disk) != legacyNetwork.UnitsOn(disk))
                             return false;
                     }
                 }

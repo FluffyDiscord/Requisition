@@ -99,44 +99,63 @@ namespace TerraStorage.Tests
         public void PutBack(DrawnUnits draw)
         {
             Draw record = _draws[draw.DrawIndex];
+            List<Stack> stacks = _disks[record.DiskIndex];
+
             for (int index = 0; index < record.From.Count; index++)
-                record.From[index].Units += record.Units[index];
+            {
+                Stack stack = record.From[index];
+                stack.Units += record.Units[index];
+
+                if (!stacks.Contains(stack))
+                    stacks.Add(stack);
+            }
         }
 
+        // Which stacks a draw comes from is StackSelection.PlanWithdrawal's decision, the same one
+        // DiskData.ExtractItem carries out. Deciding it a second time here would be a second
+        // encoding of the rule NW-* exists to test.
         private DrawnUnits TakeFrom(int diskIndex, int amount, bool standalone)
         {
             if (amount <= 0)
                 return DrawnUnits.Nothing(diskIndex);
 
+            List<Stack> stacks = _disks[diskIndex];
+            var matching = new List<StackSlot>();
+
+            for (int index = 0; index < stacks.Count; index++)
+            {
+                matching.Add(new StackSlot
+                {
+                    Index = index,
+                    Stack = stacks[index].Units,
+                    IsUnique = stacks[index].IsStandalone
+                });
+            }
+
+            var draws = StackSelection.PlanWithdrawal(matching, amount, standalone, out bool standaloneStack);
+            if (draws.Count == 0 || (standalone && !standaloneStack))
+                return DrawnUnits.Nothing(diskIndex);
+
             var record = new Draw { DiskIndex = diskIndex };
             int taken = 0;
-            string state = null;
+            string state = stacks[draws[0].Index].State;
             bool everyDrawSharesState = true;
 
-            foreach (Stack stack in _disks[diskIndex])
+            foreach (var draw in draws)
             {
-                if (stack.IsStandalone != standalone || stack.Units <= 0)
-                    continue;
-
-                int canTake = amount - taken < stack.Units ? amount - taken : stack.Units;
-                if (canTake <= 0)
-                    break;
-
-                if (record.From.Count == 0)
-                    state = stack.State;
-                else if (stack.State != state)
+                Stack stack = stacks[draw.Index];
+                if (stack.State != state)
                     everyDrawSharesState = false;
 
-                stack.Units -= canTake;
+                stack.Units -= draw.Count;
                 record.From.Add(stack);
-                record.Units.Add(canTake);
-                taken += canTake;
-
-                // A stack that stands for itself is taken alone: its state describes those units and
-                // no others, so it is never pooled with the next stack along.
-                if (standalone || taken >= amount)
-                    break;
+                record.Units.Add(draw.Count);
+                taken += draw.Count;
             }
+
+            // Mirrors DiskData.ExtractItem: a stack drained to nothing gives up its slot, so what the
+            // next withdrawal sees - and what a put-back has to restore - is a shorter disk.
+            stacks.RemoveAll(s => s.Units <= 0);
 
             if (taken <= 0)
                 return DrawnUnits.Nothing(diskIndex);
