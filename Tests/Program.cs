@@ -89,6 +89,7 @@ namespace TerraStorage.Tests
             NetworkDrainsInOneSweep();
             TakeBackRecoversTheRunsOwnStack();
             RefundKeepsThePlayersStackNotTheLastOne();
+            AStateBoundaryEndsTheDrawWithinOneDisk();
 
             Console.WriteLine($"\n=== {_pass} passed, {_fail} failed ===");
             if (_fail > 0)
@@ -3411,11 +3412,20 @@ namespace TerraStorage.Tests
             var mixed = new FakeDiskNetwork().WithDisk().WithDisk();
             mixed.WithPooled(0, 4, "A").WithStandalone(1, 6);
             var mixedDraw = NetworkWithdrawal.Drain(mixed, 10, unlimited);
-            Eq(mixed.PooledDraws, 2, "NW-02 the network is swept for pooled stock exactly once");
-            // Two pooled draws, one empty probe at the drained disk, then one per stack taken: nine
-            // for ten units across two disks, where asking per unit would have made twenty.
-            Eq(mixed.TotalDraws, 9, "NW-02a and asked nine times in total, not once per unit");
+            // A disk is asked for pooled stock until it stops yielding, because one draw carries one
+            // mod state: the draw off disk 0, the probe that finds it empty, and the probe that finds
+            // disk 1 holding nothing pooled.
+            Eq(mixed.PooledDraws, 3, "NW-02 the network is swept for pooled stock once per disk, plus the probe that ends it");
+            // Three pooled probes, then one draw per stack that stands for itself.
+            Eq(mixed.TotalDraws, 10, "NW-02a and asked ten times in total, one per stack, not one per unit");
             Eq(TotalUnits(mixedDraw), 10, "NW-02b for all ten units");
+
+            // The falsifiable form of "not once per unit", immune to the constants above: a hundred
+            // times the pooled stock costs the same number of pooled draws.
+            var deepPool = new FakeDiskNetwork().WithDisk().WithDisk();
+            deepPool.WithPooled(0, 400, "A").WithStandalone(1, 6);
+            NetworkWithdrawal.Drain(deepPool, 406, unlimited);
+            Eq(deepPool.PooledDraws, mixed.PooledDraws, "NW-02c a hundredfold deeper pool costs the same pooled draws");
 
             var samePool = new FakeDiskNetwork().WithDisk().WithDisk();
             samePool.WithPooled(0, 7, "A").WithPooled(1, 9, "A");
@@ -3495,7 +3505,13 @@ namespace TerraStorage.Tests
             }
             IsTrue(everyBudgetHolds, "NW-11 every handle budget from 0 to 13 draws exactly what it can hold");
 
-            IsTrue(SingleHandleDrainMatchesLegacy(), "NW-12 one-handle drains still agree with the pre-change rule on every layout");
+            var legacyComparison = CompareSingleHandleDrainsWithLegacy();
+            IsTrue(legacyComparison.EveryAgreementLayoutAgrees,
+                "NW-12 one-handle drains still agree with the pre-change rule on every layout that shares it");
+            IsTrue(legacyComparison.EveryDivergenceLayoutDivergesAsDeclared,
+                "SB-15 and diverge exactly as declared on the layouts whose rule deliberately changed");
+            IsTrue(legacyComparison.NoDrainLosesStateOrOverdraws,
+                "SB-16 and across the whole matrix no item comes back stateless and no drain overdraws");
 
             // A put-back leaves the disk for the next draw to find. This is the one shape where the
             // one-sweep drain and the old per-call loop could have diverged.
@@ -3513,65 +3529,185 @@ namespace TerraStorage.Tests
             return total;
         }
 
-        // Holds the rewritten sweep against the rule it replaced across a matrix of layouts, rather
-        // than at the handful of points a reader would think to pick.
-        private static bool SingleHandleDrainMatchesLegacy()
+        // What one layout is expected to do when the rewritten sweep is held against the rule it
+        // replaced. Every layout declares one, so a layout cannot be added to the matrix without
+        // someone deciding which it is - the omission issue 20 is about.
+        private sealed class LegacyExpectation
         {
-            var layouts = new List<Func<FakeDiskNetwork>>
+            public Func<FakeDiskNetwork> Build;
+
+            // The legacy rule got this layout right, so the rewritten sweep must still agree with it
+            // on handles, units, per-disk units and per-disk slots.
+            public bool AgreesWithLegacy;
+
+            // The legacy rule folded across a state boundary WITHIN one disk, which is the defect.
+            // Agreement is impossible here by construction, so the divergence itself is pinned: the
+            // rewritten sweep draws exactly this much, and the legacy rule draws more.
+            public int DivergentUnits;
+            public int DivergentHandles;
+        }
+
+        private sealed class LegacyComparison
+        {
+            public bool EveryAgreementLayoutAgrees = true;
+            public bool EveryDivergenceLayoutDivergesAsDeclared = true;
+
+            // Swept over both arms: whatever a layout is declared to do, no item may come back
+            // without the state of the stack it was drawn from, and no drain may exceed what was
+            // asked for. Handing every unit back with no state is the defect this change closes.
+            public bool NoDrainLosesStateOrOverdraws = true;
+        }
+
+        // Holds the rewritten sweep against the rule it replaced across a matrix of layouts, rather
+        // than at the handful of points a reader would think to pick. The layouts whose rule
+        // deliberately changed stay IN the matrix with their new answer written down, because a
+        // divergent case quietly left out of the list is how issue 20 shipped over a passing test.
+        private static LegacyComparison CompareSingleHandleDrainsWithLegacy()
+        {
+            var layouts = new List<LegacyExpectation>
             {
-                () => Layout(net => net.WithPooled(0, 7, "A").WithPooled(1, 9, "A"), 2),
-                () => Layout(net => net.WithPooled(0, 7, "A").WithPooled(1, 9, "B"), 2),
-                () => Layout(net => net.WithPooled(0, 7, "B").WithPooled(1, 9, "A"), 2),
-                () => Layout(net => net.WithStandalone(0, 3).WithStandalone(1, 4), 2),
-                () => Layout(net => net.WithPooled(0, 4, "A").WithStandalone(1, 6), 2),
-                () => Layout(net => net.WithStandalone(0, 6).WithPooled(1, 4, "A"), 2),
-                () => Layout(net => net.WithPooled(1, 9, "A"), 2),
-                () => Layout(net => net.WithPooled(0, 10, "A").WithPooled(2, 10, "B"), 3),
-                () => Layout(net => net.WithPooled(0, 3, "A").WithPooled(1, 3, "A").WithPooled(2, 3, "B"), 3),
-                () => Layout(net => net.WithStandalone(0, 2, 3).WithPooled(1, 5, "A"), 2),
+                Agrees(net => net.WithPooled(0, 7, "A").WithPooled(1, 9, "A"), 2),
+                Agrees(net => net.WithPooled(0, 7, "A").WithPooled(1, 9, "B"), 2),
+                Agrees(net => net.WithPooled(0, 7, "B").WithPooled(1, 9, "A"), 2),
+                Agrees(net => net.WithStandalone(0, 3).WithStandalone(1, 4), 2),
+                Agrees(net => net.WithPooled(0, 4, "A").WithStandalone(1, 6), 2),
+                Agrees(net => net.WithStandalone(0, 6).WithPooled(1, 4, "A"), 2),
+                Agrees(net => net.WithPooled(1, 9, "A"), 2),
+                Agrees(net => net.WithPooled(0, 10, "A").WithPooled(2, 10, "B"), 3),
+                Agrees(net => net.WithPooled(0, 3, "A").WithPooled(1, 3, "A").WithPooled(2, 3, "B"), 3),
+                Agrees(net => net.WithStandalone(0, 2, 3).WithPooled(1, 5, "A"), 2),
                 // Pooled and standalone stock on the SAME disk: the one shape where a disk's own
                 // "unique only when nothing plain matched" rule meets the network-wide pooled pass.
-                () => Layout(net => net.WithPooled(0, 4, "A").WithStandalone(0, 3), 2),
-                () => Layout(net => net.WithStandalone(0, 3).WithPooled(0, 4, "A"), 2),
-                () => Layout(net => net, 2)
+                Agrees(net => net.WithPooled(0, 4, "A").WithStandalone(0, 3), 2),
+                Agrees(net => net.WithStandalone(0, 3).WithPooled(0, 4, "A"), 2),
+                // Two pooled stacks sharing a state on one disk: the sweep re-asks the disk, so it
+                // still folds them, and the legacy rule still agrees.
+                Agrees(net => net.WithPooled(0, 4, "A").WithPooled(0, 5, "A"), 2),
+                // Two pooled STATES on one disk, all of the stock on that disk. Both rules hand back
+                // the first run and stop - the legacy rule because it never asks a disk twice, the
+                // rewritten one because a one-item caller puts the second run back. They agree on
+                // the units AND, now, on the state, which is the half the legacy rule got wrong.
+                Agrees(net => net.WithPooled(0, 7, "A").WithPooled(0, 5, "B"), 2),
+                Agrees(net => net.WithPooled(0, 1, "A").WithPooled(0, 9, "B"), 2),
+                Agrees(net => net.WithPooled(0, 4, "A").WithPooled(0, 4, "B").WithPooled(0, 4, "A"), 2),
+                Agrees(net => net, 2),
+
+                // An in-disk boundary with the state the sweep opened with waiting on a LATER disk.
+                // This is the one shape where the two rules part: the legacy rule, blind to the
+                // boundary it left behind on disk 0, walks on and folds the later disk's units into
+                // the handle it is holding. The rewritten sweep stops at the boundary instead,
+                // because a caller that can hold one item may not skip past a state to reach more
+                // of an earlier one (NW-06 refuses the same thing across disks).
+                Diverges(net => net.WithPooled(0, 7, "A").WithPooled(0, 5, "B").WithPooled(1, 9, "A"), 2,
+                    units: 7, handles: 1),
+                Diverges(net => net.WithPooled(0, 4, "A").WithPooled(0, 4, "B").WithPooled(2, 6, "A"), 3,
+                    units: 4, handles: 1)
             };
 
-            foreach (var layout in layouts)
+            var comparison = new LegacyComparison();
+
+            foreach (LegacyExpectation layout in layouts)
             {
+                bool divergedSomewhere = false;
+
+                // Contiguous rather than sampled, for the reason NW-11 is: a boundary a sweep never
+                // tries is a boundary the sweep cannot find.
                 for (int count = 0; count <= 20; count++)
                 {
-                    var rewrittenNetwork = layout();
-                    var legacyNetwork = layout();
+                    var rewrittenNetwork = layout.Build();
+                    var legacyNetwork = layout.Build();
                     var rewritten = NetworkWithdrawal.Drain(rewrittenNetwork, count, 1);
                     var legacy = LegacySingleHandleDrain.Drain(legacyNetwork, count);
 
-                    if (rewritten.Count != legacy.Count || TotalUnits(rewritten) != TotalUnits(legacy))
-                        return false;
+                    if (!EveryHandleKeepsItsState(rewritten, rewrittenNetwork) || TotalUnits(rewritten) > count)
+                        comparison.NoDrainLosesStateOrOverdraws = false;
 
-                    for (int handle = 0; handle < rewritten.Count; handle++)
+                    if (layout.AgreesWithLegacy)
                     {
-                        if (rewritten[handle].Units != legacy[handle].Units
-                            || rewritten[handle].Draws.Count != legacy[handle].Draws.Count)
-                            return false;
+                        if (!DrainsAgree(rewritten, legacy, rewrittenNetwork, legacyNetwork))
+                            comparison.EveryAgreementLayoutAgrees = false;
+                        continue;
                     }
 
-                    // Equal totals drawn from the wrong disks, or a put-back left unrestored, would
-                    // pass every check above. Conservation lives in what the network holds after -
-                    // slots as well as units, so a put-back that restores the right count into a
-                    // different stack arrangement is caught too.
-                    for (int disk = 0; disk < rewrittenNetwork.DiskCount; disk++)
-                    {
-                        if (rewrittenNetwork.UnitsOn(disk) != legacyNetwork.UnitsOn(disk))
-                            return false;
+                    if (!DivergesAsDeclared(layout, count, rewritten))
+                        comparison.EveryDivergenceLayoutDivergesAsDeclared = false;
 
-                        if (rewrittenNetwork.SlotsOn(disk) != legacyNetwork.SlotsOn(disk))
-                            return false;
-                    }
+                    if (TotalUnits(legacy) > TotalUnits(rewritten))
+                        divergedSomewhere = true;
                 }
+
+                // A layout parked in the divergent list that quietly agrees everywhere guards
+                // nothing, and would let the real divergent shape drop out of the matrix unnoticed.
+                if (!layout.AgreesWithLegacy && !divergedSomewhere)
+                    comparison.EveryDivergenceLayoutDivergesAsDeclared = false;
+            }
+
+            return comparison;
+        }
+
+        private static bool EveryHandleKeepsItsState(List<WithdrawalHandle> handles, FakeDiskNetwork network)
+        {
+            foreach (WithdrawalHandle handle in handles)
+            {
+                if (network.StateOfHandle(handle) == null)
+                    return false;
             }
 
             return true;
         }
+
+        private static bool DrainsAgree(List<WithdrawalHandle> rewritten, List<WithdrawalHandle> legacy,
+            FakeDiskNetwork rewrittenNetwork, FakeDiskNetwork legacyNetwork)
+        {
+            if (rewritten.Count != legacy.Count || TotalUnits(rewritten) != TotalUnits(legacy))
+                return false;
+
+            for (int handle = 0; handle < rewritten.Count; handle++)
+            {
+                if (rewritten[handle].Units != legacy[handle].Units
+                    || rewritten[handle].Draws.Count != legacy[handle].Draws.Count)
+                    return false;
+            }
+
+            // Equal totals drawn from the wrong disks, or a put-back left unrestored, would pass
+            // every check above. Conservation lives in what the network holds after - slots as well
+            // as units, so a put-back that restores the right count into a different stack
+            // arrangement is caught too.
+            for (int disk = 0; disk < rewrittenNetwork.DiskCount; disk++)
+            {
+                if (rewrittenNetwork.UnitsOn(disk) != legacyNetwork.UnitsOn(disk))
+                    return false;
+
+                if (rewrittenNetwork.SlotsOn(disk) != legacyNetwork.SlotsOn(disk))
+                    return false;
+            }
+
+            return true;
+        }
+
+        // A one-item caller stops at the first state boundary, so it draws the opening run and no
+        // more, however much the request asked for.
+        private static bool DivergesAsDeclared(LegacyExpectation layout, int count,
+            List<WithdrawalHandle> rewritten)
+        {
+            int expectedUnits = Math.Min(count, layout.DivergentUnits);
+            int expectedHandles = expectedUnits == 0 ? 0 : layout.DivergentHandles;
+
+            return TotalUnits(rewritten) == expectedUnits && rewritten.Count == expectedHandles;
+        }
+
+        private static LegacyExpectation Agrees(Func<FakeDiskNetwork, FakeDiskNetwork> stock, int diskCount)
+            => new LegacyExpectation { Build = () => Layout(stock, diskCount), AgreesWithLegacy = true };
+
+        private static LegacyExpectation Diverges(Func<FakeDiskNetwork, FakeDiskNetwork> stock, int diskCount,
+            int units, int handles)
+            => new LegacyExpectation
+            {
+                Build = () => Layout(stock, diskCount),
+                AgreesWithLegacy = false,
+                DivergentUnits = units,
+                DivergentHandles = handles
+            };
 
         private static FakeDiskNetwork Layout(Func<FakeDiskNetwork, FakeDiskNetwork> stock, int diskCount)
         {
@@ -3658,6 +3794,157 @@ namespace TerraStorage.Tests
             IsFalse(DiskClaim.MayRestoreArchivedItems(worldAlreadyHasDisk: true),
                 "DC-07 restoring never overwrites a disk that already exists");
         }
+
+        // ---- Within one disk, a state boundary ends the draw ----
+        // Issue 25's last "Not fixed" bullet. DiskData.ExtractItem set the returned tag only when
+        // every stack drawn from happened to carry the same state, so a bulk withdrawal spanning two
+        // plain stacks with different globalData handed all of it back with NONE - issue 05's harm
+        // inverted, one level down from where it was fixed, and reachable since 24 stopped treating
+        // globalData as identity. A plan now ends at the boundary instead, and the caller's handle
+        // budget decides whether that opens another item or ends the sweep - the same rule NW-*
+        // already applied across disks, now applied within one.
+        private static void AStateBoundaryEndsTheDrawWithinOneDisk()
+        {
+            Section("Within one disk, a withdrawal stops where the mod state changes");
+            const int unlimited = int.MaxValue;
+            const int PLANK = 9;
+
+            var twoStates = Grouped((7, 0), (5, 1));
+            var stopped = StackSelection.PlanWithdrawal(twoStates, 12, true, out _);
+            Eq(stopped.Count, 1, "SB-01 a plan ends at the first stack it cannot merge with");
+            Eq(stopped.Sum(d => d.Count), 7, "SB-01a taking only the run it opened");
+
+            Eq(StackSelection.PlanWithdrawal(twoStates, 5, true, out _).Sum(d => d.Count), 5,
+                "SB-02 a count inside the first run never reaches the boundary");
+
+            Eq(StackSelection.PlanWithdrawal(Grouped((7, 0), (5, 0)), 12, true, out _).Sum(d => d.Count), 12,
+                "SB-03 stacks that do merge still pool across slots");
+
+            // A stack that stands for itself is skipped rather than drawn from, so it does not
+            // separate the pooled stacks either side of it.
+            var uniqueBetween = new List<StackSlot>
+            {
+                new StackSlot { Index = 0, Stack = 7, StateGroup = 0 },
+                new StackSlot { Index = 1, Stack = 1, IsUnique = true, StateGroup = 1 },
+                new StackSlot { Index = 2, Stack = 5, StateGroup = 0 }
+            };
+            var past = StackSelection.PlanWithdrawal(uniqueBetween, 12, true, out _);
+            Eq(past.Sum(d => d.Count), 12, "SB-04 a stack standing for itself is skipped, not a boundary");
+            IsFalse(past.Any(d => d.Index == 1), "SB-04a and is still left alone");
+
+            // Nothing is drawn from an empty slot, so reading its group would end the pass over a
+            // stack the withdrawal never touched.
+            Eq(StackSelection.PlanWithdrawal(Grouped((7, 0), (0, 1), (5, 0)), 12, true, out _).Sum(d => d.Count), 12,
+                "SB-05 an empty slot is not a boundary");
+
+            var onlyUnique = new List<StackSlot>
+            {
+                new StackSlot { Index = 0, Stack = 1, IsUnique = true, StateGroup = 0 },
+                new StackSlot { Index = 1, Stack = 1, IsUnique = true, StateGroup = 1 }
+            };
+            var fellBack = StackSelection.PlanWithdrawal(onlyUnique, 5, true, out bool reportedUnique);
+            IsTrue(reportedUnique, "SB-06 the unique fallback is untouched by grouping");
+            Eq(fellBack.Count, 1, "SB-06a still exactly one stack, taken alone");
+
+            // The harm stated positively: the state has to survive the withdrawal.
+            var mixedDisk = OneDisk(net => net.WithPooled(0, 7, "A").WithPooled(0, 5, "B"));
+            var split = NetworkWithdrawal.Drain(mixedDisk, 12, unlimited);
+            string splitStates = mixedDisk.StatesOf(split);
+            Check(splitStates == "A,B",
+                $"SB-07 two states on one disk come back as two items, each with its own  [expected A,B, got {splitStates}]");
+            Eq(TotalUnits(split), 12, "SB-07a for all twelve units");
+
+            var mixedCapped = OneDisk(net => net.WithPooled(0, 7, "A").WithPooled(0, 5, "B"));
+            var oneItem = NetworkWithdrawal.Drain(mixedCapped, 12, 1);
+            Eq(TotalUnits(oneItem), 7, "SB-08 one item handle stops at the boundary inside the disk");
+            string cappedState = mixedCapped.StatesOf(oneItem);
+            Check(cappedState == "A", $"SB-08a carrying the state it opened with  [expected A, got {cappedState}]");
+            Eq(mixedCapped.UnitsOn(0), 5, "SB-08b with the rest put back");
+            Eq(mixedCapped.SlotsOn(0), 1, "SB-08c into the slot it came from");
+
+            // NW-09's rule, now reachable within one disk: a state that comes back opens a new item
+            // rather than rejoining the first.
+            var alternatingWithin = OneDisk(net => net.WithPooled(0, 4, "A").WithPooled(0, 4, "B").WithPooled(0, 4, "A"));
+            var runs = NetworkWithdrawal.Drain(alternatingWithin, 12, unlimited);
+            string runStates = alternatingWithin.StatesOf(runs);
+            Check(runStates == "A,B,A",
+                $"SB-09 a state that comes back opens a new item within one disk too  [expected A,B,A, got {runStates}]");
+            Eq(TotalUnits(runs), 12, "SB-09a for all twelve units");
+
+            // A later disk holding the state the sweep opened with is NOT reached past a boundary:
+            // NW-06 refuses that across disks, and this refuses it within one.
+            var boundaryThenMatch = TwoDisks(net =>
+                net.WithPooled(0, 7, "A").WithPooled(0, 5, "B").WithPooled(1, 9, "A"));
+            Eq(TotalUnits(NetworkWithdrawal.Drain(boundaryThenMatch, 20, 1)), 7,
+                "SB-10 one item handle never skips a boundary to reach a later matching disk");
+
+            var ledger = TwoDisks(net => net.WithPooled(0, 7, "A").WithPooled(0, 5, "B").WithPooled(1, 9, "A"));
+            var paid = NetworkWithdrawal.Drain(ledger, 20, unlimited);
+            Eq(TotalUnits(paid), 20, "SB-11 a ledger that can hold three items is paid in full");
+            string ledgerStates = ledger.StatesOf(paid);
+            Check(ledgerStates == "A,B,A", $"SB-11a from all three runs  [expected A,B,A, got {ledgerStates}]");
+
+            // The worst case the rule admits, pinned rather than left emergent: a withdrawal yields
+            // the FIRST run's size, not the largest. Reachable because Defragment declines to merge
+            // stacks whose state differs, so a short leading run can sit in front of a long one.
+            var smallRunFirst = OneDisk(net => net.WithPooled(0, 1, "A").WithPooled(0, 999, "B"));
+            Eq(TotalUnits(NetworkWithdrawal.Drain(smallRunFirst, 1000, 1)), 1,
+                "SB-12 a one-unit leading run answers a thousand-unit request with one");
+            Eq(smallRunFirst.UnitsOn(0), 999, "SB-12a leaving the thousand behind it untouched");
+            Eq(smallRunFirst.SlotsOn(0), 1, "SB-12b in the slot it was already in");
+
+            // Through FakeStorage, which BD-*, ID-*, FX-*, HB-* and RF-* all run on: the player's
+            // plain stock and a run's own product are two handles, not one blurred item.
+            var storage = new FakeStorage().With(PLANK, 4);
+            storage.Insert(new FakeItem { Type = PLANK, Stack = 4, Mark = "made" });
+            var drawnStacks = storage.ExtractStacks(PLANK, 8);
+            string drawnMarks = string.Join(",", drawnStacks.ConvertAll(item => item.Mark ?? "none"));
+            Check(drawnMarks == "none,made",
+                $"SB-13 the player's stock and the run's product stay apart  [expected none,made, got {drawnMarks}]");
+            Eq(drawnStacks.Sum(item => item.Stack), 8, "SB-13a with all eight units drawn");
+
+            SourceScanTheExtractionPath();
+        }
+
+        // DiskData.cs cannot be linked into the runner, so the rule it carries out is asserted
+        // through the fakes and its SHAPE is asserted here - the compiler this change does not
+        // otherwise get, the same device DN-14 and SG-01..SG-07 use.
+        private static void SourceScanTheExtractionPath()
+        {
+            string repoRoot = FindRepoRoot();
+            IsTrue(repoRoot != null, "SB-14 repo root located from " + AppContext.BaseDirectory);
+            if (repoRoot == null) return;
+
+            string diskData = ReadModSource(repoRoot, "Common/DiskData.cs");
+            string extractBody = ExtractMethodBody(diskData, "public Item ExtractItem(int itemType, int count, int prefixId, bool allowUniqueFallback,");
+
+            IsTrue(extractBody.Contains("StackSelection.PlanWithdrawal"),
+                "SB-14a the ExtractItem body was located, so the checks below are real");
+            IsTrue(!diskData.Contains("AllDrawsShareModState"),
+                "SB-14b the after-the-fact share check is gone, not merely bypassed");
+            IsTrue(extractBody.Contains("runOpener"),
+                "SB-14c the returned item's state comes from the stack that opened the run");
+            IsTrue(!extractBody.Contains("result.Prefix(prefixId)"),
+                "SB-14d and its prefix too, not the prefix the request asked by");
+
+            string matchingBody = ExtractMethodBody(diskData, "private List<StackSlot> MatchingSlots");
+            IsTrue(matchingBody.Contains("StateGroup"),
+                "SB-14e MatchingSlots tells the planner which stacks merge");
+            IsTrue(matchingBody.Contains("CanMergeStacks"),
+                "SB-14f on the same rule defragmenting asks, so prefix counts as well as mod state");
+        }
+
+        private static List<StackSlot> Grouped(params (int stack, int stateGroup)[] slots)
+        {
+            var built = new List<StackSlot>();
+            for (int index = 0; index < slots.Length; index++)
+                built.Add(new StackSlot { Index = index, Stack = slots[index].stack, StateGroup = slots[index].stateGroup });
+            return built;
+        }
+
+        private static FakeDiskNetwork OneDisk(Func<FakeDiskNetwork, FakeDiskNetwork> stock) => Layout(stock, 1);
+
+        private static FakeDiskNetwork TwoDisks(Func<FakeDiskNetwork, FakeDiskNetwork> stock) => Layout(stock, 2);
 
         private static void Section(string title) => Console.WriteLine($"-- {title}");
 

@@ -64,6 +64,14 @@ namespace TerraStorage.Tests
 
         public int SlotsOn(int diskIndex) => _disks[diskIndex].Count;
 
+        // The mod state the item built from this handle would carry. Null means the withdrawal came
+        // back with none, which for a draw off stacks that had state is the loss issue 05 is about.
+        public string StateOfHandle(WithdrawalHandle handle) => _stateGroups[handle.StateGroup];
+
+        // Every handle's state, in draw order, as one comparable string.
+        public string StatesOf(List<WithdrawalHandle> handles)
+            => string.Join(",", handles.ConvertAll(handle => StateOfHandle(handle) ?? "none"));
+
         public int TotalUnits
         {
             get
@@ -116,17 +124,7 @@ namespace TerraStorage.Tests
                 return DrawnUnits.Nothing(diskIndex);
 
             List<Stack> stacks = _disks[diskIndex];
-            var matching = new List<StackSlot>();
-
-            for (int index = 0; index < stacks.Count; index++)
-            {
-                matching.Add(new StackSlot
-                {
-                    Index = index,
-                    Stack = stacks[index].Units,
-                    IsUnique = stacks[index].IsStandalone
-                });
-            }
+            var matching = MatchingSlots(stacks);
 
             var draws = StackSelection.PlanWithdrawal(matching, amount, standalone, out bool standaloneStack);
             if (draws.Count == 0 || (standalone && !standaloneStack))
@@ -134,15 +132,14 @@ namespace TerraStorage.Tests
 
             var record = new Draw { DiskIndex = diskIndex };
             int taken = 0;
+
+            // Mirrors DiskData.ExtractItem: the plan cannot span a state boundary, so the stack that
+            // opened it speaks for every unit drawn.
             string state = stacks[draws[0].Index].State;
-            bool everyDrawSharesState = true;
 
             foreach (var draw in draws)
             {
                 Stack stack = stacks[draw.Index];
-                if (stack.State != state)
-                    everyDrawSharesState = false;
-
                 stack.Units -= draw.Count;
                 record.From.Add(stack);
                 record.Units.Add(draw.Count);
@@ -157,22 +154,47 @@ namespace TerraStorage.Tests
                 return DrawnUnits.Nothing(diskIndex);
 
             _draws.Add(record);
-
-            // Mirrors DiskData.AllDrawsShareModState: state rides along only when every stack drawn
-            // from carried the same state.
-            string reported = everyDrawSharesState ? state : null;
-            return new DrawnUnits(diskIndex, _draws.Count - 1, taken, StateGroupOf(reported));
+            return new DrawnUnits(diskIndex, _draws.Count - 1, taken, DrawnRunIndexOf(state));
         }
 
-        private int StateGroupOf(string state)
+        // Mirrors DiskData.MatchingSlots: StateGroup numbers the runs of consecutive pooled stacks
+        // that merge into one another, and a stack standing for itself belongs to no run.
+        private static List<StackSlot> MatchingSlots(List<Stack> stacks)
         {
-            for (int group = 0; group < _stateGroups.Count; group++)
+            var matching = new List<StackSlot>();
+            Stack previousPooled = null;
+            int runIndex = 0;
+
+            for (int index = 0; index < stacks.Count; index++)
             {
-                if (_stateGroups[group] == state)
-                    return group;
+                Stack stack = stacks[index];
+                if (!stack.IsStandalone)
+                {
+                    if (previousPooled != null && previousPooled.State != stack.State)
+                        runIndex++;
+
+                    previousPooled = stack;
+                }
+
+                matching.Add(new StackSlot
+                {
+                    Index = index,
+                    Stack = stack.Units,
+                    IsUnique = stack.IsStandalone,
+                    StateGroup = runIndex
+                });
             }
 
-            _stateGroups.Add(state);
+            return matching;
+        }
+
+        // Mirrors StorageWorldSystem.DiskWithdrawal.RunIndexOf: consecutive draws sharing a state
+        // share a group, and a state that comes back later gets one of its own.
+        private int DrawnRunIndexOf(string state)
+        {
+            if (_stateGroups.Count == 0 || _stateGroups[_stateGroups.Count - 1] != state)
+                _stateGroups.Add(state);
+
             return _stateGroups.Count - 1;
         }
     }
