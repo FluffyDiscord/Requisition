@@ -5,10 +5,9 @@ Every entry was verified against the source or by a runnable probe before being 
 speculative.
 
 **All 32 defects are fixed and awaiting testing / human review**, plus
-[26](26-forged-disk-packets.md). Five further networking holes are confirmed and deliberately open —
-end of [23](23-agent-audit-2026-08-25.md). Each file carries a
-`## Fix applied` section describing what changed and, where the change has no unit-test surface,
-what still needs to be exercised in-game.
+[26](26-forged-disk-packets.md) and [27](27-packets-named-disks-instead-of-a-terminal.md). Each file
+carries a `## Fix applied` section describing what changed and, where the change has no unit-test
+surface, what still needs to be exercised in-game.
 
 A second audit on 2026-08-25 found nine more — three resolver, four networking, two performance —
 recorded together in [23](23-agent-audit-2026-08-25.md). Read it before touching the resolver: 23a,
@@ -18,10 +17,14 @@ not at the second or third encoding of the same rule.
 [26](26-forged-disk-packets.md) closed the three leads 23 left unverified, on 2026-08-26. One of the
 three turned out to be **already fixed** by a commit that landed the same day 23 was written — a
 carried-over lead is only as good as the tree it was read against, including when it is one of ours.
-Verifying them surfaced four further networking holes that are confirmed and **deliberately left
-open**, listed at the end of [23](23-agent-audit-2026-08-25.md); the largest is that six handlers
-still act on an unscoped client-supplied disk-GUID list. Read why before trying to fix it — the
-obvious fix breaks the Remote Terminal.
+
+[27](27-packets-named-disks-instead-of-a-terminal.md) then took up the five holes 23 confirmed and
+deliberately left open. Three are closed, one is narrowed and still open, one was never a defect —
+the table at the end of [23](23-agent-audit-2026-08-25.md) carries the verdicts. The fix is worth
+reading for the shape of it: 23 was right that filtering the disk list through a reachability check
+breaks the Remote Terminal — so much so that **Defragment was already broken that way on `master`**
+— and the answer was not a better filter but deleting the list from the wire. The packet names the
+Terminal; the server derives the disks. It removed more code than it added.
 
 [22](22-aborted-plan-keeps-its-intermediates.md) was found on 2026-08-25 by doing the test-coverage
 work [21](21-untested-fixes.md) asked for — an aborted multi-step craft refunded the materials and
@@ -48,6 +51,7 @@ Not shipped in the `.tmod` (`build.txt` `buildIgnore` covers `*.md`).
 | [24](24-globaldata-treated-as-item-identity.md) | HIGH | A `globalData` key was read as "this stack is its own item" — nothing ever stacked | `SI-*` |
 | [25](25-craft-costed-against-a-count-it-cannot-withdraw.md) | HIGH | A step paid for twenty units with one `Extract` call and took one — green button, silent no-op | `BD-*` `ID-*` `FX-*` `NW-*` `HB-*` `RF-*` |
 | [26](26-forged-disk-packets.md) | CRITICAL | A forged `SyncDiskInsert` wiped any player's disk; a wire count sized the server's allocations | `WB-*` `DC-*`, multiplayer |
+| [27](27-packets-named-disks-instead-of-a-terminal.md) | CRITICAL | Packets named the disks instead of the Terminal, so one drained any disk in the world | `TR-*` `DA-*`, multiplayer |
 
 ## Recipe grid disagreed with the craft button
 
@@ -123,7 +127,7 @@ file warns about — one rule, fixed at one of its encodings.
 
 ## Test suite
 
-`cd Tests && dotnet run` — 667 assertions, zero dependencies, links the shipped source directly.
+`cd Tests && dotnet run` — 729 assertions, zero dependencies, links the shipped source directly.
 The real-game benchmark reads `ts_recipe_dump.txt` from the tModLoader save folder when present
 (produce one in-game with `/tsdump` next to a Terminal); full craftability revalidation over
 14 178 recipes runs in 2 ms. Scenario fixtures live in `Tests/Fixtures/*.tsdump.txt` — scoped
@@ -142,7 +146,9 @@ Suite prefixes, so a failure names its area: `TX`/`PX` transaction, `SL`/`DF` st
 `MX` the defragment merge-candidate index, `DN` the denial vocabulary sent to a refused client,
 `NW` the one-sweep network drain, `HB` taking back the stack the run made rather than the player's,
 `RF` refunding the player's stack rather than whichever was drawn last,
-`WB`/`DC` what a packet may claim and how large a count it may declare.
+`WB`/`DC` what a packet may claim and how large a count it may declare,
+`TR` how close a player must be to a block, `DA` who may operate a Terminal and when a disk's
+world entry may be dropped.
 Also live: `BI`/`SC` blocking ingredient, `DS` duplicate slots, `GM`/`IC` recipe groups,
 `NC` no-op recipes, `PR` pool restore, `PU` preview own-stock, `RS` repeated slots, `SG`/`SI` stack
 identity.
