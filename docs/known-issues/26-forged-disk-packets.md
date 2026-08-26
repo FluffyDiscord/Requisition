@@ -39,24 +39,43 @@ even when the insert then failed; and with `ArchivedItems` left empty the same p
   the world exactly as it was.
 - `UpgradeDisk` refuses a downgrade. The stale-tier case it exists to correct is always upward.
 
-**Refusal returns the disk to the sender.** The handler relays the slot's post-attempt contents to
-every client including the sender, and the sender emptied its cursor before sending — so a refusal
-that stayed silent would delete the disk. That was already reachable before this change, on the race
-where two players fill the same slot; it is fixed here because the new gate would otherwise route
-into it. The return is restricted to Storage Disks: `InsertDisk` also refuses *non-disk* items, and
-handing those back would turn a near-no-op packet into an item faucet.
+**Refusal returns the disk to the sender *and* corrects its view of the bay.** The handler relays
+the slot's post-attempt contents to every client including the sender, and the sender emptied its
+cursor before sending — so a refusal that stayed silent would delete the disk. That was already
+reachable before this change, on the race where two players fill the same slot; it is fixed here
+because the new gate would otherwise route into it.
+
+Both halves are needed, and getting only the first half wrong is instructive. The client writes the
+disk into its *own* copy of the bay before it sends (`DriveBayUIState.cs:185`), so returning the item
+while relaying nothing leaves that client showing the disk in the bay *and* holding a second copy in
+inventory — two items with the same `DiskId`, the one state `IsDiskGuidInUse` and the whole recovery
+flow assume cannot exist. Every refusal therefore also sends `SendSyncDriveBay` to the sender.
+
+The return is restricted to Storage Disks. `InsertDisk` refuses *non-disk* items too
+(`DriveBayEntity.cs:190`), and handing those back would turn a packet that used to be a no-op into a
+faucet for arbitrary items.
 
 **The re-mint, and why it is not a refusal.** `IsDiskGuidInUse` only sees disks in bays and in
-*active* players' inventories, so it cannot speak for an offline player's disk. When archived items
-claim a GUID the world already knows, the server mints a fresh GUID and registers them under that
-instead. The victim's data is untouched, the attacker gets a disk holding items they forged
-themselves — which a modified client could already give itself — and no refusal has to be signalled
-to a sender whose copy is already gone. The gate and the re-mint cover disjoint cases and both are
-needed.
+*active* players' inventories, so it cannot speak for a disk sitting in a chest or in an offline
+player's inventory. When archived items claim a GUID the world already knows, the server mints a
+fresh GUID and registers them under that instead. The victim's data is untouched, the attacker gets
+a disk holding items they forged themselves — which a modified client could already give itself —
+and no refusal has to be signalled to a sender whose copy is already gone.
 
 This removes the *destructive* half of the forged-item class. It does not stop a client registering
 forged items under a GUID it owns; that is pre-existing, is client-side item creation, and is not an
 escalation under [23](23-agent-audit-2026-08-25.md)'s calibration.
+
+**What it does NOT cover, precisely.** The re-mint lives only on the path where the disk carries
+archived items. A forged disk with an *empty* `ArchivedItems` claiming a GUID whose physical disk is
+in a chest, or in an offline player's inventory, passes the gate — `IsDiskGuidInUse` cannot see
+either — and lands in the attacker's bay, binding that disk into their network. Closing it means
+either widening `IsDiskGuidInUse` past what it can see, or refusing a GUID the world already knows
+unless the sender demonstrably holds it. The second breaks the ordinary bay-to-bay move: this mod
+never syncs an inventory slot it empties, so the server's view of the sender's inventory is stale in
+both directions and `PlayerHoldsDisk` cannot be relied on as the *only* arm. That is a design
+decision needing a live session, so it is recorded at the end of
+[23](23-agent-audit-2026-08-25.md) rather than guessed at here.
 
 ## 2. A wire-supplied count sized the server's allocations — HIGH
 
@@ -121,7 +140,7 @@ attacker-chosen GUIDs and `RefreshAllDriveBays` walk every tile entity. Guarding
 
 `WB-*` and `DC-*` in `Tests/Program.cs` — 19 assertions over `Common/WireCount.cs` and
 `Common/DiskClaim.cs`, the two rules extracted as Terraria-free predicates so they can be pinned at
-all. Suite 483 → 502, zero failures.
+all. Suite 483 → 503, zero failures.
 
 The handler wiring itself has no unit-test surface, for the reasons
 [21](21-untested-fixes.md) sets out. It was instead **compiled** — the whole mod type-checks clean
@@ -136,7 +155,10 @@ verification goes without a running server.
   items land under a fresh GUID.
 - Unarchive a disk and insert it: items restore exactly once, and the bay lights are correct
   immediately rather than at the next Terminal open.
-- Two clients race for the same empty bay slot: the loser gets the disk back in inventory.
+- Two clients race for the same empty bay slot: the loser gets the disk back in inventory **and**
+  their bay slot is corrected to the winner's disk. Both halves matter — the client puts the disk
+  into its own copy of the bay before sending, so a refusal that only returned the item would leave
+  that client showing two copies of the same disk.
 - Move a disk between bays; insert a fresh uninitialised disk; insert and remove a crafting station.
 - Ordinary deposit, withdraw, craft, defragment and quick-stack are unchanged — the new bounds are
   no-ops on honest counts.

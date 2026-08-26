@@ -5,7 +5,7 @@ Every entry was verified against the source or by a runnable probe before being 
 speculative.
 
 **All 32 defects are fixed and awaiting testing / human review**, plus
-[26](26-forged-disk-packets.md). Four further networking holes are confirmed and deliberately open —
+[26](26-forged-disk-packets.md). Five further networking holes are confirmed and deliberately open —
 end of [23](23-agent-audit-2026-08-25.md). Each file carries a
 `## Fix applied` section describing what changed and, where the change has no unit-test surface,
 what still needs to be exercised in-game.
@@ -116,7 +116,7 @@ stack. Allocation is fixed; the O(n*m) time is not. An identity-keyed index woul
 
 ## Test suite
 
-`cd Tests && dotnet run` — 502 assertions, zero dependencies, links the shipped source directly.
+`cd Tests && dotnet run` — 503 assertions, zero dependencies, links the shipped source directly.
 The real-game benchmark reads `ts_recipe_dump.txt` from the tModLoader save folder when present
 (produce one in-game with `/tsdump` next to a Terminal); full craftability revalidation over
 14 178 recipes runs in 2 ms. Scenario fixtures live in `Tests/Fixtures/*.tsdump.txt` — scoped
