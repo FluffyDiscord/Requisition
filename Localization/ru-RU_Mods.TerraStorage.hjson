@@ -268,4 +268,19 @@ UI: {
 		DepositButton: Сложить в Requisition
 		NoNetwork: Поблизости нет хранилища Requisition.
 	}
+
+	OperationFailed: {
+		Prefix: "Requisition: "
+		Unspecified: сеть хранилища отклонила эту операцию.
+		RecipeNotFeasible: этот рецепт нельзя создать из того, что может выдать сеть.
+		NoRoomInInventory: в вашем инвентаре нет места для результата.
+		NoRoomInStorageOrInventory: ни в хранилище, ни в инвентаре нет места для результата.
+		CraftCostingNoLongerHolds: крафт отменён — в хранилище больше нет того, из чего был рассчитан план.
+		NothingWithdrawn: хранилище не смогло выдать этот предмет.
+		NothingDeposited: хранилище не приняло этот предмет.
+		NothingQuickStacked: ничто в вашем инвентаре не совпало с тем, что уже есть в хранилище.
+		NoStorageInRange: вы слишком далеко от Крафтового терминала.
+		NoStorageConnected: к этому терминалу не подключены диски хранения.
+		NoTerminalFound: этого Крафтового терминала больше нет.
+	}
 }

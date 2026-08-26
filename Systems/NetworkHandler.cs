@@ -402,7 +402,11 @@ namespace TerraStorage.Systems
                 DBG($"HandleWithdrawItemByFullItemTag: from={whoAmI} disks=[{string.Join(", ", diskIds.Select(g => g.ToString()[..8]))}]");
                 StorageWorldSystem.Instance.BeginModificationTracking();
                 var extracted = StorageWorldSystem.Instance.ExtractItemWithFullItemTag(diskIds, fullItemTag);
-                EndTrackingAndRespond(mod, whoAmI, !extracted.IsAir, diskIds);
+
+                var withdrawFailure = extracted.IsAir
+                    ? StorageOperationFailure.NothingWithdrawn
+                    : StorageOperationFailure.None;
+                EndTrackingAndRespond(mod, whoAmI, withdrawFailure, diskIds);
                 DBG($"  ExtractItemWithFullItemTag result: type={extracted.type} stack={extracted.stack} isAir={extracted.IsAir}");
 
                 var resultPacket = mod.GetPacket();
@@ -433,7 +437,10 @@ namespace TerraStorage.Systems
                 resultPacket.Write(shift);
                 resultPacket.Send(whoAmI);
 
-                EndTrackingAndRespond(mod, whoAmI, !extracted.IsAir, diskIds);
+                var withdrawFailure = extracted.IsAir
+                    ? StorageOperationFailure.NothingWithdrawn
+                    : StorageOperationFailure.None;
+                EndTrackingAndRespond(mod, whoAmI, withdrawFailure, diskIds);
             }
         }
 
@@ -462,7 +469,11 @@ namespace TerraStorage.Systems
                     resultPacket.Write(true); // shift=true: route into inventory, fall back to cursor
                     resultPacket.Send(whoAmI);
                 }
-                EndTrackingAndRespond(mod, whoAmI, outcome.AnyDeposited, diskIds);
+
+                var depositFailure = outcome.AnyDeposited
+                    ? StorageOperationFailure.None
+                    : StorageOperationFailure.NothingDeposited;
+                EndTrackingAndRespond(mod, whoAmI, depositFailure, diskIds);
             }
         }
 
@@ -497,6 +508,7 @@ namespace TerraStorage.Systems
             if (!TileEntity.ByPosition.TryGetValue(terminalPos, out var entity) || entity is not TerminalEntity)
             {
                 SendReturnItemToClient(mod, whoAmI, item);
+                RefuseOperation(mod, whoAmI, StorageOperationFailure.NoTerminalFound);
                 return;
             }
 
@@ -506,6 +518,7 @@ namespace TerraStorage.Systems
             if (dx * dx + dy * dy > 240f * 240f) // 15 tiles in pixels
             {
                 SendReturnItemToClient(mod, whoAmI, item);
+                RefuseOperation(mod, whoAmI, StorageOperationFailure.NoStorageInRange);
                 return;
             }
 
@@ -513,6 +526,7 @@ namespace TerraStorage.Systems
             if (diskIds.Count == 0)
             {
                 SendReturnItemToClient(mod, whoAmI, item);
+                RefuseOperation(mod, whoAmI, StorageOperationFailure.NoStorageConnected);
                 return;
             }
 
@@ -527,7 +541,11 @@ namespace TerraStorage.Systems
                 item.stack = outcome.Leftover;
                 SendReturnItemToClient(mod, whoAmI, item);
             }
-            EndTrackingAndRespond(mod, whoAmI, outcome.AnyDeposited, diskIds);
+
+            var depositFailure = outcome.AnyDeposited
+                ? StorageOperationFailure.None
+                : StorageOperationFailure.NothingDeposited;
+            EndTrackingAndRespond(mod, whoAmI, depositFailure, diskIds);
         }
 
         // Server → client: return an item to the player's inventory with full fidelity (mod data
@@ -566,7 +584,10 @@ namespace TerraStorage.Systems
                 resultPacket.Write(shift);
                 resultPacket.Send(whoAmI);
 
-                EndTrackingAndRespond(mod, whoAmI, !extracted.IsAir, diskIds);
+                var withdrawFailure = extracted.IsAir
+                    ? StorageOperationFailure.NothingWithdrawn
+                    : StorageOperationFailure.None;
+                EndTrackingAndRespond(mod, whoAmI, withdrawFailure, diskIds);
             }
         }
 
@@ -660,52 +681,54 @@ namespace TerraStorage.Systems
                     ? RecipeResolver.ResolveRecipe(Main.recipe[recipeIndex], craftAmount, diskIds, stations, conditions)
                     : RecipeResolver.ResolveForceCraft(recipeItemType, craftAmount, diskIds, stations, conditions);
                 StorageWorldSystem.Instance.BeginModificationTracking();
-                bool success = false;
-                if (plan != null && plan.IsFeasible)
+
+                // Pre-check: block the craft if neither storage nor player inventory has room.
+                // This prevents consuming ingredients with nowhere to put the result. The verdict
+                // comes from GetCraftFailure so the panel's copy of these guards cannot drift.
+                bool planIsFeasible = plan != null && plan.IsFeasible;
+
+                var resultPreview = new Item();
+                if (planIsFeasible)
                 {
-                    // Pre-check: block the craft if neither storage nor player inventory
-                    // has room. This prevents consuming ingredients with nowhere to put the result.
-                    var resultPreview = new Item();
                     resultPreview.SetDefaults(plan.FinalItemType);
                     resultPreview.stack = plan.FinalItemCount;
+                }
 
-                    var player = Main.player[whoAmI];
-                    bool canCraft;
-                    if (craftToInventory)
-                        canCraft = PlayerHasRoomFor(player, resultPreview);
+                var player = Main.player[whoAmI];
+                bool playerHasRoomForResult = planIsFeasible && PlayerHasRoomFor(player, resultPreview);
+                bool storageHasRoomForResult = planIsFeasible && !craftToInventory
+                    && StorageWorldSystem.Instance.HasRoomFor(diskIds, resultPreview);
+
+                var craftFailure = StorageOperationFailures.GetCraftFailure(planIsFeasible,
+                    craftToInventory, playerHasRoomForResult, storageHasRoomForResult);
+
+                if (StorageOperationFailures.IsSuccess(craftFailure))
+                {
+                    var result = RecipeResolver.ExecutePlan(plan, diskIds, cleanCraft);
+                    if (result.IsAir)
+                    {
+                        craftFailure = StorageOperationFailure.CraftCostingNoLongerHolds;
+                    }
+                    else if (craftToInventory)
+                    {
+                        // Send entire result to client's inventory.
+                        SendGiveItemToClient(mod, whoAmI, result);
+                    }
                     else
                     {
-                        bool storageHasRoom = StorageWorldSystem.Instance.HasRoomFor(diskIds, resultPreview);
-                        canCraft = storageHasRoom || PlayerHasRoomFor(player, resultPreview);
-                    }
-
-                    if (canCraft)
-                    {
-                        var result = RecipeResolver.ExecutePlan(plan, diskIds, cleanCraft);
-                        if (!result.IsAir)
+                        int leftover = StorageWorldSystem.Instance.InsertItem(diskIds, result);
+                        if (leftover > 0)
                         {
-                            if (craftToInventory)
-                            {
-                                // Send entire result to client's inventory.
-                                SendGiveItemToClient(mod, whoAmI, result);
-                            }
-                            else
-                            {
-                                int leftover = StorageWorldSystem.Instance.InsertItem(diskIds, result);
-                                if (leftover > 0)
-                                {
-                                    // Storage is full — send the remainder to the client so it
-                                    // can add it to its own inventory directly. Calling GetItem
-                                    // server-side does not reliably sync to the client.
-                                    result.stack = leftover;
-                                    SendGiveItemToClient(mod, whoAmI, result);
-                                }
-                            }
-                            success = true;
+                            // Storage is full — send the remainder to the client so it
+                            // can add it to its own inventory directly. Calling GetItem
+                            // server-side does not reliably sync to the client.
+                            result.stack = leftover;
+                            SendGiveItemToClient(mod, whoAmI, result);
                         }
                     }
                 }
-                EndTrackingAndRespond(mod, whoAmI, success, diskIds);
+
+                EndTrackingAndRespond(mod, whoAmI, craftFailure, diskIds);
             }
         }
 
@@ -1323,27 +1346,39 @@ namespace TerraStorage.Systems
         // Ends modification tracking, sends OperationResponse to the requester,
         // then broadcasts item-level deltas to all clients.
         // On failure, sends denial + full disk correction packets.
-        private static void EndTrackingAndRespond(Mod mod, int toClient, bool success,
-            List<Guid> requestedDiskIds = null)
+        //
+        // Takes the cause rather than a success flag: success is derived from it here and nowhere
+        // else, so a caller cannot report a denial that names no reason, or a success that does.
+        private static void EndTrackingAndRespond(Mod mod, int toClient,
+            StorageOperationFailure failure, List<Guid> requestedDiskIds = null)
         {
             var sys = StorageWorldSystem.Instance;
             var (_, deltas) = sys.EndModificationTrackingWithDeltas();
+            bool success = StorageOperationFailures.IsSuccess(failure);
 
             if (success && deltas.Count > 0)
             {
-                SendOperationResponse(mod, toClient, true);
+                SendOperationResponse(mod, toClient, StorageOperationFailure.None);
                 BroadcastDiskDeltas(mod, deltas);
             }
             else if (!success)
             {
                 // Denied: send failure response + full disk corrections
-                SendOperationResponse(mod, toClient, false, requestedDiskIds);
+                SendOperationResponse(mod, toClient, failure, requestedDiskIds);
             }
             else
             {
                 // Success but no changes (e.g. deposit into a full disk) — still confirm
-                SendOperationResponse(mod, toClient, true);
+                SendOperationResponse(mod, toClient, StorageOperationFailure.None);
             }
+        }
+
+        // A handler that refuses before it begins modification tracking still owes the client an
+        // answer. SendOperationResponse touches no tracking, so these paths respond directly
+        // rather than tearing down a tracker that was never started.
+        private static void RefuseOperation(Mod mod, int toClient, StorageOperationFailure failure)
+        {
+            SendOperationResponse(mod, toClient, failure);
         }
 
         // Every disk the sender can legitimately reach: the union of the networks of the Terminals
@@ -1451,15 +1486,23 @@ namespace TerraStorage.Systems
 
         // Sends an operation response (success/failure) to the requesting client.
         // On failure, also sends full SyncDiskData correction packets for all affected disks.
-        public static void SendOperationResponse(Mod mod, int toClient, bool success,
-            List<Guid> affectedDiskIds = null)
+        public static void SendOperationResponse(Mod mod, int toClient,
+            StorageOperationFailure failure, List<Guid> affectedDiskIds = null)
         {
             if (Main.netMode != NetmodeID.Server)
                 return;
 
+            bool success = StorageOperationFailures.IsSuccess(failure);
+
             var packet = mod.GetPacket();
             packet.Write((byte)PacketType.OperationResponse);
             packet.Write(success);
+
+            // Appended last and only on a denial, so a success response stays the two bytes it has
+            // always been and the cause can never contradict the flag it travels behind.
+            if (!success)
+                packet.Write((byte)failure);
+
             packet.Send(toClient);
 
             // On failure, send full disk state corrections for all affected disks
@@ -1566,12 +1609,27 @@ namespace TerraStorage.Systems
 
         private static void HandleOperationResponse(BinaryReader reader)
         {
+            // Consumed before the netMode guard, the way every handler in this file consumes its
+            // payload before branching. The reader is one stream over the shared connection
+            // buffer, so a read this side skips is a byte the next packet inherits.
             bool success = reader.ReadBoolean();
+
+            byte reasonByte = 0;
+            var failure = StorageOperationFailure.None;
+            if (!success)
+            {
+                reasonByte = reader.ReadByte();
+                failure = StorageOperationFailures.GetFailureFromWireValue(reasonByte);
+            }
+
             if (Main.netMode != NetmodeID.MultiplayerClient) return;
 
             // On failure, correction packets (SyncDiskData) follow immediately and are
-            // handled by HandleSyncDiskData which resets local state. Nothing extra needed here.
-            DBG($"HandleOperationResponse: success={success}");
+            // handled by HandleSyncDiskData which resets local state.
+            DBG($"HandleOperationResponse: success={success} reasonByte={reasonByte} mapped={failure}");
+
+            if (!success)
+                StorageOperationReporter.ReportFailure(failure);
         }
 
         public static void SendRequestFullDiskSync(Mod mod, Guid diskId)
@@ -1648,23 +1706,36 @@ namespace TerraStorage.Systems
             var terminalPos = new Point16(tx, ty);
             if (!TileEntity.ByPosition.TryGetValue(terminalPos, out var entity)
                 || entity is not TerminalEntity)
+            {
+                RefuseOperation(mod, whoAmI, StorageOperationFailure.NoTerminalFound);
                 return;
+            }
 
             // Validate player is within range
             var player = Main.player[whoAmI];
             float dx = player.Center.X - (terminalPos.X * 16f + 24f);
             float dy = player.Center.Y - (terminalPos.Y * 16f + 24f);
             if (dx * dx + dy * dy > 240f * 240f) // 15 tiles in pixels
+            {
+                RefuseOperation(mod, whoAmI, StorageOperationFailure.NoStorageInRange);
                 return;
+            }
 
             var diskIds = StorageNetwork.GetAllConnectedDiskIds(terminalPos);
-            if (diskIds.Count == 0) return;
+            if (diskIds.Count == 0)
+            {
+                RefuseOperation(mod, whoAmI, StorageOperationFailure.NoStorageConnected);
+                return;
+            }
 
             var existingTypes = StorageWorldSystem.Instance.GetItemCounts(diskIds);
 
             StorageWorldSystem.Instance.BeginModificationTracking();
 
             var results = new List<(byte slot, int newStack)>();
+            bool matchedAnySlot = false;
+            bool anyDeposited = false;
+
             foreach (var (slotIdx, item) in slots)
             {
                 if (slotIdx >= player.inventory.Length) continue;
@@ -1677,11 +1748,23 @@ namespace TerraStorage.Systems
                 if (held.type != item.type) continue;
                 if (!existingTypes.ContainsKey(held.type)) continue;
 
+                matchedAnySlot = true;
+
+                // Read the offered count BEFORE the insert, the way HandleDepositItem does: a slot
+                // that matched but bounced off a full network still lands in results, so the list's
+                // length says only that something was tried, never that anything moved.
+                int offered = held.stack;
                 int leftover = StorageWorldSystem.Instance.InsertItem(diskIds, held);
+
+                var outcome = new DepositOutcome(offered, leftover);
+                if (outcome.AnyDeposited)
+                    anyDeposited = true;
+
                 results.Add((slotIdx, leftover));
             }
 
-            EndTrackingAndRespond(mod, whoAmI, results.Count > 0, diskIds);
+            var quickStackFailure = StorageOperationFailures.GetQuickStackFailure(matchedAnySlot, anyDeposited);
+            EndTrackingAndRespond(mod, whoAmI, quickStackFailure, diskIds);
 
             if (results.Count > 0)
             {
