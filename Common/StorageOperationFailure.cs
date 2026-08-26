@@ -34,6 +34,7 @@ namespace TerraStorage.Common
         NothingToDefragment = 18,
         DiskClaimRefused = 19,
         DriveBaySlotUnavailable = 20,
+        DriveBayNotOnNetwork = 21,
     }
 
     public static class StorageOperationFailures
@@ -60,6 +61,7 @@ namespace TerraStorage.Common
             StorageOperationFailure.NothingToDefragment,
             StorageOperationFailure.DiskClaimRefused,
             StorageOperationFailure.DriveBaySlotUnavailable,
+            StorageOperationFailure.DriveBayNotOnNetwork,
         };
 
         public static IReadOnlyList<StorageOperationFailure> GetDeniedFailures() => Denied;
@@ -113,7 +115,8 @@ namespace TerraStorage.Common
                     or StorageOperationFailure.DiskRecoveryRefused
                     or StorageOperationFailure.NothingToDefragment
                     or StorageOperationFailure.DiskClaimRefused
-                    or StorageOperationFailure.DriveBaySlotUnavailable => candidate,
+                    or StorageOperationFailure.DriveBaySlotUnavailable
+                    or StorageOperationFailure.DriveBayNotOnNetwork => candidate,
                 _ => StorageOperationFailure.Unspecified,
             };
         }

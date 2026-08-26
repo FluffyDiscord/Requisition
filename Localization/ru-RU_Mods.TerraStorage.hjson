@@ -291,5 +291,6 @@ UI: {
 		NothingToDefragment: дефрагментировать было нечего.
 		DiskClaimRefused: этот диск принадлежит другому игроку.
 		DriveBaySlotUnavailable: эта ячейка Дискового отсека была занята раньше.
+		DriveBayNotOnNetwork: этот Дисковый отсек не подключён к этому терминалу.
 	}
 }

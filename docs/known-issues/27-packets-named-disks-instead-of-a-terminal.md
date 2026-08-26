@@ -96,6 +96,14 @@ a piggy bank, on the ground, or in an **offline** player's inventory is now refu
 names it. That rule holds by construction rather than by a scan, and `GetInsertedDiskIds` registers
 missing disks as a side effect, which is what the old world-wide sweep existed to do.
 
+**`RequestFullDiskSync` was the same hole and was nearly missed.** It takes a single GUID rather than
+a list, so it fell outside the six-handler enumeration this change started from — and it handed any
+disk's entire contents to whoever named it. Review caught the omission along with a comment in this
+codebase that claimed the property the code did not yet have. It is now served only for a GUID some
+Drive Bay actually holds, which is the same rule by a different route: the client asks for it after
+spotting a sequence gap on a disk it is already watching, and a disk in a chest is not one it can be
+watching. The read half of the hole is closed with the write half.
+
 ### Two more holes on the same packets, same root cause
 
 `CraftRequest` and `UpgradeDiskRequest` also carried `stations` and `conditions`. A client could name
@@ -115,10 +123,32 @@ in the world, destroying the disk item while its `DiskData` survived orphaned.
 Doc 23 recorded the blocker: *"whether the Drive Bay UI stays usable at a distance decides its shape,
 and guessing wrong breaks disk removal."*
 
-**It does not stay usable.** `DriveBayUISystem.UpdateUI:126-143` closes the panel beyond 15 tiles
+**It does not stay usable.** `DriveBayUISystem.UpdateUI` closes the panel beyond 15 tiles
 unconditionally — there is no `_remoteOpen` escape, unlike the Terminal's. Its packets have no other
 senders. So requiring the sender to be at the bay costs a legitimate player nothing, and both
 `HandleSyncDiskInsert` and `HandleSyncDiskRemove` now require it.
+
+**Removal had to become server-authoritative first, and the reason is worth recording.** The first
+attempt added the range check and, on refusal, corrected the sender's bay. That was wrong, and
+review caught it: the client did not merely empty its own slot before sending — it **took the disk
+onto its cursor first** (`DriveBayUIState:196-197`, and into the inventory on the shift path).
+Correcting the bay therefore handed the sender a second item carrying the same `DiskId`, which is
+the one state `IsDiskGuidInUse` and the whole recovery flow assume cannot exist. Archiving either
+copy then blanks the other into an empty disk — real storage loss, reachable by an honest player who
+crosses the boundary in the tick between click and packet.
+
+Not correcting the bay is no better: the client shows an empty slot the server still considers full,
+and the next `SyncDriveBay` produces the same two copies.
+
+So the client no longer takes the disk. In multiplayer it sends the packet and nothing else; the
+server clears the slot, hands the disk back with `SendReturnItemToClient` — to the cursor on a plain
+click, into the inventory on a shift-click, which is why the packet now carries that one bit — and
+relays the removal to **every** client including the sender. Refusal is then trivially safe: the
+sender never had a copy to reconcile. Singleplayer is untouched, because `SendSyncDiskRemove` returns
+early there and the local path still moves the disk itself.
+
+This is the same shape as insert, which doc [26](26-forged-disk-packets.md) already made
+server-authoritative for exactly this reason. The cost is one round trip on a rare action.
 
 `HandleUpgradeDiskRequest` is **not** a bay-proximity case: it is issued from the Terminal's Disks
 tab, which is legitimately remote. It takes `whoAmI`, names the Terminal, and goes through the same
@@ -172,6 +202,12 @@ GUID, a tier and its items, and the tier is re-read off the disk item on the nex
 (doc 26's design) and the resulting entry is non-empty, so the prune must keep it. That loop still
 grows the registry. Recorded rather than closed.
 
+**The prune never runs in singleplayer.** It lives in the server branch of a packet handler, and
+`SendSyncDiskRemove` returns early in singleplayer so that handler is never reached. Empty entries
+therefore still accumulate in a singleplayer world until the next load purges them, exactly as
+before. Nobody is forging packets in singleplayer, so this is untidiness rather than a hole — but it
+is a real gap in the fix and is recorded rather than glossed.
+
 **The real remedy for the multiplier is a different change** and is not in this pass:
 `BeginModificationTracking` taking the operation's disk ids would turn O(all disks in the world) into
 O(disks in this network) permanently, whatever the registry holds. It touches the delta path
@@ -223,9 +259,15 @@ It was invisible because only position-deposit and quick-stack used the centre a
 a panel open — and this change would have moved that origin onto every UI-driven handler.
 
 `Common/TerminalReach.cs` is now the only encoding, and it is the UI's origin, because that is the one
-a player can see. Both position-deposit and quick-stack become up to ~2 tiles *more* permissive on two
-sides, which is the safe direction. `TR-08` sweeps the boundary against the panel's own formula and
-fails at 213 points if the centre offset comes back.
+a player can see. **All five sites ask it** — the two panels, the two range-checking handlers and the
+two client-side Terminal finders — so the constant exists once. `TR-08` sweeps the boundary against
+the panel's original formula and fails at 213 points if the centre offset comes back; `DA-17` fails if
+any of those files grows its own copy again.
+
+Position-deposit and quick-stack shift by up to ~1.5 tiles in each direction: further up and left,
+**shorter down and right**. The client-side Terminal finders moved with them, so there is no band
+where a client picks a Terminal the server then refuses — but the reach genuinely changes, and a
+player used to quick-stacking from the far corner below-right of a Terminal has to step closer.
 
 ---
 
@@ -252,13 +294,30 @@ bytes.
 | `NothingToDefragment` | 18 | the defrag moved nothing |
 | `DiskClaimRefused` | 19 | `SenderMayClaimDisk` said no |
 | `DriveBaySlotUnavailable` | 20 | the slot filled before the packet arrived |
+| `DriveBayNotOnNetwork` | 21 | the bay is real, but the named Terminal does not reach it |
+
+`DriveBayNotOnNetwork` exists because review found `DiskNotFound` doing two jobs: "that Drive Bay is
+no longer there" is the wrong thing to tell a player whose bay merely fell off the network, and it
+sends them looking for a destroyed block. A vocabulary introduced to end guessing should not start
+by being ambiguous on its first use.
 
 The storage handlers needed **no** new members: naming the Terminal made their three refusals the
 three that already existed.
 
 **Malformed wire input stays silent, deliberately.** A count that cannot describe a real list is a
-forgery, not a request; naming a cause for it would invent a line no honest client can reach. Every
-*other* return names one.
+forgery, not a request; naming a cause for it would invent a line no honest client can reach. Two
+other returns are silent for a related reason and are listed here rather than left to be noticed:
+`HandleRequestDiskData` and `HandleRequestFullDiskSync` answer nothing when the block or disk they
+name does not resolve. Both are background read packets with no user action behind them — there is
+no click to explain, and a chat line on a join-time sync would be noise. Every *other* return names
+a cause.
+
+**Ordering note.** The three storage refusals are sent by `TryResolveOperableTerminal` before the
+deposit handler returns the item, which is the opposite of the order first specified. It is
+deliberate now: the resolver owning its own refusal is what keeps the rule to one encoding, and the
+order does not matter because the client's denial handler (`HandleOperationResponse`) reports the
+cause and touches no inventory. What matters is that the item is returned on **every** refusing
+path, which is what `DA-16a` counts.
 
 **`RefuseInsert` now carries the cause** alongside the disk return and the bay correction, so a future
 refusal cannot pick up two of the three.
@@ -281,28 +340,42 @@ request id on six packets plus a client-side pending table. **The judgement is r
    it before either.
 2. Walking out of range in the tick between click and packet turns a silent success into a named
    refusal — and a deposit hands the item back rather than eating it.
-3. Position-deposit and quick-stack become ~2 tiles more permissive on two sides (§6).
+3. Position-deposit and quick-stack reach ~1.5 tiles further up and left and ~1.5 tiles less far
+   down and right (§6).
 4. **Defragment works again through a Remote Terminal.**
 5. A defrag that moves nothing now says so instead of doing nothing visible.
 6. The Terminal's top-up disk-data request answers with the whole network rather than the missing
    subset — a few more packets on a rare trigger.
 7. If the server's copy of the sender's inventory has not yet seen a freshly acquired Remote Terminal,
    a remote operation is refused until it syncs. Walking to the Terminal always works.
+8. Taking a disk out of a Drive Bay in multiplayer now waits one round trip, because the server hands
+   it over rather than the client taking it (§2).
+9. Re-inserting a disk whose empty entry was pruned costs one full disk-sync round trip for any
+   client that still had it cached: the prune drops the sequence number too, so the next delta looks
+   like a gap and the client asks for the full state. It self-heals; it is listed because §4's
+   justification is "loses nothing" and this is the one thing it costs.
 
 ## Verified by
 
-`TR-*` and `DA-*` in `Tests/Program.cs` — 25 assertions over `Common/TerminalReach.cs`,
-`Common/DiskAccess.cs` and the handler wiring, plus nine new `DN-14*` byte pins. Suite 667 → 729,
+`TR-*` and `DA-*` in `Tests/Program.cs` — 30 assertions over `Common/TerminalReach.cs`,
+`Common/DiskAccess.cs` and the handler wiring, plus ten new `DN-14*` byte pins. Suite 667 → 734,
 zero failures.
 
-Four were **mutation-checked** — the rule was broken, the assertion watched to go red, then restored:
+Six mutations were **actually run** — the rule broken, the assertion watched to go red, then restored:
 
 | mutation | caught by |
 |---|---|
-| `MayOperateTerminal`'s `||` → `&&` | `DA-02` (the Remote Terminal regression) |
-| `MayPruneDiskData`'s `&&` → `||` | `DA-07` (the disk-in-a-chest destruction case), `DA-10` |
+| `MayOperateTerminal`'s `\|\|` → `&&` | `DA-02` (the Remote Terminal regression) |
+| `MayPruneDiskData`'s `&&` → `\|\|` | `DA-07` (the disk-in-a-chest destruction case), `DA-10` |
 | the 1.5-tile centre offset restored | `TR-08`, at 213 swept points |
+| the range changed from 15 tiles to 3 | `TR-01`, `TR-04`, `TR-08` |
+| a panel given back its own range constant | `DA-17` |
 | one handler's authorization removed; the deposit's item return removed | `DA-12`, `DA-16a` |
+
+`TR-07` deliberately does **not** pin the number — it checks that the verdict flips once per
+direction *at whatever range the rule states*, which is internal consistency; `TR-01` is what holds
+the value at 15. Recorded because the mutation above shows the division of labour rather than
+implying `TR-07` covers both.
 
 The handler wiring has no unit-test surface for the reasons [21](21-untested-fixes.md) sets out, so
 `DA-12`..`DA-16a` read the source the way `DN-06`/`DN-07`/`DN-08` already do. The whole mod also
@@ -321,8 +394,12 @@ file calls.
   upgrade, all remotely — defragment is the one that was broken before this change.
 - A deposit refused for range: the item comes back, and comes back with its mod data intact.
 - With the inventory **full** when that refusal lands: the item goes to the cursor, not the floor.
-- Drive Bay insert and remove from 14 tiles (works) and from 16 (refused, disk returned, bay
-  corrected, and exactly **one** item with that GUID exists afterwards).
+- Drive Bay insert and remove from 14 tiles (works) and from 16 (refused, bay corrected, and exactly
+  **one** item with that GUID exists afterwards). Remove is the one to watch: plain click must land
+  the disk on the cursor, shift-click in the inventory, and shift-click with a **full** inventory
+  must fall back to the cursor rather than dropping it.
+- Two players watching the same bay while one removes a disk: both slots clear. The relay now
+  includes the sender, who no longer clears its own slot — everyone else was already covered.
 - Drive Bay status lights on a bay far from any Terminal still update — this is the one the
   `RequestDiskData` rule was shaped around.
 - Remove an **empty** disk from a bay, then re-insert it: it still works and reports its tier.

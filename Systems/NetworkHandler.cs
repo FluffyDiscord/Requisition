@@ -172,7 +172,12 @@ namespace TerraStorage.Systems
             packet.Send();
         }
 
-        public static void SendSyncDiskRemove(Mod mod, int entityId, int slot)
+        // routeToInventory says where the server should put the disk it takes out: the inventory
+        // (shift-click) or the cursor (plain click). The client no longer takes it itself, because a
+        // refusal then has to choose between two copies of one disk and a slot the server still
+        // considers full.
+        public static void SendSyncDiskRemove(Mod mod, int entityId, int slot,
+            bool routeToInventory = true)
         {
             if (Main.netMode == NetmodeID.SinglePlayer)
                 return;
@@ -181,6 +186,7 @@ namespace TerraStorage.Systems
             packet.Write((byte)PacketType.SyncDiskRemove);
             packet.Write(entityId);
             packet.Write(slot);
+            packet.Write(routeToInventory);
             packet.Send();
         }
 
@@ -253,6 +259,7 @@ namespace TerraStorage.Systems
         {
             int entityId = reader.ReadInt32();
             int slot = reader.ReadInt32();
+            bool routeToInventory = reader.ReadBoolean();
 
             // The slot index comes off the wire. DiskSlots is a fixed array, so an out-of-range
             // value throws rather than doing anything useful.
@@ -261,32 +268,45 @@ namespace TerraStorage.Systems
                 || entity is not DriveBayEntity sbe)
                 return;
 
-            if (Main.netMode == NetmodeID.Server && !SenderIsAtBlock(whoAmI, sbe.Position))
+            sbe.EnsureSlotsInitialized();
+
+            if (Main.netMode != NetmodeID.Server)
             {
-                // Clearing a bay slot destroys the disk item while its stored contents live on
-                // orphaned, and the sender already moved the disk onto its own cursor before
-                // sending — so the bay has to be put back the way it was on this client too.
+                // The relay. The sender is included in it, because it no longer clears its own slot.
+                sbe.DiskSlots[slot] = new Item();
+                sbe.DiskSlots[slot].TurnToAir();
+                sbe.RefreshVisualState(sbe.IsConnected);
+                return;
+            }
+
+            // Clearing a bay slot destroys the disk item while its stored contents live on orphaned.
+            // Refusing costs the sender nothing: it still has no copy of the disk, because only the
+            // server ever takes one out.
+            if (!SenderIsAtBlock(whoAmI, sbe.Position))
+            {
                 SendSyncDriveBay(mod, sbe, whoAmI);
                 RefuseOperation(mod, whoAmI, StorageOperationFailure.NotAtDriveBay);
                 return;
             }
 
+            var removedDisk = sbe.DiskSlots[slot];
+            if (removedDisk == null || removedDisk.IsAir)
+                return;
+
             var removedDiskId = GetDiskIdInSlot(sbe, slot);
 
             sbe.DiskSlots[slot] = new Item();
             sbe.DiskSlots[slot].TurnToAir();
-            sbe.RefreshVisualState(sbe.IsConnected);
 
-            if (Main.netMode == NetmodeID.Server)
-            {
-                DropOrphanedDiskData(removedDiskId);
+            DropOrphanedDiskData(removedDiskId);
+            SendReturnItemToClient(mod, whoAmI, removedDisk, routeToInventory);
 
-                var packet = mod.GetPacket();
-                packet.Write((byte)PacketType.SyncDiskRemove);
-                packet.Write(entityId);
-                packet.Write(slot);
-                packet.Send(-1, whoAmI);
-            }
+            var packet = mod.GetPacket();
+            packet.Write((byte)PacketType.SyncDiskRemove);
+            packet.Write(entityId);
+            packet.Write(slot);
+            packet.Write(routeToInventory);
+            packet.Send(-1, -1);
         }
 
         private static Guid GetDiskIdInSlot(DriveBayEntity bay, int slot)
@@ -634,12 +654,15 @@ namespace TerraStorage.Systems
         // preserved). Used when a deposit is rejected or only partially accepted. Reuses the
         // WithdrawItemResult route (shift=true) so modded items keep their data, unlike
         // SendGiveItemToClient which only carries type/stack/prefix.
-        private static void SendReturnItemToClient(Mod mod, int toClient, Item item)
+        private static void SendReturnItemToClient(Mod mod, int toClient, Item item,
+            bool routeToInventory = true)
         {
             var packet = mod.GetPacket();
             packet.Write((byte)PacketType.WithdrawItemResult);
             ItemIO.Send(item, packet, true);
-            packet.Write(true); // shift=true: route into inventory, fall back to cursor
+            // shift=true routes into the inventory and falls back to the cursor; false puts it
+            // straight on the cursor, which is what a plain click on a Drive Bay slot expects.
+            packet.Write(routeToInventory);
             packet.Send(toClient);
         }
 
@@ -1323,7 +1346,7 @@ namespace TerraStorage.Systems
             // above would authorize an upgrade to a disk in someone else's bay across the world.
             if (!networkDiskIds.Contains(diskId))
             {
-                RefuseOperation(mod, whoAmI, StorageOperationFailure.DiskNotFound);
+                RefuseOperation(mod, whoAmI, StorageOperationFailure.DriveBayNotOnNetwork);
                 return;
             }
 
@@ -1856,6 +1879,15 @@ namespace TerraStorage.Systems
             var sys = StorageWorldSystem.Instance;
             var data = sys.GetDiskData(diskId);
             if (data == null) return;
+
+            // This is the one remaining handler that names a disk by GUID rather than by the block
+            // holding it, because a client asks for it after spotting a sequence gap and has only
+            // the GUID to go on. Serving it unconditionally hands any disk's whole contents to
+            // anyone who names it, which is the read half of the same hole the withdraw handlers
+            // had. A disk sitting in a bay is one the client is already told about; one in a chest,
+            // a bank or an offline player's inventory is not.
+            if (!IsDiskGuidInAnyDriveBay(diskId))
+                return;
 
             // Send full disk state with current sequence number
             int seq = sys.GetDiskSeqNum(diskId);

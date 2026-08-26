@@ -2875,6 +2875,7 @@ namespace TerraStorage.Tests
 
                 bool previousVerdict = true;
                 int flips = 0;
+                double flippedAt = -1d;
                 for (int step = 0; step <= 400; step++)
                 {
                     double distanceInTiles = step * 0.05d;
@@ -2886,15 +2887,23 @@ namespace TerraStorage.Tests
                         stepsDisagreeingWithThePanel++;
 
                     if (step > 0 && inRange != previousVerdict)
+                    {
                         flips++;
+                        flippedAt = distanceInTiles;
+                    }
                     previousVerdict = inRange;
                 }
 
-                if (flips == 1) directionsWithOneFlip++;
+                // Where it flips, not just that it flips once: a rule with the wrong range still has
+                // exactly one boundary. One sweep step of tolerance, because the flip is recorded at
+                // the first step past it.
+                bool flippedAtTheStatedRange = flips == 1
+                    && Math.Abs(flippedAt - TerminalReach.GetRangeInTiles()) <= 0.05d + 1e-9d;
+                if (flippedAtTheStatedRange) directionsWithOneFlip++;
             }
 
             Eq(directionsWithOneFlip, 8,
-                "TR-07 the verdict flips exactly once in every direction, so there is one boundary");
+                "TR-07 the verdict flips exactly once in every direction, and at the stated range");
             Eq(stepsDisagreeingWithThePanel, 0,
                 "TR-08 the packet rule agrees with the panel's own formula at every swept point");
         }
@@ -3035,6 +3044,33 @@ namespace TerraStorage.Tests
                 "DA-15 no hand-rolled pixel range survives in the handlers");
             Eq(CountOccurrences(network, "* 16f + 24f"), 0,
                 "DA-15a nor the centre offset that disagreed with the panel");
+
+            // The panels are the other half of that rule, and the half a player sees. A panel that
+            // keeps its own copy is free to drift back into the band where it stays open and every
+            // packet it sends is refused - which is the defect, not the literal.
+            var filesThatMustNotOwnARange = new[]
+            {
+                "Content/UI/TerminalUISystem.cs",
+                "Content/UI/DriveBayUISystem.cs",
+                "Systems/QuickStackSystem.cs",
+                "Systems/AndroLibCompat.cs",
+            };
+
+            int filesDeferringToTheSharedRule = 0;
+            foreach (string relativePath in filesThatMustNotOwnARange)
+            {
+                string source = ReadModSource(repoRoot, relativePath);
+                bool ownsARange = source.Contains("MaxInteractDistance", StringComparison.Ordinal)
+                    || source.Contains("240f", StringComparison.Ordinal)
+                    || source.Contains("/ 16f", StringComparison.Ordinal);
+
+                if (!ownsARange && source.Contains("TerminalReach.", StringComparison.Ordinal))
+                    filesDeferringToTheSharedRule++;
+                else
+                    Check(false, $"DA-17 {relativePath} still keeps its own copy of the range rule");
+            }
+            Eq(filesDeferringToTheSharedRule, filesThatMustNotOwnARange.Length,
+                "DA-17a every panel and helper asks the same rule the packet handlers ask");
 
             // The one ordering in this change that can destroy a player's stack: the client empties
             // the slot before sending, so a refusal that keeps the item deletes it.
@@ -3183,7 +3219,8 @@ namespace TerraStorage.Tests
             Eq((byte)StorageOperationFailure.NothingToDefragment, 18, "DN-14t NothingToDefragment is 18");
             Eq((byte)StorageOperationFailure.DiskClaimRefused, 19, "DN-14u DiskClaimRefused is 19");
             Eq((byte)StorageOperationFailure.DriveBaySlotUnavailable, 20, "DN-14v DriveBaySlotUnavailable is 20");
-            Eq(Enum.GetValues<StorageOperationFailure>().Length, 21,
+            Eq((byte)StorageOperationFailure.DriveBayNotOnNetwork, 21, "DN-14w DriveBayNotOnNetwork is 21");
+            Eq(Enum.GetValues<StorageOperationFailure>().Length, 22,
                 "DN-14l a new member was appended without pinning its value");
             Eq(denied.Count, Enum.GetValues<StorageOperationFailure>().Length - 1,
                 "DN-14m every member but None is reportable");
@@ -3222,7 +3259,7 @@ namespace TerraStorage.Tests
             {
                 var mapped = StorageOperationFailures.GetFailureFromWireValue((byte)wireValue);
 
-                var required = wireValue < 21
+                var required = wireValue < 22
                     ? (StorageOperationFailure)wireValue
                     : StorageOperationFailure.Unspecified;
 
