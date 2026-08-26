@@ -205,9 +205,11 @@ namespace TerraStorage.Content.UI
                             return;
                         }
 
+                        var takenDiskId = GetDiskIdOf(_entity.DiskSlots[i]);
                         Main.mouseItem = _entity.DiskSlots[i].Clone();
                         _entity.DiskSlots[i].TurnToAir();
                         _entity.RefreshVisualState(_entity.IsConnected);
+                        NetworkHandler.DropOrphanedDiskData(takenDiskId);
                         SoundEngine.PlaySound(SoundID.Grab);
                     }
                 }
@@ -224,6 +226,7 @@ namespace TerraStorage.Content.UI
                             return;
                         }
 
+                        var takenDiskId = GetDiskIdOf(_entity.DiskSlots[i]);
                         var item = _entity.DiskSlots[i].Clone();
                         // Directly place item in inventory instead of using ground pickup logic
                         bool placedInInventory = false;
@@ -265,12 +268,22 @@ namespace TerraStorage.Content.UI
                         {
                             _entity.DiskSlots[i].TurnToAir();
                             _entity.RefreshVisualState(_entity.IsConnected);
+                            NetworkHandler.DropOrphanedDiskData(takenDiskId);
                         }
                         SoundEngine.PlaySound(SoundID.Grab);
                     }
                 }
                 return;
             }
+        }
+
+        // Read before the slot is cleared: afterwards the item carrying the GUID is gone.
+        private static System.Guid GetDiskIdOf(Item slotItem)
+        {
+            if (slotItem == null || slotItem.IsAir || slotItem.ModItem is not StorageDiskBase disk)
+                return System.Guid.Empty;
+
+            return disk.DiskId;
         }
 
         // Returns true if the mouse is over the given vanilla inventory slot index (0–49).
