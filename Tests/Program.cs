@@ -70,6 +70,7 @@ namespace TerraStorage.Tests
             MaxAmountSurvivesDeepStackMultiplication();
             MaxAmountOnScopedDump();
             RealDumpBenchmark();
+            MergeCandidateIndexAgreesWithTheMergeRule();
 
             WindowStackTests();
             DepositGateTests();
@@ -2650,6 +2651,129 @@ namespace TerraStorage.Tests
                 "SG-05 the recipe grid's visible-row count has one definition, used by the view and the draw");
             IsTrue(!craftingPanel.Contains("- 25) / CellSize"),
                 "SG-06 no open-coded header subtraction survives beside the shared getter");
+        }
+
+        // ---- The defragment merge-candidate index must never hide a mergeable stack ----
+        // Issue 23i: BuildMergeTargets asked the merge rule about every stack on the target disk for
+        // every donor stack, which at the supported maximum is a 376 ms freeze on the game thread.
+        // The index narrows the field to stacks sharing the donor's type and prefix - but a key that
+        // disagreed with DiskData.CanMergeStacks would be issue 04 again, as silent duplication.
+        private static void MergeCandidateIndexAgreesWithTheMergeRule()
+        {
+            Section("Defragment's merge-candidate index agrees with the merge rule");
+
+            const int StackCount = 400, DistinctTypes = 37;
+            int[] prefixes = { -1, 0, 1 };
+
+            var rng = new Random(23);
+            var types = new int[StackCount];
+            var stackPrefixes = new int[StackCount];
+            var index = new MergeCandidateIndex();
+
+            for (int i = 0; i < StackCount; i++)
+            {
+                types[i] = rng.Next(DistinctTypes);
+                stackPrefixes[i] = prefixes[rng.Next(prefixes.Length)];
+                index.Add(types[i], stackPrefixes[i], i);
+            }
+
+            // The index may only ever withhold a stack the merge rule would have refused anyway, so
+            // its candidate set has to be exactly what the linear rescan it replaces would find.
+            bool everyKeyAgreed = true;
+            bool everyBucketAscends = true;
+            int keysChecked = 0;
+
+            foreach (int itemType in Enumerable.Range(0, DistinctTypes))
+            {
+                foreach (int prefixId in prefixes)
+                {
+                    var expected = new List<int>();
+                    for (int i = 0; i < StackCount; i++)
+                        if (types[i] == itemType && stackPrefixes[i] == prefixId)
+                            expected.Add(i);
+
+                    var candidates = index.GetCandidates(itemType, prefixId);
+                    everyKeyAgreed &= expected.Count == candidates.Count
+                        && expected.SequenceEqual(candidates);
+
+                    for (int c = 1; c < candidates.Count; c++)
+                        everyBucketAscends &= candidates[c] > candidates[c - 1];
+
+                    keysChecked++;
+                }
+            }
+
+            IsTrue(everyKeyAgreed,
+                $"MX-01 every stack sharing a donor's type and prefix is a candidate ({keysChecked} keys)");
+            IsTrue(everyBucketAscends,
+                "MX-02 candidates come back in ascending slot order, so the earliest partial fills first");
+
+            var missing = index.GetCandidates(DistinctTypes + 5, 0);
+            Eq(missing.Count, 0, "MX-03 an identity no stack carries has no candidates");
+            IsTrue(ReferenceEquals(missing, index.GetCandidates(DistinctTypes + 6, 3)),
+                "MX-03a and a miss hands back one shared empty list rather than allocating");
+
+            // The sweep appends to the target disk as it moves stacks in - a whole stack relocated,
+            // or a fresh slot taken - and a later donor of the same identity has to find them.
+            index.Add(types[0], stackPrefixes[0], StackCount);
+            var grown = index.GetCandidates(types[0], stackPrefixes[0]);
+            Eq(grown[grown.Count - 1], StackCount, "MX-04 a slot appended mid-sweep becomes a candidate, still last");
+
+            // A disk that donated to an earlier target arrives as a target with its stacks moved, so
+            // nothing recorded against the previous disk may survive.
+            index.Clear();
+            int survivors = 0;
+            foreach (int itemType in Enumerable.Range(0, DistinctTypes))
+                foreach (int prefixId in prefixes)
+                    survivors += index.GetCandidates(itemType, prefixId).Count;
+            Eq(survivors, 0, "MX-05 Clear leaves no slot from the previous target disk");
+
+            index.Add(700, 0, 4);
+            Eq(index.GetCandidates(700, 1).Count, 0, "MX-06 two identities differing only in prefix never share a bucket");
+            Eq(index.GetCandidates(700, 0).Count, 1, "MX-06a while the prefix that was added still resolves");
+
+            MergeCandidateIndexKeyMatchesTheMergeRule();
+        }
+
+        // The link from "the index returns every stack sharing a type and prefix" to "the index
+        // never hides a mergeable stack". The merge rule needs Terraria and cannot be linked here,
+        // so the two halves that make the key safe are asserted against the source itself.
+        private static void MergeCandidateIndexKeyMatchesTheMergeRule()
+        {
+            string repoRoot = FindRepoRoot();
+            IsTrue(repoRoot != null, "MX-07 repo root located from " + AppContext.BaseDirectory);
+            if (repoRoot == null) return;
+
+            string storedStack = ReadModSource(repoRoot, "Common/StoredItemStack.cs");
+            string stacksWithBody = ExtractMethodBody(storedStack, "public bool StacksWith(StoredItemStack other)");
+
+            IsTrue(stacksWithBody.Length > 0, "MX-07a the merge rule's identity test was located");
+
+            // If anything could make two stacks merge BEFORE this guard runs, a type-and-prefix key
+            // could hide a mergeable pair. It is the method's first statement, so nothing can.
+            int typeGuard = stacksWithBody.IndexOf("ItemType != other.ItemType", StringComparison.Ordinal);
+            int firstReturnTrue = stacksWithBody.IndexOf("return true", StringComparison.Ordinal);
+            IsTrue(typeGuard >= 0 && (firstReturnTrue < 0 || typeGuard < firstReturnTrue),
+                "MX-08 StacksWith refuses a different type or prefix before it can say yes to anything");
+            IsTrue(stacksWithBody.IndexOf("PrefixId != other.PrefixId", StringComparison.Ordinal) >= 0
+                   && stacksWithBody.IndexOf("PrefixId != other.PrefixId", StringComparison.Ordinal) < firstReturnTrue,
+                "MX-08a and refuses a different prefix in the same breath, so both halves of the key are necessary");
+
+            string worldSystem = ReadModSource(repoRoot, "Systems/StorageWorldSystem.cs");
+            string buildBody = ExtractMethodBody(worldSystem, "private static void BuildMergeTargets");
+
+            IsTrue(buildBody.Contains("Accepts = DiskData.CanMergeStacks("),
+                "MX-09 the merge rule, not the index, still decides whether a candidate accepts");
+            IsTrue(buildBody.Contains("GetCandidates("),
+                "MX-10 and the candidates come from the index rather than a rescan of the disk");
+            IsTrue(!buildBody.Contains("target.Items.Count"),
+                "MX-10a with no linear walk of the target left in it");
+
+            // A disk list naming one disk twice makes it its own donor; removing a stack from the
+            // donor then shifts every slot the index recorded for the target.
+            string defragBody = ExtractMethodBody(worldSystem, "public List<Guid> Defragment");
+            IsTrue(defragBody.Contains("ReferenceEquals(target, donor)"),
+                "MX-11 a disk repeated in the request never donates to itself");
         }
 
         private static string ReadModSource(string repoRoot, string relativePath)

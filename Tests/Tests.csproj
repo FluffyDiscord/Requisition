@@ -20,6 +20,8 @@
     <Compile Include="..\Common\StackSelection.cs" />
     <!-- What makes a stored stack its own item rather than so many units of a type. -->
     <Compile Include="..\Common\StackIdentity.cs" />
+    <!-- Which stacks on a disk a donor could merge into, without asking the rule about all of them. -->
+    <Compile Include="..\Common\MergeCandidateIndex.cs" />
     <!-- Deposit arithmetic: the pair of numbers a partial deposit has to keep straight. -->
     <Compile Include="..\Common\DepositOutcome.cs" />
     <!-- Crafting transaction core: item movement bookkeeping, Terraria-free so it can be faked. -->
