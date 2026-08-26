@@ -327,6 +327,13 @@ namespace TerraStorage.Common
         // discarded" test, and byte equality is exactly the right answer to that.
         public static bool ModStateMatches(TagCompound first, TagCompound second)
         {
+            // One tag cannot differ from itself. This catches two stacks with no tag at all, which
+            // is every comparison in an unmodded world and none in a heavily modded one, and two
+            // stacks sharing a tag object - a split copy weighed against its source, which only
+            // meet on a second defragment before the world is next saved.
+            if (ReferenceEquals(first, second))
+                return true;
+
             bool firstHas = first?.ContainsKey("globalData") == true;
             bool secondHas = second?.ContainsKey("globalData") == true;
             if (firstHas != secondHas)
@@ -336,9 +343,10 @@ namespace TerraStorage.Common
 
             try
             {
-                var wrappedFirst = new TagCompound { ["g"] = first["globalData"] };
-                var wrappedSecond = new TagCompound { ["g"] = second["globalData"] };
-                return TagCompoundEquals(wrappedFirst, wrappedSecond);
+                // Wrapping each blob in a TagCompound only to compare the pair costs two dictionary
+                // allocations, and for a single key TagCompoundEquals reduces to exactly this.
+                // Defragmenting asks this question hundreds of thousands of times in one press.
+                return TagValueEquals(first["globalData"], second["globalData"]);
             }
             catch
             {

@@ -563,14 +563,32 @@ namespace TerraStorage.Systems
             var movePlan = new DonorMovePlan();
             var maxStackCache = new Dictionary<int, int>();
 
+            // Asking the merge rule about every stack on the target for every donor stack is
+            // O(donors x target stacks), and at the supported maximum that froze the game thread for
+            // a third of a second - issue 23i. The index keeps the target's stacks under the type
+            // and prefix a merge needs anyway, so a donor is only asked about stacks that could
+            // say yes.
+            var mergeCandidates = new MergeCandidateIndex();
+
             for (int ti = 0; ti < disks.Count - 1; ti++)
             {
                 var target = disks[ti];
                 if (target.IsFull) continue;
 
+                // Rebuilt per target, because a disk that donated to an earlier target arrives here
+                // with its own stacks already moved.
+                IndexTargetStacks(target, mergeCandidates);
+
                 for (int di = ti + 1; di < disks.Count && !target.IsFull; di++)
                 {
                     var donor = disks[di];
+
+                    // The disk list arrives off the wire (NetworkHandler.HandleDefragRequest) and is
+                    // only checked for reachability, never for repeats. A list naming one disk twice
+                    // makes it its own donor, and then removing a stack from the donor shifts every
+                    // slot the target just recorded - counts land on a stack of another item type.
+                    if (ReferenceEquals(target, donor)) continue;
+
                     if (donor.Items.Count == 0) continue;
 
                     for (int si = donor.Items.Count - 1; si >= 0 && !target.IsFull; si--)
@@ -583,14 +601,16 @@ namespace TerraStorage.Systems
                         // ModItem data: merging on type+prefix alone destroyed enchantments one way
                         // and duplicated them the other.
                         bool isUnique = DiskData.HasPerInstanceData(stack);
-                        BuildMergeTargets(target, stack, mergeTargets);
+                        int maxStack = GetMaxStack(stack.ItemType, maxStackCache);
+                        BuildMergeTargets(target, stack, isUnique, maxStack, mergeCandidates, mergeTargets);
                         int freeSlots = target.MaxStacks - target.UsedStacks;
 
                         var plan = StackSelection.PlanDonorMove(mergeTargets, stack.Stack,
-                            GetMaxStack(stack.ItemType, maxStackCache), freeSlots, isUnique, movePlan);
+                            maxStack, freeSlots, isUnique, movePlan);
 
                         if (plan.MoveWholeStack)
                         {
+                            mergeCandidates.Add(stack.ItemType, stack.PrefixId, target.Items.Count);
                             target.Items.Add(stack);
                             donor.Items.RemoveAt(si);
                             modified.Add(target.DiskId);
@@ -602,7 +622,10 @@ namespace TerraStorage.Systems
                             target.Items[merge.Index].Stack += merge.Count;
 
                         foreach (int addAmount in plan.NewSlots)
+                        {
+                            mergeCandidates.Add(stack.ItemType, stack.PrefixId, target.Items.Count);
                             target.Items.Add(CopyStackWithCount(stack, addAmount));
+                        }
 
                         if (plan.LeftOnDonor < stack.Stack)
                         {
@@ -627,21 +650,62 @@ namespace TerraStorage.Systems
             return modified.ToList();
         }
 
-        // Every stack already on the target, with the identity verdict for this donor attached.
+        // Every stack on the target this donor could merge into, with the identity verdict attached.
         // Fills a caller-owned buffer: this runs once per donor stack inside the defrag sweep.
-        private static void BuildMergeTargets(DiskData target, StoredItemStack donorStack, List<MergeTarget> into)
+        //
+        // The index narrows the field to stacks sharing the donor's type and prefix, and
+        // DiskData.CanMergeStacks still decides every one of them. That split is deliberate:
+        // StoredItemStack.StacksWith refuses a different type or prefix before it tests anything
+        // else, so sharing them is a necessary condition of merging and never a sufficient one.
+        // Letting the index answer instead of the rule is issues 04 and 24 all over again.
+        private static void BuildMergeTargets(DiskData target, StoredItemStack donorStack,
+            bool donorIsUnique, int maxStack, MergeCandidateIndex mergeCandidates, List<MergeTarget> into)
         {
             into.Clear();
 
-            for (int index = 0; index < target.Items.Count; index++)
+            // A stack that stands for itself moves whole into a free slot or stays put, so
+            // PlanDonorMove never reads the targets for one.
+            if (donorIsUnique)
+                return;
+
+            var candidates = mergeCandidates.GetCandidates(donorStack.ItemType, donorStack.PrefixId);
+            for (int candidate = 0; candidate < candidates.Count; candidate++)
             {
+                int index = candidates[candidate];
+
+                // The index records slots, and it is only correct while nothing removes from the
+                // target mid-sweep - which nothing does today. Should that ever change, a slot past
+                // the end must cost a merge, never credit whatever moved into its place.
+                if (index >= target.Items.Count)
+                    continue;
+
                 var existing = target.Items[index];
+
+                // A stack already at capacity has no room, and PlanDonorMove would pass over it
+                // anyway. Skipping it here spares the identity comparison, which is the expensive
+                // one - a bulk-storage disk holds hundreds of full stacks under a single identity.
+                if (existing.Stack >= maxStack)
+                    continue;
+
                 into.Add(new MergeTarget
                 {
                     Index = index,
                     Stack = existing.Stack,
                     Accepts = DiskData.CanMergeStacks(existing, donorStack)
                 });
+            }
+        }
+
+        // The target's stacks under the identity a merge needs, in ascending slot order so a donor
+        // still tops up the earliest partial stack first.
+        private static void IndexTargetStacks(DiskData target, MergeCandidateIndex mergeCandidates)
+        {
+            mergeCandidates.Clear();
+
+            for (int index = 0; index < target.Items.Count; index++)
+            {
+                var stack = target.Items[index];
+                mergeCandidates.Add(stack.ItemType, stack.PrefixId, index);
             }
         }
 

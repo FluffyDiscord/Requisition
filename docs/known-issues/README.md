@@ -100,8 +100,8 @@ the shared-confirm ordering now" and that "the plan and preview agree". Both wer
 member — see [23b](23-agent-audit-2026-08-25.md). `CanProduce` now calls `CanFillSlot`, and the two
 encodings are one helper.
 
-Still open, from the same audit: `Defragment` rescans the target's stacks linearly for every donor
-stack. Allocation is fixed; the O(n*m) time is not. An identity-keyed index would fix it.
+**Resolved 2026-08-26.** The last item here was `Defragment` rescanning the target's stacks for every
+donor stack. `Common/MergeCandidateIndex.cs` closes it — see [23i](23-agent-audit-2026-08-25.md).
 
 ## Test suite
 
@@ -120,4 +120,5 @@ row visibility, and the deposit arithmetic — and what deliberately stays in-ga
 Suite prefixes, so a failure names its area: `TX`/`PX` transaction, `SL`/`DF` stack selection,
 `RC` panel refresh, `HR` hit rects, `DP` deposit, `MD`/`DL`/`SA`/`LF` resolver depth and agreement,
 `FC`/`TC` UI caches and click arbitration, `FD`/`NG`/`IO`/`AF` the 2026-08-25 audit,
-`BD`/`ID`/`FX` paying for a step from stacks that each stand for themselves.
+`BD`/`ID`/`FX` paying for a step from stacks that each stand for themselves,
+`MX` the defragment merge-candidate index.

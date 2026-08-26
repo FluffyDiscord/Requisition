@@ -22,6 +22,8 @@
 - Drive Bay: a max-tier disk's contents no longer scroll past the last row into blank space, and the last disk in the bay is always reachable in the list
 - Storage, crafting and Drive Bay scroll positions now stay correct after resizing the Terminal window instead of stranding the view in blank space, and the scrollbar thumb resizes with the window
 - Crafting: the recipe scrollbar thumb no longer pins early or dead-zones at the bottom while the grid scrolls one row further
+- Defragment no longer freezes the game on a large drive bay — a full 40-disk bay went from about a third of a second to roughly one frame, and a bay packed with bulk materials from about seven tenths of a second to the same
+- Defragment: a malformed multiplayer defrag request can no longer make a disk donate to itself, exhaust server memory, or stall the server on a repeated disk
 
 ## [0.5.1]
 
