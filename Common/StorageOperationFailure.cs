@@ -29,7 +29,6 @@ namespace TerraStorage.Common
 
     public static class StorageOperationFailures
     {
-        // Numeric order, matching the enum: iteration order shows up in test failure messages.
         private static readonly StorageOperationFailure[] Denied =
         {
             StorageOperationFailure.Unspecified,
@@ -133,6 +132,10 @@ namespace TerraStorage.Common
     // Bulk deposit sends one packet per inventory slot, so a full network denies once per slot and
     // one click became forty identical red lines. The same cause arriving again inside a second is
     // the same refusal, not new information; a different cause is never suppressed.
+    //
+    // This is for answers arriving off the wire, where one click produces many. A locally decided
+    // refusal is already one per click and must NOT come through here - a second deliberate click
+    // lands well inside the window, and swallowing it would restore the silence being fixed.
     public class StorageOperationFailureThrottle
     {
         private StorageOperationFailure _lastReported = StorageOperationFailure.None;
@@ -141,8 +144,6 @@ namespace TerraStorage.Common
         public bool ShouldReport(StorageOperationFailure failure, uint gameUpdateCount)
         {
             bool repeatsLastReported = failure == _lastReported;
-
-            // Unchecked so the subtraction stays correct across GameUpdateCount's uint wrap.
             uint elapsedTicks = unchecked(gameUpdateCount - _lastReportedAt);
 
             if (repeatsLastReported && elapsedTicks < GetRepeatSuppressionTicks())
@@ -154,7 +155,8 @@ namespace TerraStorage.Common
         }
 
         // Terraria updates 60 times a second, so one second spans a burst even when its packets
-        // arrive across several network reads, while a deliberate second click still reports.
+        // arrive across several network reads. It also spans a double-click, which is why only
+        // wire answers come through here and a locally decided refusal never does.
         private static uint GetRepeatSuppressionTicks() => 60;
     }
 }

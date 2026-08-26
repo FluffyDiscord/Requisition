@@ -1629,7 +1629,7 @@ namespace TerraStorage.Systems
             DBG($"HandleOperationResponse: success={success} reasonByte={reasonByte} mapped={failure}");
 
             if (!success)
-                StorageOperationReporter.ReportFailure(failure);
+                StorageOperationReporter.ReportServerDenial(failure);
         }
 
         public static void SendRequestFullDiskSync(Mod mod, Guid diskId)
@@ -1764,7 +1764,16 @@ namespace TerraStorage.Systems
             }
 
             var quickStackFailure = StorageOperationFailures.GetQuickStackFailure(matchedAnySlot, anyDeposited);
-            EndTrackingAndRespond(mod, whoAmI, quickStackFailure, diskIds);
+
+            // A slot that matched but bounced off a full network moved nothing, so there is no
+            // client state to correct — only a reason to report. This case used to report success
+            // and send nothing; sweeping every disk's full contents for it now would turn a
+            // spammable button into a resync storm. The nothing-matched case keeps its corrections,
+            // which it always sent.
+            var disksNeedingCorrection = quickStackFailure == StorageOperationFailure.NothingDeposited
+                ? null
+                : diskIds;
+            EndTrackingAndRespond(mod, whoAmI, quickStackFailure, disksNeedingCorrection);
 
             if (results.Count > 0)
             {

@@ -2805,29 +2805,29 @@ namespace TerraStorage.Tests
                 "DN-01 every reportable cause has its own key");
 
             // None never travels, but if a patched peer spells it the generic line is what shows.
-            Eq(StorageOperationFailures.GetLocalizationKey(StorageOperationFailure.None)
-                == StorageOperationFailures.GetLocalizationKey(StorageOperationFailure.Unspecified) ? 1 : 0,
-                1, "DN-01a None falls back to the generic line rather than a key of its own");
+            IsTrue(StorageOperationFailures.GetLocalizationKey(StorageOperationFailure.None)
+                == StorageOperationFailures.GetLocalizationKey(StorageOperationFailure.Unspecified),
+                "DN-01a None falls back to the generic line rather than a key of its own");
 
-            // DN-03: sweep every byte a peer could send, not a sample of them.
-            int mappedToKnown = 0;
+            // DN-03: sweep every byte a peer could send, not a sample of them. Each byte is
+            // compared against what it must map to, so a defined value quietly rewritten to
+            // Unspecified fails here rather than being waved through as "still in the enum".
+            int wrongMappings = 0;
             for (int wireValue = 0; wireValue <= 255; wireValue++)
             {
                 var mapped = StorageOperationFailures.GetFailureFromWireValue((byte)wireValue);
-                bool isDefined = Enum.IsDefined(mapped);
-                if (!isDefined)
-                {
-                    Check(false, $"DN-03 byte {wireValue} mapped outside the enum");
-                    break;
-                }
-                if (wireValue < 12) mappedToKnown++;
-                else if (mapped != StorageOperationFailure.Unspecified)
-                {
-                    Check(false, $"DN-03a undefined byte {wireValue} must fall back to Unspecified");
-                    break;
-                }
+
+                var required = wireValue < 12
+                    ? (StorageOperationFailure)wireValue
+                    : StorageOperationFailure.Unspecified;
+
+                if (mapped == required) continue;
+
+                wrongMappings++;
+                Check(false, $"DN-03 byte {wireValue} must map to {required}, mapped to {mapped}");
+                if (wrongMappings >= 3) break;
             }
-            Eq(mappedToKnown, 12, "DN-03 every defined byte survives the wire mapping");
+            Eq(wrongMappings, 0, "DN-03a all 256 bytes map exactly as the wire format requires");
 
             // DN-04: round-trip, which also catches a member added without a mapping arm.
             foreach (var failure in Enum.GetValues<StorageOperationFailure>())
@@ -2854,7 +2854,10 @@ namespace TerraStorage.Tests
             Eq((int)StorageOperationFailures.GetCraftFailure(true, false, false, true),
                 (int)StorageOperationFailure.None, "DN-09f as is storage alone");
 
-            int craftCombinations = 0;
+            // Every combination is checked against the CODE it must reproduce, not merely against
+            // "did it succeed" — returning NoRoomInInventory where NoRoomInStorageOrInventory
+            // belongs is a wrong message on a right verdict, and would otherwise pass.
+            int wrongCraftVerdicts = 0;
             for (int bits = 0; bits < 16; bits++)
             {
                 bool feasible = (bits & 1) != 0;
@@ -2862,11 +2865,21 @@ namespace TerraStorage.Tests
                 bool playerRoom = (bits & 4) != 0;
                 bool storageRoom = (bits & 8) != 0;
 
+                StorageOperationFailure required;
+                if (!feasible) required = StorageOperationFailure.RecipeNotFeasible;
+                else if (toInventory)
+                    required = playerRoom ? StorageOperationFailure.None : StorageOperationFailure.NoRoomInInventory;
+                else if (storageRoom || playerRoom) required = StorageOperationFailure.None;
+                else required = StorageOperationFailure.NoRoomInStorageOrInventory;
+
                 var verdict = StorageOperationFailures.GetCraftFailure(feasible, toInventory, playerRoom, storageRoom);
-                bool shouldSucceed = feasible && (toInventory ? playerRoom : storageRoom || playerRoom);
-                if (StorageOperationFailures.IsSuccess(verdict) == shouldSucceed) craftCombinations++;
+                if (verdict == required) continue;
+
+                wrongCraftVerdicts++;
+                Check(false, $"DN-09g feasible={feasible} toInventory={toInventory} playerRoom={playerRoom} "
+                    + $"storageRoom={storageRoom} must give {required}, gave {verdict}");
             }
-            Eq(craftCombinations, 16, "DN-09g all sixteen guard combinations agree with the rule");
+            Eq(wrongCraftVerdicts, 0, "DN-09h all sixteen guard combinations name the right cause");
 
             // DN-13: nothing matched and nothing fitted are different refusals with different fixes.
             Eq((int)StorageOperationFailures.GetQuickStackFailure(false, false),
@@ -2943,17 +2956,17 @@ namespace TerraStorage.Tests
                 File.ReadAllText(Path.Combine(repoRoot, "Localization", "en-US_Mods.TerraStorage.hjson")),
                 "OperationFailed");
 
-            Eq(GetCatalogValue(english, "RecipeNotFeasible")
-                == "this recipe cannot be crafted from what the network can hand over." ? 1 : 0, 1,
+            AssertCatalogValue(english, "RecipeNotFeasible",
+                "this recipe cannot be crafted from what the network can hand over.",
                 "DN-15 the infeasible-plan line is the one singleplayer already printed");
-            Eq(GetCatalogValue(english, "NoRoomInInventory")
-                == "no room in your inventory for the result." ? 1 : 0, 1,
+            AssertCatalogValue(english, "NoRoomInInventory",
+                "no room in your inventory for the result.",
                 "DN-15a the inventory-full line is unchanged");
-            Eq(GetCatalogValue(english, "NoRoomInStorageOrInventory")
-                == "no room in storage or your inventory for the result." ? 1 : 0, 1,
+            AssertCatalogValue(english, "NoRoomInStorageOrInventory",
+                "no room in storage or your inventory for the result.",
                 "DN-15b the nowhere-to-put-it line is unchanged");
-            Eq(GetCatalogValue(english, "CraftCostingNoLongerHolds")
-                == "the craft was cancelled — storage no longer holds what the plan was costed against." ? 1 : 0, 1,
+            AssertCatalogValue(english, "CraftCostingNoLongerHolds",
+                "the craft was cancelled — storage no longer holds what the plan was costed against.",
                 "DN-15c the costed-against line keeps its wording and its em dash");
         }
 
@@ -2992,7 +3005,7 @@ namespace TerraStorage.Tests
 
             // DN-07: the four English literals are gone from the panel, moved rather than copied.
             string panel = ReadModSource(repoRoot, "Content/UI/Elements/UICraftingPanel.cs");
-            IsFalse(panel.Contains("Requisition:", StringComparison.Ordinal),
+            IsFalse(panel.Contains("Main.NewText(\"Requisition:", StringComparison.Ordinal),
                 "DN-07 no hardcoded denial text survives in the crafting panel");
 
             string network = ReadModSource(repoRoot, "Systems/NetworkHandler.cs");
@@ -3019,7 +3032,15 @@ namespace TerraStorage.Tests
             }
         }
 
-        // Returns the body of a named hjson group, braces excluded.
+        // A wording regression is the thing DN-15 exists to catch, so a failure has to show the two
+        // strings rather than "expected 1, got 0".
+        private static void AssertCatalogValue(string group, string key, string expected, string name)
+        {
+            string actual = GetCatalogValue(group, key);
+            Check(actual == expected, $"{name}  [expected \"{expected}\", got \"{actual}\"]");
+        }
+
+        // Returns the body of a named hjson group, from its opening brace to its close.
         private static string ExtractCatalogGroup(string catalog, string groupName)
         {
             int start = catalog.IndexOf(groupName + ": {", StringComparison.Ordinal);

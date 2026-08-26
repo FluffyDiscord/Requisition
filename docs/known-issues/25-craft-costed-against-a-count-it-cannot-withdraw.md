@@ -97,9 +97,21 @@ pure function that both `ExecuteCraft` and `HandleCraftRequest` call. Two hand-w
 rule is exactly the shape of [23a, 23b and 23c](23-agent-audit-2026-08-25.md), and neither of those
 two files can be compiled outside the game — so the branch table lives where the runner executes it.
 
-**A denial burst is one line.** "Deposit all" sends one packet per inventory slot
-(`TerminalUIState.cs:838`), so a full network denies up to forty times per click. A repeat of the
-same cause within 60 ticks is suppressed; a different cause never is.
+**A denial burst is one line — but only off the wire.** "Deposit all" sends one packet per
+inventory slot (`TerminalUIState.cs:838`), so a full network denies up to forty times per click. A
+repeat of the same cause within 60 ticks is suppressed; a different cause never is. The throttle is
+reached through `ReportServerDenial` and **only** from `HandleOperationResponse`. The panel's own
+refusals go through `ReportFailure` unthrottled, because a locally decided refusal is already one
+per click: a double-click is 12-30 ticks apart, well inside the window, so throttling it would have
+swallowed the second click and restored the exact silence this issue is about.
+
+**A denial that changed nothing does not drag a resync behind it.** `SendOperationResponse`'s
+failure arm sends a full `SendDiskPacket` for every disk it is given, to repair client state the
+server rejected. Quick-stacking into a full network used to report *success* (it counted slots
+tried, not units moved), so it sent none; naively reporting the new `NothingDeposited` there would
+have turned a spammable button into a full-network resync storm for an operation that modified
+nothing. That path now passes no disk ids — the reason travels, the corrections do not. The
+nothing-matched path keeps the corrections it always sent.
 
 **Two defects found while doing it.** `HandleQuickStackToStorage` added to `results` even when the
 whole stack bounced, so quick-stacking into a full network reported **success with zero deltas** and
@@ -136,6 +148,11 @@ not get one here, and `Main.NewText` cannot be linked into the runner.
    byte did not disturb what follows it.
 7. The server prints nothing locally; the denial sound is distinguishable from the send tick.
 8. Two *different* denials in one tick: both are heard (the throttle keys on the cause).
+9. **Singleplayer, clicked twice quickly** — a full inventory and two CRAFT clicks 300 ms apart must
+   print **two** lines. This is the regression the throttle introduced and `ReportFailure` undoes;
+   it has no unit-test surface because the split is in which entry point each caller uses.
+10. Quick-stack into a full network prints its line and does **not** trigger a full-disk resync —
+    watch the packet volume, not just the chat.
 
 **Accepted risk:** the response carries no correlation id, so two operations denied at nearly the
 same moment can attribute a reason to the wrong click. Today nothing is displayed at all, so this is

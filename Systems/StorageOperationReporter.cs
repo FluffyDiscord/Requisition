@@ -14,11 +14,26 @@ namespace TerraStorage.Systems
     {
         private static readonly StorageOperationFailureThrottle Throttle = new();
 
+        // One click, one refusal, one line. The panel decides locally, so nothing here needs
+        // rate limiting - and throttling it would swallow the second of two deliberate clicks,
+        // which is the silence this whole vocabulary exists to end.
         public static void ReportFailure(StorageOperationFailure failure)
+        {
+            Report(failure);
+        }
+
+        // One click can become forty packets: deposit-all sends one per inventory slot, and a full
+        // network denies every one. Only the answers coming back off the wire are throttled.
+        public static void ReportServerDenial(StorageOperationFailure failure)
         {
             if (!Throttle.ShouldReport(failure, Main.GameUpdateCount))
                 return;
 
+            Report(failure);
+        }
+
+        private static void Report(StorageOperationFailure failure)
+        {
             string prefix = Language.GetTextValue(GetPrefixLocalizationKey());
             string reason = Language.GetTextValue(StorageOperationFailures.GetLocalizationKey(failure));
 
