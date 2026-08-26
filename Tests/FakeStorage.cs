@@ -31,10 +31,12 @@ namespace TerraStorage.Tests
             public int Count;
             public bool IsUnique;
             public string Mark;
+            public int Disk;
         }
 
         private readonly List<Stack> _stacks = new();
         private readonly HashSet<int> _uniqueTypes = new();
+        private readonly List<int> _diskSlotLimits = new();
 
         public int Capacity = int.MaxValue;
         public readonly List<string> Log = new();
@@ -58,7 +60,7 @@ namespace TerraStorage.Tests
         public FakeStorage WithStacks(int itemType, params int[] sizes)
         {
             foreach (int size in sizes)
-                _stacks.Add(new Stack { Type = itemType, Count = size, IsUnique = _uniqueTypes.Contains(itemType) });
+                PlaceStack(new Stack { Type = itemType, Count = size, IsUnique = _uniqueTypes.Contains(itemType) });
             return this;
         }
 
@@ -67,8 +69,39 @@ namespace TerraStorage.Tests
         public FakeStorage WithUniqueStack(int itemType, int count, string mark)
         {
             _uniqueTypes.Add(itemType);
-            _stacks.Add(new Stack { Type = itemType, Count = count, IsUnique = true, Mark = mark });
+            PlaceStack(new Stack { Type = itemType, Count = count, IsUnique = true, Mark = mark });
             return this;
+        }
+
+        // How many stacks each disk holds, in the order a withdrawal walks them. Without this the
+        // network is one unbounded disk and everything inserted lands at the end - which is the
+        // layout in which withholding a refund from the end of the ledger happens to be right.
+        public FakeStorage WithDiskSlots(params int[] slotsPerDisk)
+        {
+            _diskSlotLimits.AddRange(slotsPerDisk);
+            return this;
+        }
+
+        // Seeds a stack onto a named disk rather than the first with room, so a test can leave an
+        // early disk holding stock AND a free slot - the layout an insert fills ahead of a later
+        // disk's stock.
+        public FakeStorage WithUniqueStackOn(int disk, int itemType, int count, string mark)
+        {
+            _uniqueTypes.Add(itemType);
+            InsertOnDisk(new Stack { Type = itemType, Count = count, IsUnique = true, Mark = mark }, disk);
+            return this;
+        }
+
+        public FakeStorage WithOn(int disk, int itemType, int count)
+        {
+            InsertOnDisk(new Stack { Type = itemType, Count = count }, disk);
+            return this;
+        }
+
+        private void InsertOnDisk(Stack stack, int disk)
+        {
+            stack.Disk = disk;
+            _stacks.Insert(GetSlotAfterDisk(disk), stack);
         }
 
         public List<string> MarksOf(int itemType)
@@ -252,16 +285,74 @@ namespace TerraStorage.Tests
             return part;
         }
 
+        // Mark stands in for everything a real handle's state comparison reads, so two handles match
+        // when their type and mark agree. Two plain handles of a type match because units with no
+        // state are interchangeable.
+        public bool SameStoredState(FakeItem first, FakeItem second)
+        {
+            if (first == null || second == null)
+                return false;
+
+            return first.Type == second.Type && first.Mark == second.Mark;
+        }
+
         private void AddStacks(int itemType, int count, string mark = null)
         {
             if (!_uniqueTypes.Contains(itemType))
             {
-                _stacks.Add(new Stack { Type = itemType, Count = count, Mark = mark });
+                PlaceStack(new Stack { Type = itemType, Count = count, Mark = mark });
                 return;
             }
 
             for (int unit = 0; unit < count; unit++)
-                _stacks.Add(new Stack { Type = itemType, Count = 1, IsUnique = true, Mark = mark });
+                PlaceStack(new Stack { Type = itemType, Count = 1, IsUnique = true, Mark = mark });
+        }
+
+        // With no slot limits set, one unbounded disk: a new stack lands at the end, which is what
+        // every test that does not care about disk layout wants. With limits, this mirrors
+        // StorageWorldSystem.InsertItem walking the disks in order and filling the first with room -
+        // so a stack can land AHEAD of stock the player holds on a later disk, which is the layout
+        // that tells a refund by handle apart from a refund by position.
+        private void PlaceStack(Stack stack)
+        {
+            if (_diskSlotLimits.Count == 0)
+            {
+                _stacks.Add(stack);
+                return;
+            }
+
+            for (int disk = 0; disk < _diskSlotLimits.Count; disk++)
+            {
+                if (CountStacksOnDisk(disk) >= _diskSlotLimits[disk])
+                    continue;
+
+                stack.Disk = disk;
+                _stacks.Insert(GetSlotAfterDisk(disk), stack);
+                return;
+            }
+        }
+
+        private int CountStacksOnDisk(int disk)
+        {
+            int used = 0;
+            foreach (Stack stack in _stacks)
+            {
+                if (stack.Disk == disk)
+                    used++;
+            }
+            return used;
+        }
+
+        // Stacks are held in disk order, so a disk's own stacks are the run ending here.
+        private int GetSlotAfterDisk(int disk)
+        {
+            int slot = 0;
+            for (int index = 0; index < _stacks.Count; index++)
+            {
+                if (_stacks[index].Disk <= disk)
+                    slot = index + 1;
+            }
+            return slot;
         }
 
         private bool AllDrawsShareMark(List<StackDraw> draws)

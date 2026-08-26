@@ -88,6 +88,7 @@ namespace TerraStorage.Tests
             BandOfDoorFixtureBuildsTheReportedPlan();
             NetworkDrainsInOneSweep();
             TakeBackRecoversTheRunsOwnStack();
+            RefundKeepsThePlayersStackNotTheLastOne();
 
             Console.WriteLine($"\n=== {_pass} passed, {_fail} failed ===");
             if (_fail > 0)
@@ -2668,6 +2669,19 @@ namespace TerraStorage.Tests
                 "SG-05 the recipe grid's visible-row count has one definition, used by the view and the draw");
             IsTrue(!craftingPanel.Contains("- 25) / CellSize"),
                 "SG-06 no open-coded header subtraction survives beside the shared getter");
+
+            // The craft button is gated on the plan, not on the recipe, so deselecting has to drop
+            // the plan with it. Clicking the selected recipe again and then CRAFT otherwise reached
+            // ExecuteCraft with _selectedRecipe null. UICraftingPanel needs Terraria, so this is a
+            // source scan for the same reason SG-01..SG-06 are.
+            string deselectBody = ExtractMethodBody(craftingPanel, "private void DeselectRecipe");
+
+            IsTrue(deselectBody.Contains("_selectedRecipe = null"),
+                "SG-07 the DeselectRecipe body was located, so the presence checked below is real");
+            IsTrue(deselectBody.Contains("_currentPlan = null"),
+                "SG-07a deselecting clears the plan the craft button is gated on");
+            IsTrue(deselectBody.Contains("_craftIsNoOp = false"),
+                "SG-07b and the no-op verdict derived from that plan");
         }
 
         // ---- The defragment merge-candidate index must never hide a mergeable stack ----
@@ -3234,6 +3248,66 @@ namespace TerraStorage.Tests
             return null;
         }
 
+        // ---- Refunding what the player owned, not what happened to be last ----
+        // Doc 25's remaining defect: RefundLedger.Refund identified conjured units by POSITION,
+        // withholding from the end of the ledger. A step's product goes into the first disk with
+        // room, which is AHEAD of stock the player holds on a later disk - so the trailing handle is
+        // the player's, and the abort dropped it and re-inserted the run's copy. Same defect class
+        // as the TakeBack one, at the site that runs on every abort.
+        private static void RefundKeepsThePlayersStackNotTheLastOne()
+        {
+            Section("Refund withholds the handle the run made, wherever it landed");
+            const int CHARM = 7, IRON = 3, TARGET = 4, GOLD = 8, COPPER = 9;
+
+            // Disk 0 holds own-a and has a free slot; disk 1 holds own-b; disk 2 holds the iron. The
+            // conjured charm fills disk 0's free slot, so the ledger draws own-a, made, own-b - the
+            // player's stack is the trailing one, and withholding from the end destroys it.
+            var storage = new FakeStorage()
+                .WithDiskSlots(2, 1, 1)
+                .WithUniqueType(CHARM)
+                .WithUniqueStackOn(0, CHARM, 1, "own-a")
+                .WithUniqueStackOn(1, CHARM, 1, "own-b")
+                .WithOn(2, IRON, 1);
+
+            var chain = Steps(
+                (new[] { (IRON, 1) }, CHARM, 1),
+                (new[] { (CHARM, 3), (GOLD, 1) }, TARGET, 1));
+            var never = new PlanExecutor<FakeItem>(storage).Run(chain, 1, new FakeStepProducer(chain, "made"));
+
+            Eq(storage.StackOf(never), 0, "RF-01 the chain cannot be paid for");
+            Eq(storage.CountItem(CHARM), 2, "RF-01a the player's two charms are back by count");
+
+            string kept = string.Join(",", storage.MarksOf(CHARM));
+            Check(kept == "own-a,own-b",
+                $"RF-02 and they are the player's own two, not the run's copy  [got {kept}]");
+
+            // The layout the old rule got right, so the fix cannot be "always withhold from the
+            // front" - both orders have to work.
+            var trailing = new FakeStorage()
+                .WithUniqueType(CHARM)
+                .WithUniqueStack(CHARM, 1, "own-a")
+                .WithUniqueStack(CHARM, 1, "own-b")
+                .With(IRON, 1);
+
+            var alsoNever = new PlanExecutor<FakeItem>(trailing).Run(chain, 1, new FakeStepProducer(chain, "made"));
+
+            Eq(trailing.StackOf(alsoNever), 0, "RF-03 the same chain on one disk cannot be paid for");
+            string stillKept = string.Join(",", trailing.MarksOf(CHARM));
+            Check(stillKept == "own-a,own-b",
+                $"RF-04 and the conjured charm is still the one withheld  [got {stillKept}]");
+
+            // Plain units have no state to tell apart, so the count is the whole of the guarantee -
+            // the handle match must not refuse to withhold just because nothing distinguishes them.
+            var plain = new FakeStorage().With(IRON, 4);
+            var plainChain = Steps(
+                (new[] { (IRON, 2) }, COPPER, 2),
+                (new[] { (COPPER, 2), (GOLD, 1) }, TARGET, 1));
+            new PlanExecutor<FakeItem>(plain).Run(plainChain, 1, new FakeStepProducer(plainChain));
+
+            Eq(plain.CountItem(IRON), 4, "RF-05 plain materials come back whole");
+            Eq(plain.CountItem(COPPER), 0, "RF-05a and the conjured plain units are not handed back");
+        }
+
         // ---- Taking back what the run made, not what the player owned ----
         // Issue 25-C: recovering a conjured product by TYPE draws in storage order, and for a type
         // whose stacks each stand for themselves that is whichever sorts first - the player's own as
@@ -3381,8 +3455,11 @@ namespace TerraStorage.Tests
             Eq(TotalUnits(suppressed), 4, "NW-08 a caller already holding an item refuses the fallback");
             Eq(pooledThenStandaloneCapped.UnitsOn(1), 6, "NW-08a leaving every standalone stack alone");
 
-            // Fold into the most recent handle only. Folding into any earlier matching one would
-            // return two handles here, changing what RefundLedger.Refund withholds from the end.
+            // Fold into the most recent handle only, so a handle is a run of CONSECUTIVE draws
+            // sharing state. That is what lets handleLimit mean "how many separate items the caller
+            // can hold", and it keeps _taken in draw order. (Until RF-* this also propped up
+            // RefundLedger.Refund withholding from the end; the refund now matches handles by
+            // state, so it no longer depends on this - the rule stands on its own terms.)
             var alternating = new FakeDiskNetwork().WithDisk().WithDisk().WithDisk();
             alternating.WithPooled(0, 10, "A").WithPooled(1, 10, "B").WithPooled(2, 10, "A");
             Eq(NetworkWithdrawal.Drain(alternating, 30, unlimited).Count, 3,

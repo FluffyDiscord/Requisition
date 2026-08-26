@@ -995,6 +995,10 @@ namespace TerraStorage.Tests
             // back to the by-type draw - which is correct for interchangeable pooled units.
             public int ExtractStored(FakeItem stored, int count) => 0;
 
+            // Pooled counts carry no state, so two handles of a type are interchangeable.
+            public bool SameStoredState(FakeItem first, FakeItem second)
+                => first != null && second != null && first.Type == second.Type;
+
             public int Insert(FakeItem item)
             {
                 if (item.Count <= 0) return 0;

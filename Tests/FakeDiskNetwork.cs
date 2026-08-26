@@ -85,14 +85,10 @@ namespace TerraStorage.Tests
         {
             StandaloneDraws++;
 
-            // Mirrors DiskData.ExtractItem with allowUniqueFallback: pooled stock is drained first
-            // and a stack that stands for itself comes out only when nothing pooled matched.
-            foreach (Stack stack in _disks[diskIndex])
-            {
-                if (!stack.IsStandalone && stack.Units > 0)
-                    return DrawnUnits.Nothing(diskIndex);
-            }
-
+            // "Pooled stock is drained first, and a stack that stands for itself comes out only
+            // when nothing pooled matched" is StackSelection.PlanWithdrawal's own rule, which
+            // TakeFrom already applies - a second hand-written copy of it here would be exactly the
+            // drift 23a/23b/23c are each an instance of.
             return TakeFrom(diskIndex, amount, standalone: true);
         }
 

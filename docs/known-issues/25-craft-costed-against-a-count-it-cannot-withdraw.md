@@ -199,22 +199,39 @@ introduced a way to destroy an item of a different type than the one being recov
 `ICraftingStorage.Extract` was **replaced** by `ExtractStacks` rather than joined by it, so the
 re-entrant loop could not survive inside `TakeBack`.
 
+## Fix applied 2026-08-26 — the refund withholds by handle too
+
+`RefundLedger.Refund` identified conjured units by **position**, withholding from the end of
+`_taken`. That is a guess about which handle the run made, and it was wrong in a reachable case: the
+player owns unique `CHARM[own-a]` on disk 1 and `CHARM[own-b]` on disk 2; the run conjures one,
+which lands on disk 1 after `own-a` (`StorageWorldSystem.InsertItem` walks disks in order and fills
+the first with room); a later 3-unit draw yields `_taken = [own-a, conjured, own-b]`; withholding
+one from the end dropped **`own-b`** and re-inserted the run's copy. The count balanced, `own-b`'s
+state was gone. Same defect as the `TakeBack` one above, at the site with the larger blast radius —
+`Refund` runs on every abort.
+
+`MarkConjured` now takes the handle the step produced, and `Refund` withholds from the drawn handles
+whose state matches it (`ICraftingStorage.SameStoredState`, bound to
+`StorageWorldSystem.ItemsShareStoredState` — type, prefix, `ModItem.SaveData` and `globalData`,
+the same terms `ExtractStoredStack` matches on) before falling back to position. The fallback is
+still right for what reaches it: units with no state to compare are interchangeable, so any of them
+will do, and a product with nothing to distinguish it merged into stock that was already there.
+
+`NW-09`'s justification was rewritten rather than its assertion removed. It previously rested on
+end-withholding; the rule it pins — a handle is a run of *consecutive* draws sharing state — stands
+on its own terms, because that is what lets `handleLimit` mean "how many separate items the caller
+can hold".
+
+**Verified by `RF-*`.** Disabling only `WithholdMatchingHandles` turns `RF-02` red with the reported
+outcome — `[got made,own-a]`, the player's stack destroyed and the run's copy in its place — while
+`RF-04` (the trailing layout the old rule handled correctly) stays green, so the test is not merely
+biased toward the new rule. `RF-05` pins that plain interchangeable units still refund by count.
+`FakeStorage` grew a per-disk slot model (`WithDiskSlots`, `WithUniqueStackOn`) because without one
+every insert lands at the end — the single layout in which withholding from the end is correct, and
+the reason this defect survived `ID-04`.
+
 ## Not fixed
 
-- **`RefundLedger.Refund` identifies conjured units by POSITION.** The same defect as the `TakeBack`
-  one just fixed, at the site with the larger blast radius — `Refund` runs on every abort. It
-  withholds conjured units from the end of `_taken`, which is a guess about which handle the run
-  made, and the guess is wrong in a reachable case: the player owns unique `CHARM[own-a]` on disk 1
-  and `CHARM[own-b]` on disk 2; the run conjures one, which lands on disk 1 after `own-a`
-  (`StorageWorldSystem.InsertItem` walks disks in order, `DiskData.InsertItem` appends); a later
-  3-unit draw yields `_taken = [own-a, conjured, own-b]`; withholding one from the end drops
-  **`own-b`** and re-inserts the run's copy. The count balances, `own-b`'s state is gone.
-  The fix is the same move: `MarkConjured` takes the handle, and `Refund` withholds handles matching
-  it. Left alone here because this pass was scoped to the three bullets above, `Refund` had just
-  been stabilised (`ID-04` guards it), and it is the delicate part of the transaction core.
-  **`NW-09` is coupled to this defect**: the one-sweep drain folds into the most recent handle only,
-  which is what preserves `_taken`'s order and therefore what end-withholding drops. When `Refund`
-  recovers by identity, `NW-09`'s stated reason for existing becomes false and must be revisited.
 - **Recovery by handle only reaches a product that landed as its own stack.** `ExtractStoredStack`
   matches on item type, prefix, mod item data and mod-written state together. When the conjured
   product *merged* into a stack the player already had, `DiskData.InsertItem` leaves the

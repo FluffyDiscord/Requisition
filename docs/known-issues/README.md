@@ -46,7 +46,7 @@ Not shipped in the `.tmod` (`build.txt` `buildIgnore` covers `*.md`).
 | [23d](23-agent-audit-2026-08-25.md) | HIGH | Abort refund overflowed a full network and destroyed materials | `AF-*` |
 | [23e](23-agent-audit-2026-08-25.md) | CRITICAL | Withdrawal routed by a client-supplied index; `-1` broadcast it | multiplayer |
 | [24](24-globaldata-treated-as-item-identity.md) | HIGH | A `globalData` key was read as "this stack is its own item" — nothing ever stacked | `SI-*` |
-| [25](25-craft-costed-against-a-count-it-cannot-withdraw.md) | HIGH | A step paid for twenty units with one `Extract` call and took one — green button, silent no-op | `BD-*` `ID-*` `FX-*` `NW-*` `HB-*` |
+| [25](25-craft-costed-against-a-count-it-cannot-withdraw.md) | HIGH | A step paid for twenty units with one `Extract` call and took one — green button, silent no-op | `BD-*` `ID-*` `FX-*` `NW-*` `HB-*` `RF-*` |
 | [26](26-forged-disk-packets.md) | CRITICAL | A forged `SyncDiskInsert` wiped any player's disk; a wire count sized the server's allocations | `WB-*` `DC-*`, multiplayer |
 
 ## Recipe grid disagreed with the craft button
@@ -123,7 +123,7 @@ file warns about — one rule, fixed at one of its encodings.
 
 ## Test suite
 
-`cd Tests && dotnet run` — 657 assertions, zero dependencies, links the shipped source directly.
+`cd Tests && dotnet run` — 667 assertions, zero dependencies, links the shipped source directly.
 The real-game benchmark reads `ts_recipe_dump.txt` from the tModLoader save folder when present
 (produce one in-game with `/tsdump` next to a Terminal); full craftability revalidation over
 14 178 recipes runs in 2 ms. Scenario fixtures live in `Tests/Fixtures/*.tsdump.txt` — scoped
@@ -141,6 +141,7 @@ Suite prefixes, so a failure names its area: `TX`/`PX` transaction, `SL`/`DF` st
 `BD`/`ID`/`FX` paying for a step from stacks that each stand for themselves,
 `MX` the defragment merge-candidate index, `DN` the denial vocabulary sent to a refused client,
 `NW` the one-sweep network drain, `HB` taking back the stack the run made rather than the player's,
+`RF` refunding the player's stack rather than whichever was drawn last,
 `WB`/`DC` what a packet may claim and how large a count it may declare.
 Also live: `BI`/`SC` blocking ingredient, `DS` duplicate slots, `GM`/`IC` recipe groups,
 `NC` no-op recipes, `PR` pool restore, `PU` preview own-stock, `RS` repeated slots, `SG`/`SI` stack
