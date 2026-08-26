@@ -906,18 +906,12 @@ namespace TerraStorage.Tests
             return mergeTargets;
         }
 
+        // Only the two historical shapes apply a plan by hand now: the sweep that ships does its own
+        // list work inside DefragmentCore, so neither of these keeps a merge index any more.
         private static void ApplyPlan(Disk target, Disk donor, int si, Stack stack, DonorMovePlan plan)
-            => ApplyPlanIndexed(target, donor, si, stack, plan, null);
-
-        // The index, when one is being kept, learns about every stack the sweep appends to the
-        // target - a whole stack relocated, or a fresh slot taken - so a later donor of the same
-        // identity can still find it.
-        private static void ApplyPlanIndexed(Disk target, Disk donor, int si, Stack stack,
-            DonorMovePlan plan, MergeCandidateIndex index)
         {
             if (plan.MoveWholeStack)
             {
-                index?.Add(stack.ItemType, stack.PrefixId, target.Items.Count);
                 target.Items.Add(stack);
                 donor.Items.RemoveAt(si);
                 return;
@@ -928,7 +922,6 @@ namespace TerraStorage.Tests
 
             foreach (int addAmount in plan.NewSlots)
             {
-                index?.Add(stack.ItemType, stack.PrefixId, target.Items.Count);
                 target.Items.Add(new Stack
                 {
                     ItemType = stack.ItemType,
