@@ -22,8 +22,10 @@ namespace TerraStorage.Helpers.Resolver
         List<TItem> ExtractStacks(int itemType, int amount);
 
         // Units recovered carrying exactly the state `stored` was inserted with, or 0 when nothing
-        // matches. A single stored stack per call, bounded by `count` so a stack holding units this
-        // run did not store is left alone.
+        // matches. Drains up to `count` in ONE sweep - an insert too big for a single slot is
+        // several stacks sharing one state, and asking once per stack made the caller rebuild this
+        // handle's tags for every one of them. Bounded by `count`, so a stack holding units this run
+        // did not store is left alone.
         int ExtractStored(TItem stored, int count);
 
         // Returns the number of units that did not fit.
@@ -63,16 +65,12 @@ namespace TerraStorage.Helpers.Resolver
 
             foreach (TItem handle in conjuredHandles)
             {
-                // One stored stack per call: an insert too big for a single slot is several stacks
-                // sharing one state, so the same handle is asked until it stops matching.
-                while (remaining > 0)
-                {
-                    int recovered = storage.ExtractStored(handle, remaining);
-                    if (recovered <= 0)
-                        break;
+                if (remaining <= 0)
+                    break;
 
+                int recovered = storage.ExtractStored(handle, remaining);
+                if (recovered > 0)
                     remaining -= recovered;
-                }
             }
 
             if (remaining <= 0)

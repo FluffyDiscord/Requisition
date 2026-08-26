@@ -138,14 +138,25 @@ namespace TerraStorage.Tests
             if (stored == null || stored.Mark == null || count <= 0)
                 return 0;
 
-            Stack match = _stacks.FirstOrDefault(s => s.Type == stored.Type && s.Mark == stored.Mark
-                && s.Count <= count);
-            if (match == null)
-                return 0;
+            int recovered = 0;
 
-            _stacks.Remove(match);
-            Log.Add($"take back stored {stored.Type}[{stored.Mark}]->{match.Count}");
-            return match.Count;
+            // Drains in one call, like StorageWorldSystem.ExtractStoredItem: an insert too big for
+            // one slot is several stacks sharing a state, and every one of them matched the same
+            // handle, so folding them takes nothing from anyone else.
+            while (recovered < count)
+            {
+                int stillWanted = count - recovered;
+                Stack match = _stacks.FirstOrDefault(s => s.Type == stored.Type && s.Mark == stored.Mark
+                    && s.Count <= stillWanted);
+                if (match == null)
+                    break;
+
+                _stacks.Remove(match);
+                Log.Add($"take back stored {stored.Type}[{stored.Mark}]->{match.Count}");
+                recovered += match.Count;
+            }
+
+            return recovered;
         }
 
         // One disk's worth of stacks as the withdrawal sweep sees them.

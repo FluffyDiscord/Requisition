@@ -3556,10 +3556,15 @@ namespace TerraStorage.Tests
                     }
 
                     // Equal totals drawn from the wrong disks, or a put-back left unrestored, would
-                    // pass every check above. Conservation lives in what the network holds after.
+                    // pass every check above. Conservation lives in what the network holds after -
+                    // slots as well as units, so a put-back that restores the right count into a
+                    // different stack arrangement is caught too.
                     for (int disk = 0; disk < rewrittenNetwork.DiskCount; disk++)
                     {
                         if (rewrittenNetwork.UnitsOn(disk) != legacyNetwork.UnitsOn(disk))
+                            return false;
+
+                        if (rewrittenNetwork.SlotsOn(disk) != legacyNetwork.SlotsOn(disk))
                             return false;
                     }
                 }

@@ -246,10 +246,12 @@ namespace TerraStorage.Common
 
             foreach (var stored in Items)
             {
-                if (stored.Stack > refuseIfLargerThan)
+                // Cheapest first: type and prefix are two integer compares and reject almost
+                // everything, where the two below deserialize and walk tag trees.
+                if (!stored.Matches(itemType, prefixId))
                     continue;
 
-                if (!stored.Matches(itemType, prefixId))
+                if (stored.Stack > refuseIfLargerThan)
                     continue;
 
                 if (!ModItemDataMatches(stored.ModData, modData))
@@ -318,14 +320,11 @@ namespace TerraStorage.Common
 
             Items.Remove(match);
 
-            var result = new Item();
-            result.SetDefaults(match.ItemType);
-            result.stack = match.Stack;
-            if (match.PrefixId > 0)
-                result.Prefix(match.PrefixId);
-            if (result.ModItem != null)
-                result.ModItem.LoadData(match.ModData);
-            return result;
+            // Through the shared builder: constructing the item here by hand skipped the
+            // FullItemTag branch, so a stack carrying BOTH mod item data and mod-written state came
+            // back with the state stripped. Three encodings of "turn a stored stack into an Item"
+            // is how one of them keeps an old rule - the shape of 23a, 23b and 23c.
+            return BuildExtractedItem(match);
         }
 
         // Extract the specific per-instance stack whose FullItemTag matches <paramref name="targetFullTag"/>
@@ -347,9 +346,7 @@ namespace TerraStorage.Common
                 return new Item();
 
             Items.Remove(match);
-            var result = ItemIO.Load(match.FullItemTag);
-            result.stack = match.Stack;
-            return result;
+            return BuildExtractedItem(match);
         }
 
         private static bool TagCompoundEquals(TagCompound a, TagCompound b)

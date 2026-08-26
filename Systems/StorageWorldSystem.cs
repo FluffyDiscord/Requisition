@@ -528,23 +528,44 @@ namespace TerraStorage.Systems
             if (!StackIdentity.MustPreserveFullTag(hasModItemData, carriesModWrittenData))
                 return new Item();
 
+            // One sweep for the whole amount. The tags above cost a serialization each to build, and
+            // asking per stored stack rebuilt them every time.
+            Item recovered = new Item();
+            int stillWanted = refuseIfLargerThan;
+
             foreach (var diskId in diskIds)
             {
                 if (!_allDiskData.TryGetValue(diskId, out var disk))
                     continue;
 
-                var extracted = disk.ExtractStoredStack(stored.type, stored.prefix, modItemData,
-                    fullItemTag, refuseIfLargerThan);
-                if (extracted.IsAir)
-                    continue;
+                // A disk can hold several stacks of one state when the insert outgrew a slot, so it
+                // is asked until it stops yielding. Folding them is safe here in a way it is not for
+                // a general withdrawal: every stack matched the SAME tags, so no stack's state is
+                // being stamped onto units from another.
+                while (stillWanted > 0)
+                {
+                    var extracted = disk.ExtractStoredStack(stored.type, stored.prefix, modItemData,
+                        fullItemTag, stillWanted);
+                    if (extracted.IsAir)
+                        break;
 
-                StorageVersion++;
-                BackupSystem.MarkDirty();
-                _modifiedTracker?.Add(diskId);
-                return extracted;
+                    if (recovered.IsAir)
+                        recovered = extracted;
+                    else
+                        recovered.stack += extracted.stack;
+
+                    stillWanted -= extracted.stack;
+
+                    StorageVersion++;
+                    BackupSystem.MarkDirty();
+                    _modifiedTracker?.Add(diskId);
+                }
+
+                if (stillWanted <= 0)
+                    break;
             }
 
-            return new Item();
+            return recovered;
         }
 
         private static TagCompound ModItemDataOf(Item item)
