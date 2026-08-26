@@ -4,7 +4,9 @@ Defects found during the 2026-08-24 audit. One file each, numbered by severity a
 Every entry was verified against the source or by a runnable probe before being fixed — none were
 speculative.
 
-**All 32 defects are fixed and awaiting testing / human review.** Each file carries a
+**All 32 defects are fixed and awaiting testing / human review**, plus
+[26](26-forged-disk-packets.md). Four further networking holes are confirmed and deliberately open —
+end of [23](23-agent-audit-2026-08-25.md). Each file carries a
 `## Fix applied` section describing what changed and, where the change has no unit-test surface,
 what still needs to be exercised in-game.
 
@@ -12,6 +14,14 @@ A second audit on 2026-08-25 found nine more — three resolver, four networking
 recorded together in [23](23-agent-audit-2026-08-25.md). Read it before touching the resolver: 23a,
 23b and 23c are each the same shape as a fix from the first audit that was applied at one site but
 not at the second or third encoding of the same rule.
+
+[26](26-forged-disk-packets.md) closed the three leads 23 left unverified, on 2026-08-26. One of the
+three turned out to be **already fixed** by a commit that landed the same day 23 was written — a
+carried-over lead is only as good as the tree it was read against, including when it is one of ours.
+Verifying them surfaced four further networking holes that are confirmed and **deliberately left
+open**, listed at the end of [23](23-agent-audit-2026-08-25.md); the largest is that six handlers
+still act on an unscoped client-supplied disk-GUID list. Read why before trying to fix it — the
+obvious fix breaks the Remote Terminal.
 
 [22](22-aborted-plan-keeps-its-intermediates.md) was found on 2026-08-25 by doing the test-coverage
 work [21](21-untested-fixes.md) asked for — an aborted multi-step craft refunded the materials and
@@ -37,6 +47,7 @@ Not shipped in the `.tmod` (`build.txt` `buildIgnore` covers `*.md`).
 | [23e](23-agent-audit-2026-08-25.md) | CRITICAL | Withdrawal routed by a client-supplied index; `-1` broadcast it | multiplayer |
 | [24](24-globaldata-treated-as-item-identity.md) | HIGH | A `globalData` key was read as "this stack is its own item" — nothing ever stacked | `SI-*` |
 | [25](25-craft-costed-against-a-count-it-cannot-withdraw.md) | HIGH | A step paid for twenty units with one `Extract` call and took one — green button, silent no-op | `BD-*` `ID-*` `FX-*` |
+| [26](26-forged-disk-packets.md) | CRITICAL | A forged `SyncDiskInsert` wiped any player's disk; a wire count sized the server's allocations | `WB-*` `DC-*`, multiplayer |
 
 ## Recipe grid disagreed with the craft button
 
@@ -105,7 +116,7 @@ stack. Allocation is fixed; the O(n*m) time is not. An identity-keyed index woul
 
 ## Test suite
 
-`cd Tests && dotnet run` — 423 assertions, zero dependencies, links the shipped source directly.
+`cd Tests && dotnet run` — 502 assertions, zero dependencies, links the shipped source directly.
 The real-game benchmark reads `ts_recipe_dump.txt` from the tModLoader save folder when present
 (produce one in-game with `/tsdump` next to a Terminal); full craftability revalidation over
 14 178 recipes runs in 2 ms. Scenario fixtures live in `Tests/Fixtures/*.tsdump.txt` — scoped
@@ -120,4 +131,5 @@ row visibility, and the deposit arithmetic — and what deliberately stays in-ga
 Suite prefixes, so a failure names its area: `TX`/`PX` transaction, `SL`/`DF` stack selection,
 `RC` panel refresh, `HR` hit rects, `DP` deposit, `MD`/`DL`/`SA`/`LF` resolver depth and agreement,
 `FC`/`TC` UI caches and click arbitration, `FD`/`NG`/`IO`/`AF` the 2026-08-25 audit,
-`BD`/`ID`/`FX` paying for a step from stacks that each stand for themselves.
+`BD`/`ID`/`FX` paying for a step from stacks that each stand for themselves,
+`WB`/`DC` what a packet may claim and how large a count it may declare.
