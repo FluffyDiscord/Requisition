@@ -200,18 +200,32 @@ GUID, a tier and its items, and the tier is re-read off the disk item on the nex
 
 **Not fixed for the with-items case.** A forged disk carrying items re-mints under a fresh GUID
 (doc 26's design) and the resulting entry is non-empty, so the prune must keep it. That loop still
-grows the registry. Recorded rather than closed.
+grows the registry — but see below: it no longer costs anything per operation, so what remains is a
+larger dictionary and a larger world save rather than a server the attacker can slow down.
 
-**The prune never runs in singleplayer.** It lives in the server branch of a packet handler, and
-`SendSyncDiskRemove` returns early in singleplayer so that handler is never reached. Empty entries
-therefore still accumulate in a singleplayer world until the next load purges them, exactly as
-before. Nobody is forging packets in singleplayer, so this is untidiness rather than a hole — but it
-is a real gap in the fix and is recorded rather than glossed.
+**The prune now runs in singleplayer too — fixed 2026-08-26.** It lived in the server branch of a
+packet handler, and singleplayer takes a disk out of a bay without sending one, so empty entries
+accumulated until the next world load purged them. `DriveBayUIState`'s two singleplayer removal
+paths call `NetworkHandler.DropOrphanedDiskData` directly (`TS-08`).
 
-**The real remedy for the multiplier is a different change** and is not in this pass:
-`BeginModificationTracking` taking the operation's disk ids would turn O(all disks in the world) into
-O(disks in this network) permanently, whatever the registry holds. It touches the delta path
-[23f](23-agent-audit-2026-08-25.md) shows is fragile, so it is recorded as the recommended follow-up.
+**The multiplier is fixed — 2026-08-26.** `BeginModificationTracking` now takes the operation's disk
+ids and snapshots only those, so a deposit, withdrawal, craft or quick-stack costs O(disks in this
+network) instead of O(every disk registered in the world), whatever the registry holds. All eight
+call sites had their network in hand already — the Terminal-authorization change above is what made
+that true, so this became a small change rather than the fragile one doc 23f warned about.
+
+It is safe by construction rather than by getting the scope right. The delta path previously gave a
+modified disk with no snapshot an **empty** before-state, so `ComputeDelta` reported every stack on
+it as newly added — for a disk the client already knows, that is a duplicated view of the whole
+disk. `EndModificationTrackingWithDeltas` now returns those ids separately as `needsFullSync` and
+the caller sends the disk whole, with its sequence number bumped the way a delta's is so the client
+does not read it as stale. **Under-scoping therefore costs bandwidth, never correctness** — which is
+the only reason scoping this path is defensible at all.
+
+`TS-*` pins the structure: no handler starts tracking without naming its network, the empty
+before-state fallback is gone, and the un-describable disks are actually sent. Like `MX-12` and
+`SG-07` it is a source scan, because `StorageWorldSystem` binds `Terraria.Item` — it cannot prove
+the scope covers what an operation touches, only that being wrong degrades to a full sync.
 
 No `SaveWorldData` filter was added. `BackupSystem.cs:68` is a second write site over the same set and
 `RestoreFromTag` does not apply `LoadWorldData`'s empty-purge, so filtering one would make the two

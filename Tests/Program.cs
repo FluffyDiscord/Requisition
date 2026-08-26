@@ -79,6 +79,7 @@ namespace TerraStorage.Tests
             FavoritesRowCacheTests();
             VanillaMouseBlockingStaysInTheUIPhase();
             ScrollBoundsComeFromTheDrawGeometry();
+            TrackingSnapshotIsScopedAndFailsSafe();
             StackIdentityTests();
             DenialReasonsSurviveTheWire();
             WireCountBoundsTests();
@@ -2648,6 +2649,56 @@ namespace TerraStorage.Tests
         // The scroll bound and the draw path each computed the grid's height from their own copy of
         // the layout numbers, drifted apart, and the grid scrolled into blank space. Both must read
         // the shared helper, and the scroll input must not do geometry at all.
+        // Snapshotting every disk in the world on every storage operation made registry size a cost
+        // multiplier on each of them (issue 27, item 4). The snapshot is now scoped to the
+        // operation's own network, which is only safe because a disk modified outside that scope is
+        // sent whole rather than handed an empty before-state - which would have told the client
+        // every stack on a disk it already knows had just appeared.
+        //
+        // StorageWorldSystem and DriveBayUIState both bind Terraria.Item, so like MX-12 and SG-07
+        // this is a source scan. It pins the structure, not the behaviour: it cannot prove the scope
+        // covers what an operation touches, only that under-scoping degrades to a full sync.
+        private static void TrackingSnapshotIsScopedAndFailsSafe()
+        {
+            Section("Tracking snapshots the operation's network, and under-scoping fails safe");
+
+            string repoRoot = FindRepoRoot();
+            IsTrue(repoRoot != null, "TS-00 repo root located");
+            if (repoRoot == null) return;
+
+            string worldSystem = ReadModSource(repoRoot, "Systems/StorageWorldSystem.cs");
+            string beginBody = ExtractMethodBody(worldSystem, "public void BeginModificationTracking");
+
+            IsTrue(beginBody.Contains("_preModificationSnapshot"),
+                "TS-01 the BeginModificationTracking body was located");
+            IsTrue(!beginBody.Contains("foreach (var kvp in _allDiskData)"),
+                "TS-02 it no longer snapshots every disk registered in the world");
+            IsTrue(beginBody.Contains("operationDiskIds"),
+                "TS-03 it snapshots the disks the operation was issued against");
+
+            string endBody = ExtractMethodBody(worldSystem, "EndModificationTrackingWithDeltas");
+
+            IsTrue(endBody.Contains("needsFullSync"),
+                "TS-04 a modified disk with no snapshot is reported for a full sync");
+            IsTrue(!endBody.Contains("snap : new List<StoredItemStack>()"),
+                "TS-05 and never given an empty before-state, which reads as an all-new disk");
+
+            string handler = ReadModSource(repoRoot, "Systems/NetworkHandler.cs");
+
+            IsTrue(!handler.Contains("BeginModificationTracking()"),
+                "TS-06 no handler starts tracking without naming its network");
+            IsTrue(handler.Contains("BroadcastFullSyncFor"),
+                "TS-07 and the un-describable disks are actually sent");
+
+            // The prune lived only in the server branch of a packet handler, and singleplayer takes
+            // a disk out of a bay without sending one - so empty entries accumulated until the next
+            // world load purged them.
+            string bayPanel = ReadModSource(repoRoot, "Content/UI/DriveBayUIState.cs");
+
+            IsTrue(CountOccurrences(bayPanel, "DropOrphanedDiskData") >= 2,
+                "TS-08 singleplayer drops an emptied disk's entry on both removal paths too");
+        }
+
         private static void ScrollBoundsComeFromTheDrawGeometry()
         {
             Section("Scroll bounds are derived from the same geometry the draw path uses");

@@ -133,7 +133,7 @@ onto the cursor now hands over the first run of matching state rather than the w
 
 ## Test suite
 
-`cd Tests && dotnet run` — 819 assertions, zero dependencies, links the shipped source directly.
+`cd Tests && dotnet run` — 828 assertions, zero dependencies, links the shipped source directly.
 The real-game benchmark reads `ts_recipe_dump.txt` from the tModLoader save folder when present
 (produce one in-game with `/tsdump` next to a Terminal); full craftability revalidation over
 14 178 recipes runs in 2 ms. Scenario fixtures live in `Tests/Fixtures/*.tsdump.txt` — scoped
@@ -157,7 +157,8 @@ Suite prefixes, so a failure names its area: `TX`/`PX` transaction, `SL`/`DF` st
 `SB` a withdrawal ending at the state boundary rather than dropping the state,
 `WB`/`DC` what a packet may claim and how large a count it may declare,
 `TR` how close a player must be to a block, `DA` who may operate a Terminal and when a disk's
-world entry may be dropped.
+world entry may be dropped, `TS` what a storage operation snapshots and how under-scoping fails,
+`DG` the defragment sweep itself rather than a replica of it.
 Also live: `BI`/`SC` blocking ingredient, `DS` duplicate slots, `GM`/`IC` recipe groups,
 `NC` no-op recipes, `PR` pool restore, `PU` preview own-stock, `RS` repeated slots, `SG`/`SI` stack
 identity.
