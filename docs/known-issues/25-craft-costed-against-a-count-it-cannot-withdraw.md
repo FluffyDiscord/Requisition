@@ -263,6 +263,10 @@ the reason this defect survived `ID-04`.
   sort. Pre-existing across disks; the fix below makes it fire within one disk on every mixed-state
   cursor withdrawal, so it is now routine rather than rare. Cosmetic — a sort order, not an item —
   and fixing it needs `DrawnUnits` to carry the order it took, which this change did not add.
+  **No assertion pins it, in either direction.** `InsertionOrder` lives on `StoredItemStack`, which
+  `DiskWithdrawal` reaches through `DiskData.InsertItem`; neither file can be linked into the
+  runner, and neither fake models an insertion order at all. Pinning the current behaviour first
+  would mean teaching a fake to carry one, which is the same work as fixing it.
 
 ## Fix applied 2026-08-26 — the plan ends at the boundary instead of dropping the state
 
