@@ -394,6 +394,9 @@ namespace TerraStorage.Systems
         {
             int diskCount = reader.ReadInt32();
             var diskIds = ReadGuidList(reader, diskCount);
+            if (diskIds == null)
+                return;
+
             var fullItemTag = TagIO.Read(reader);
             bool shift = reader.ReadBoolean();
 
@@ -417,6 +420,9 @@ namespace TerraStorage.Systems
         {
             int diskCount = reader.ReadInt32();
             var diskIds = ReadGuidList(reader, diskCount);
+            if (diskIds == null)
+                return;
+
             var modData = TagIO.Read(reader);
             bool shift = reader.ReadBoolean();
 
@@ -441,6 +447,9 @@ namespace TerraStorage.Systems
         {
             int count = reader.ReadInt32();
             var diskIds = ReadGuidList(reader, count);
+            if (diskIds == null)
+                return;
+
             var item = ItemIO.Receive(reader, true);
 
             if (Main.netMode == NetmodeID.Server)
@@ -547,6 +556,9 @@ namespace TerraStorage.Systems
         {
             int diskCount = reader.ReadInt32();
             var diskIds = ReadGuidList(reader, diskCount);
+            if (diskIds == null)
+                return;
+
             int itemType = reader.ReadInt32();
             int count = reader.ReadInt32();
             int prefix = reader.ReadInt32();
@@ -637,6 +649,9 @@ namespace TerraStorage.Systems
         {
             int diskCount = reader.ReadInt32();
             var diskIds = ReadGuidList(reader, diskCount);
+            if (diskIds == null)
+                return;
+
             int recipeItemType = reader.ReadInt32();
             int recipeIndex = reader.ReadInt32();
             int craftAmount = reader.ReadInt32();
@@ -744,6 +759,8 @@ namespace TerraStorage.Systems
         {
             int count = reader.ReadInt32();
             var diskIds = ReadGuidList(reader, count);
+            if (diskIds == null)
+                return;
 
             DBG($"HandleRequestDiskData: received {count} ids from whoAmI={whoAmI}: {string.Join(", ", diskIds.Select(g => g.ToString()[..8]))}");
 
@@ -847,11 +864,19 @@ namespace TerraStorage.Systems
 
         private static void HandleSyncDiskDataChunked(BinaryReader reader)
         {
+            if (Main.netMode != NetmodeID.MultiplayerClient) return;
+
             var diskId = new Guid(reader.ReadBytes(16));
             int seqNum = reader.ReadInt32();
             ushort chunkIndex = reader.ReadUInt16();
             ushort totalChunks = reader.ReadUInt16();
             int dataLength = reader.ReadInt32();
+
+            // ReadBytes allocates the whole length before reading it, so this is the same
+            // allocate-from-a-lie shape as a list capacity. The sender writes 50,000-byte chunks.
+            if (!WireCount.FitsInOnePacket(dataLength, 1))
+                return;
+
             byte[] data = reader.ReadBytes(dataLength);
 
             if (!_chunkBuffers.TryGetValue(diskId, out var buf) || buf.SeqNum != seqNum)
@@ -866,6 +891,11 @@ namespace TerraStorage.Systems
                 _chunkBuffers[diskId] = buf;
             }
 
+            // The buffer was sized by whichever packet arrived first for this sequence number, so an
+            // index past it is out of range whether it disagrees with this packet or an earlier one.
+            if (chunkIndex >= buf.TotalChunks)
+                return;
+
             buf.Chunks[chunkIndex] = data;
             buf.Received++;
 
@@ -878,6 +908,11 @@ namespace TerraStorage.Systems
 
                 using var br = new BinaryReader(ms);
                 var diskData = DiskData.ReadNet(br);
+                if (diskData == null)
+                {
+                    _chunkBuffers.Remove(diskId);
+                    return;
+                }
 
                 var sys = StorageWorldSystem.Instance;
                 sys.ApplyDiskDataFromNetwork(diskData);
@@ -938,6 +973,11 @@ namespace TerraStorage.Systems
 
         private static void HandleSyncDiskData(BinaryReader reader)
         {
+            // Server-authoritative state arriving from a client is not a correction, it is a forgery.
+            // ApplyDiskDataFromNetwork guards itself, but SetDiskSeqNum and RefreshAllDriveBays below
+            // would still run for whatever GUIDs the packet named.
+            if (Main.netMode != NetmodeID.MultiplayerClient) return;
+
             try
             {
                 int count = reader.ReadInt32();
@@ -946,6 +986,9 @@ namespace TerraStorage.Systems
                 for (int i = 0; i < count; i++)
                 {
                     var data = DiskData.ReadNet(reader);
+                    if (data == null)
+                        return;
+
                     sys.ApplyDiskDataFromNetwork(data);
                     sys.SetDiskSeqNum(data.DiskId, seqNum);
                 }
@@ -1158,7 +1201,12 @@ namespace TerraStorage.Systems
             int slotIdx   = reader.ReadInt32();
             var diskId    = new Guid(reader.ReadBytes(16));
             int diskCount = reader.ReadInt32();
-            ReadGuidList(reader, diskCount); // read to advance the stream; the network is re-derived below
+            // Read to advance the stream; the network is re-derived below. Still has to be a count
+            // that could describe a real list, or the rest of this packet is read from nowhere.
+            var packetDiskIds = ReadGuidList(reader, diskCount);
+            if (packetDiskIds == null)
+                return;
+
             int optionIdx = reader.ReadInt32();
             int staCnt    = reader.ReadInt32();
             var stations  = new System.Collections.Generic.HashSet<int>();
@@ -1240,6 +1288,8 @@ namespace TerraStorage.Systems
         {
             int count = reader.ReadInt32();
             var diskIds = ReadGuidList(reader, count);
+            if (diskIds == null)
+                return;
 
             if (Main.netMode != NetmodeID.Server) return;
 
@@ -1720,8 +1770,15 @@ namespace TerraStorage.Systems
 
         // ─── Helpers ────────────────────────────────────────────────────
 
+        // Null when the count could not honestly describe a list this packet carried. Callers must
+        // return on null rather than carry on: the count sizes the allocation before a single GUID
+        // is read, and continuing past a count already known to be a lie reads the rest of the
+        // packet from an offset that no longer means anything.
         private static List<Guid> ReadGuidList(BinaryReader reader, int count)
         {
+            if (!WireCount.FitsInOnePacket(count, WireCount.GuidBytes))
+                return null;
+
             var list = new List<Guid>(count);
             for (int i = 0; i < count; i++)
                 list.Add(new Guid(reader.ReadBytes(16)));

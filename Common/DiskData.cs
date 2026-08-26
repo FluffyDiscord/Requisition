@@ -390,20 +390,41 @@ namespace TerraStorage.Common
                 item.WriteNet(writer);
         }
 
-        //Deserializes a compact network-format disk written by <see cref="WriteNet"/>.
+        // Deserializes a compact network-format disk written by <see cref="WriteNet"/>.
+        // Null when the packet cannot be describing a real disk. Unlike the archived-items list this
+        // reads straight from the packet rather than from a bounded sub-stream, so carrying on after
+        // a bad count would read every following disk in the packet from a meaningless offset.
         public static DiskData ReadNet(BinaryReader reader)
         {
+            var diskId = new Guid(reader.ReadBytes(16));
+            byte tierValue = reader.ReadByte();
+
+            // The tier indexes a fixed capacity table, so a byte outside the enum throws on the
+            // first read of MaxStacks. An unrecognised tier is treated as the smallest one.
+            bool tierIsKnown = Enum.IsDefined(typeof(DiskTier), (int)tierValue);
+            var tier = tierIsKnown ? (DiskTier)tierValue : DiskTier.Tier1;
+
+            int count = reader.ReadInt32();
+
+            // Bounded by the largest tier rather than by this packet's own tier: a disk whose tier
+            // was wrongly lowered still legitimately reports the stacks it already holds, and
+            // refusing those would blank an honest disk on every client.
+            if (!WireCount.FitsDiskCapacity(count, LargestDiskCapacity))
+                return null;
+
             var data = new DiskData
             {
-                DiskId = new Guid(reader.ReadBytes(16)),
-                Tier = (DiskTier)reader.ReadByte()
+                DiskId = diskId,
+                Tier = tier,
+                Items = new List<StoredItemStack>(count)
             };
-            int count = reader.ReadInt32();
-            data.Items = new List<StoredItemStack>(count);
             for (int i = 0; i < count; i++)
                 data.Items.Add(StoredItemStack.ReadNet(reader));
             return data;
         }
+
+        // The most stacks any disk can hold, whatever its tier.
+        private static int LargestDiskCapacity => DiskTier.Tier6.GetCapacity();
 
         // Serializes this disk's GUID, tier, and all stored item stacks to a
         // see "TagCompound" for world-save persistence.
