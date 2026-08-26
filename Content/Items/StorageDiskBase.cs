@@ -198,5 +198,14 @@ namespace TerraStorage.Content.Items
             DiskTier.Tier5 => new[] { new (int, int)[] { (ItemID.ShroomiteBar,   10), (ItemID.Wire, 4) } },
             _              => null
         };
+
+        // Answers "can this tier be upgraded" without building the options, so per-frame UI layout
+        // does not allocate. Must list exactly the tiers GetUpgradeOptions returns non-null for.
+        public static bool HasUpgradePath(DiskTier tier) => tier switch
+        {
+            DiskTier.Tier1 or DiskTier.Tier2 or DiskTier.Tier3
+                or DiskTier.Tier4 or DiskTier.Tier5 => true,
+            _                                       => false
+        };
     }
 }

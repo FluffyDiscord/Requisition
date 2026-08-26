@@ -117,6 +117,8 @@ namespace TerraStorage.Content.UI.Elements
             base.Update(gameTime);
             if (_scrollbar == null) return;
 
+            UpdateScrollbar();
+
             float barPixels = _scrollbar.ViewPosition * _cellSize;
 
             // If the scrollbar thumb was dragged externally, snap to it immediately

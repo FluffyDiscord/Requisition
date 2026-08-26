@@ -29,6 +29,8 @@ namespace TerraStorage.Content.UI.Elements
     public class UICraftingPanel : UIElement
     {
         private const int CellSize = 44;
+        private const int GridHeaderHeight = 25;
+        private const int GridScrollbarReservedWidth = 25;
         private static readonly RasterizerState ScissorRasterizer = new() { ScissorTestEnable = true };
 
         private List<Guid> _diskIds = new();
@@ -718,7 +720,8 @@ namespace TerraStorage.Content.UI.Elements
 
             _filteredRecipes.AddRange(regular);
 
-            UpdateRecipeScrollbar(resetScroll);
+            if (resetScroll)
+                ResetRecipeScroll();
         }
 
         // Updates <see cref="_filteredRecipes"/> incrementally: updates canCraft flags in-place,
@@ -769,42 +772,31 @@ namespace TerraStorage.Content.UI.Elements
             // Pass 2: append recipes that became newly visible.
             foreach (var (recipe, cc) in desired)
                 _filteredRecipes.Add((recipe, cc));
-
-            UpdateRecipeScrollbar(resetScroll: false);
         }
 
-        private void UpdateRecipeScrollbar(bool resetScroll = false)
+        private void ResetRecipeScroll()
         {
             if (_recipeScrollbar == null || _recipeGridPanel == null)
                 return;
 
-            var dims = _recipeGridPanel.GetInnerDimensions();
-            int columns = GetGridColumns(dims.Width);
-            int totalRows = (_filteredRecipes.Count + columns - 1) / columns;
-            int visibleRows = Math.Max(1, (int)(dims.Height / CellSize));
-            _recipeScrollbar.SetView(visibleRows, totalRows);
-
-            if (resetScroll)
-            {
-                _recipeScrollPixels = 0;
-                _recipeScrollTarget = 0;
-                // SetView already reset ViewPosition to 0
-            }
-            else
-            {
-                float maxScroll = Math.Max(0, (totalRows - visibleRows) * CellSize);
-                _recipeScrollPixels = Math.Clamp(_recipeScrollPixels, 0, maxScroll);
-                _recipeScrollTarget = Math.Clamp(_recipeScrollTarget, 0, maxScroll);
-                // SetView reset ViewPosition to 0 — restore it so the sync loop
-                // doesn't misread it as a user drag to the top.
-                _recipeScrollbar.ViewPosition = _recipeScrollPixels / CellSize;
-            }
-            _recipeScrollBarLastPos = _recipeScrollbar.ViewPosition * CellSize;
+            _recipeScrollPixels = 0;
+            _recipeScrollTarget = 0;
+            _recipeScrollbar.ViewPosition = 0;
+            _recipeScrollBarLastPos = 0;
         }
 
         private int GetGridColumns(float width)
         {
-            return Math.Max(1, (int)((width - 25) / CellSize));
+            float gridWidth = width - GridScrollbarReservedWidth;
+
+            return Math.Max(1, (int)(gridWidth / CellSize));
+        }
+
+        private int GetGridVisibleRows(float panelHeight)
+        {
+            float gridHeight = panelHeight - GridHeaderHeight;
+
+            return Math.Max(1, (int)(gridHeight / CellSize));
         }
 
         //Select from the recipe grid — clears navigation history.
@@ -1127,7 +1119,7 @@ namespace TerraStorage.Content.UI.Elements
             }
 
             int columns = GetGridColumns(dims.Width);
-            float gridStartY = 25f;
+            float gridStartY = GridHeaderHeight;
             int col = (int)(relX / CellSize);
             int row = (int)((relY - gridStartY + _recipeScrollPixels) / CellSize);
             int index = row * columns + col;
@@ -1514,7 +1506,7 @@ namespace TerraStorage.Content.UI.Elements
                 new Vector2(starBtnRect.X + 5, starBtnRect.Y + 1), Color.Gold, 0.7f);
             if (starBtnHover) Main.hoverItemName = "Toggle favorites panel";
 
-            float gridStartY = dims.Y + 25;
+            float gridStartY = dims.Y + GridHeaderHeight;
 
             if (_filteredRecipes.Count == 0)
             {
@@ -1528,7 +1520,7 @@ namespace TerraStorage.Content.UI.Elements
 
             int startRow = (int)(_recipeScrollPixels / CellSize);
             float yOffset = _recipeScrollPixels % CellSize;
-            int rowsToDraw = Math.Max(1, (int)((dims.Height - 25) / CellSize)) + 2;
+            int rowsToDraw = GetGridVisibleRows(dims.Height) + 2;
 
             var savedScissor = spriteBatch.GraphicsDevice.ScissorRectangle;
             spriteBatch.End();
@@ -1537,7 +1529,7 @@ namespace TerraStorage.Content.UI.Elements
                 ScissorRasterizer, null, Main.UIScaleMatrix);
             spriteBatch.GraphicsDevice.ScissorRectangle = new Rectangle(
                 (int)(dims.X * Main.UIScale), (int)(gridStartY * Main.UIScale),
-                (int)(dims.Width * Main.UIScale), (int)((dims.Height - 25) * Main.UIScale));
+                (int)(dims.Width * Main.UIScale), (int)((dims.Height - GridHeaderHeight) * Main.UIScale));
 
             for (int row = 0; row < rowsToDraw; row++)
             {
@@ -2401,6 +2393,12 @@ private void DrawItemIcon(SpriteBatch spriteBatch, int itemType, Vector2 center,
             // Smooth scroll: recipe list (pixel-offset, same pattern as UIItemGrid)
             if (_recipeScrollbar != null)
             {
+                var gdims = _recipeGridPanel?.GetInnerDimensions() ?? default;
+                int gcols = gdims.Width > 0 ? GetGridColumns(gdims.Width) : 1;
+                int totalRows = (_filteredRecipes.Count + gcols - 1) / gcols;
+                int visRows = GetGridVisibleRows(gdims.Height);
+                _recipeScrollbar.SetView(visRows, totalRows);
+
                 float barPixels = _recipeScrollbar.ViewPosition * CellSize;
                 if (Math.Abs(barPixels - _recipeScrollBarLastPos) > 0.5f)
                 {
@@ -2409,10 +2407,6 @@ private void DrawItemIcon(SpriteBatch spriteBatch, int itemType, Vector2 center,
                 }
                 else
                 {
-                    var gdims = _recipeGridPanel?.GetInnerDimensions() ?? default;
-                    int gcols = gdims.Width > 0 ? GetGridColumns(gdims.Width) : 1;
-                    int totalRows = (_filteredRecipes.Count + gcols - 1) / gcols;
-                    int visRows = Math.Max(1, (int)((gdims.Height - 25) / CellSize));
                     float maxPx = Math.Max(0, (totalRows - visRows) * CellSize);
                     _recipeScrollTarget = Math.Clamp(_recipeScrollTarget, 0, maxPx);
                     float diff = _recipeScrollTarget - _recipeScrollPixels;

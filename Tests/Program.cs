@@ -76,6 +76,7 @@ namespace TerraStorage.Tests
             ClickBlockerTests();
             FavoritesRowCacheTests();
             VanillaMouseBlockingStaysInTheUIPhase();
+            ScrollBoundsComeFromTheDrawGeometry();
             StackIdentityTests();
             BandOfDoorIsPayableFromStacksThatStandAlone();
             SeparateStacksKeepTheirStateThroughARefund();
@@ -2618,6 +2619,71 @@ namespace TerraStorage.Tests
                 while (after < source.Length && char.IsWhiteSpace(source[after])) after++;
                 if (after < source.Length && source[after] == '=' && source[after + 1] != '=') return true;
             }
+        }
+
+        // The scroll bound and the draw path each computed the grid's height from their own copy of
+        // the layout numbers, drifted apart, and the grid scrolled into blank space. Both must read
+        // the shared helper, and the scroll input must not do geometry at all.
+        private static void ScrollBoundsComeFromTheDrawGeometry()
+        {
+            Section("Scroll bounds are derived from the same geometry the draw path uses");
+
+            string repoRoot = FindRepoRoot();
+            IsTrue(repoRoot != null, "SG-00 repo root located from " + AppContext.BaseDirectory);
+            if (repoRoot == null) return;
+
+            string diskPanel = ReadModSource(repoRoot, "Content/UI/Elements/UIDiskPanel.cs");
+            string scrollWheelBody = ExtractMethodBody(diskPanel, "public override void ScrollWheel");
+
+            IsTrue(scrollWheelBody.Contains("GetGridScrollRows"),
+                "SG-01 the ScrollWheel body was located, so the absence checked below is real");
+            IsTrue(!scrollWheelBody.Contains("UpgradeSectionHeight") && !scrollWheelBody.Contains("ItemCellSize"),
+                "SG-02 UIDiskPanel.ScrollWheel computes no grid geometry, it only accumulates");
+            IsTrue(CountOccurrences(diskPanel, "GetContentsGridHeight(") >= 3,
+                "SG-03 the contents-grid height has one definition and both the clamp and the draw call it");
+            IsTrue(CountOccurrences(diskPanel, "GetDiskListHeight(") >= 4,
+                "SG-04 the disk-list height is shared by the clamp, the draw and the hit test");
+
+            string craftingPanel = ReadModSource(repoRoot, "Content/UI/Elements/UICraftingPanel.cs");
+
+            IsTrue(CountOccurrences(craftingPanel, "GetGridVisibleRows(") >= 3,
+                "SG-05 the recipe grid's visible-row count has one definition, used by the view and the draw");
+            IsTrue(!craftingPanel.Contains("- 25) / CellSize"),
+                "SG-06 no open-coded header subtraction survives beside the shared getter");
+        }
+
+        private static string ReadModSource(string repoRoot, string relativePath)
+            => StripLineComments(File.ReadAllText(Path.Combine(repoRoot, relativePath.Replace('/', Path.DirectorySeparatorChar))));
+
+        private static int CountOccurrences(string source, string needle)
+        {
+            int count = 0;
+            int at = source.IndexOf(needle, StringComparison.Ordinal);
+            while (at >= 0)
+            {
+                count++;
+                at = source.IndexOf(needle, at + needle.Length, StringComparison.Ordinal);
+            }
+            return count;
+        }
+
+        // Returns the text between the method's opening brace and its matching close.
+        private static string ExtractMethodBody(string source, string signature)
+        {
+            int start = source.IndexOf(signature, StringComparison.Ordinal);
+            if (start < 0) return string.Empty;
+
+            int open = source.IndexOf('{', start);
+            if (open < 0) return string.Empty;
+
+            int depth = 0;
+            for (int i = open; i < source.Length; i++)
+            {
+                if (source[i] == '{') depth++;
+                else if (source[i] == '}' && --depth == 0)
+                    return source.Substring(open, i - open);
+            }
+            return string.Empty;
         }
 
         private static string FindRepoRoot()

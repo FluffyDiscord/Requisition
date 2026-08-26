@@ -160,7 +160,7 @@ Configs: {
 		}
 
 		GridScrollRows: {
-			Tooltip: How many rows one mouse wheel notch scrolls in item, recipe, disk and NPC grids (1-255)
+			Tooltip: How many rows one mouse wheel notch scrolls in the item, recipe, NPC and disk panes (1-255)
 			Label: Grid Scroll Rows
 		}
 	}

@@ -5,7 +5,7 @@
 - **Lock Recipe toggle** — checkbox in the crafting panel pins crafting to the exact selected recipe variant instead of auto-picking one, so it won't switch recipes mid mass-craft
 - **androLib (Vacuum Bags) support** — optional "Deposit to Requisition" button on vacuum bag UIs that empties the bag into a Terminal's network in range (only appears when androLib is installed)
 - **`/tsdump` command** — diagnostic chat command that dumps the recipe graph and current storage to a file for performance analysis
-- **Grid Scroll Rows setting** — client config option (1-255, default 2) for how many rows one mouse wheel notch scrolls in the item, recipe, disk and NPC grids
+- **Grid Scroll Rows setting** — client config option (1-255, default 3) for how many rows one mouse wheel notch scrolls in the item, recipe, NPC and disk panes; the default is tuned to match Terraria's own scroll speed
 
 ### Changed
 - Held items can now be dropped anywhere in the Storage tab, including empty grid slots
@@ -19,6 +19,9 @@
 - Ingredient counts are no longer over-counted after a partial craft
 - Eliminated Terminal hitching every couple seconds while open, and heavy lag on each craft in large modpacks (allocation-free feasibility, worklist-based reachability, targeted post-craft revalidation, and removal of a spurious storage-version bump that also starved disk backups)
 - The click that opens the Terminal no longer bleeds into the item grid as a grab (left and right click)
+- Drive Bay: a max-tier disk's contents no longer scroll past the last row into blank space, and the last disk in the bay is always reachable in the list
+- Storage, crafting and Drive Bay scroll positions now stay correct after resizing the Terminal window instead of stranding the view in blank space, and the scrollbar thumb resizes with the window
+- Crafting: the recipe scrollbar thumb no longer pins early or dead-zones at the bottom while the grid scrolls one row further
 
 ## [0.5.1]
 
