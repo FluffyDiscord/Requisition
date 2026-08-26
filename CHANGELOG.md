@@ -12,6 +12,9 @@
 - Ingredients you lack but can sub-craft now show in **orange** as `12/12` instead of a misleading red `0/12`
 
 ### Fixed
+- **Multiplayer: a refused storage action now tells you why.** Crafting, withdrawing, depositing or quick-stacking on a server used to fail in total silence — the server sent a yes/no the client threw away. Every refusal now names its reason in chat, in the same words singleplayer already used, and a bulk action that is refused forty times says so once instead of forty times
+- Quick-stacking into a full storage network no longer reports success and does nothing
+- Depositing with no Terminal in range, or with no disks connected, now says so instead of silently returning the item
 - Recipes no longer show as craftable when shared materials were double-counted across ingredients
 - Loop recipes (e.g. blue mushrooms) now show a red **"Nothing to Craft"** button instead of a craft button that did nothing
 - Recipe list now refreshes correctly when storage changes — no more stale or disappearing recipes after crafting or moving items

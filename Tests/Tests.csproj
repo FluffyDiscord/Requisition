@@ -24,6 +24,10 @@
     <Compile Include="..\Common\MergeCandidateIndex.cs" />
     <!-- Deposit arithmetic: the pair of numbers a partial deposit has to keep straight. -->
     <Compile Include="..\Common\DepositOutcome.cs" />
+    <!-- Why a storage operation was refused: the wire codes, the decisions behind them, and the
+         throttle that keeps a bulk denial to one line. Terraria-free so the runner executes the
+         real mapping rather than a copy - the packet code around it cannot be compiled here. -->
+    <Compile Include="..\Common\StorageOperationFailure.cs" />
     <!-- Crafting transaction core: item movement bookkeeping, Terraria-free so it can be faked. -->
     <Compile Include="..\Helpers\Resolver\CraftingTransaction.cs" />
     <!-- UI click arbitration: all three are Terraria-free precisely so they can be tested here. -->

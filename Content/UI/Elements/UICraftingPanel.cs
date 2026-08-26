@@ -1317,14 +1317,6 @@ namespace TerraStorage.Content.UI.Elements
                 UpdatePlan();
         }
 
-        // Every way a craft can come to nothing used to return here in silence, so a click on a
-        // green CRAFT button was indistinguishable from a click on dead panel background.
-        private static void ReportCraftFailed(string reason)
-        {
-            Main.NewText(reason, 255, 100, 100);
-            Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.MenuTick);
-        }
-
         // Executes the current crafting plan. If the plan resolved as a direct
         // extract (item already in storage), forces a proper craft so materials are
         // consumed and the recipe chain runs as intended. The crafted result is
@@ -1357,39 +1349,35 @@ namespace TerraStorage.Content.UI.Elements
                 ? RecipeResolver.ResolveRecipe(_selectedRecipe, craftQty, _diskIds, _availableStations, _availableConditions)
                 : RecipeResolver.ResolveForceCraft(_selectedRecipe.createItem.type, craftQty, _diskIds, _availableStations, _availableConditions);
 
-            if (planToUse == null || !planToUse.IsFeasible)
-            {
-                ReportCraftFailed("Requisition: this recipe cannot be crafted from what the network can hand over.");
-                return;
-            }
-
             // Pre-check: block the craft if neither storage nor player inventory
             // has room. This prevents consuming ingredients with nowhere to put the result.
-            var resultPreview = new Item();
-            resultPreview.SetDefaults(planToUse.FinalItemType);
-            resultPreview.stack = planToUse.FinalItemCount;
+            // The verdict comes from GetCraftFailure so the server's copy of these guards, which
+            // decides the same thing for a multiplayer client, cannot drift from this one.
+            bool planIsFeasible = planToUse != null && planToUse.IsFeasible;
 
-            if (_craftToInventory)
+            var resultPreview = new Item();
+            if (planIsFeasible)
             {
-                if (!PlayerHasRoomFor(Main.LocalPlayer, resultPreview))
-                {
-                    ReportCraftFailed("Requisition: no room in your inventory for the result.");
-                    return;
-                }
+                resultPreview.SetDefaults(planToUse.FinalItemType);
+                resultPreview.stack = planToUse.FinalItemCount;
             }
-            else
+
+            bool playerHasRoomForResult = planIsFeasible && PlayerHasRoomFor(Main.LocalPlayer, resultPreview);
+            bool storageHasRoomForResult = planIsFeasible && !_craftToInventory
+                && StorageWorldSystem.Instance.HasRoomFor(_diskIds, resultPreview);
+
+            var craftFailure = StorageOperationFailures.GetCraftFailure(planIsFeasible,
+                _craftToInventory, playerHasRoomForResult, storageHasRoomForResult);
+
+            if (!StorageOperationFailures.IsSuccess(craftFailure))
             {
-                bool storageHasRoom = StorageWorldSystem.Instance.HasRoomFor(_diskIds, resultPreview);
-                if (!storageHasRoom && !PlayerHasRoomFor(Main.LocalPlayer, resultPreview))
-                {
-                    ReportCraftFailed("Requisition: no room in storage or your inventory for the result.");
-                    return;
-                }
+                StorageOperationReporter.ReportFailure(craftFailure);
+                return;
             }
 
             var result = RecipeResolver.ExecutePlan(planToUse, _diskIds, _cleanCraft);
             if (result.IsAir)
-                ReportCraftFailed("Requisition: the craft was cancelled — storage no longer holds what the plan was costed against.");
+                StorageOperationReporter.ReportFailure(StorageOperationFailure.CraftCostingNoLongerHolds);
             else
             {
                 if (_craftToInventory)
