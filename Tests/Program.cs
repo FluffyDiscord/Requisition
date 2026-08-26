@@ -2226,6 +2226,17 @@ namespace TerraStorage.Tests
 
             var full = StackSelection.PlanDonorMove(new List<MergeTarget>(), 10, 99, 0, false);
             Eq(full.LeftOnDonor, 10, "DF-06 a full target moves nothing");
+
+            // Defragment skips building merge targets at all for a unique donor, which is only safe
+            // while a unique donor's plan does not depend on them. That is an unwritten coupling
+            // between two files, so it gets a test rather than a comment.
+            var withTargets = StackSelection.PlanDonorMove(partials, 40, 99, 5, true);
+            var withoutTargets = StackSelection.PlanDonorMove(new List<MergeTarget>(), 40, 99, 5, true);
+            IsTrue(withTargets.MoveWholeStack == withoutTargets.MoveWholeStack
+                   && withTargets.LeftOnDonor == withoutTargets.LeftOnDonor
+                   && withTargets.Merges.Count == withoutTargets.Merges.Count
+                   && withTargets.NewSlots.Count == withoutTargets.NewSlots.Count,
+                "DF-07 a unique donor plans the same move whether or not it is offered targets");
         }
 
         // ---- Force-craft semantics apply to the preview's direct draw too ----
@@ -2656,7 +2667,8 @@ namespace TerraStorage.Tests
 
         // ---- The defragment merge-candidate index must never hide a mergeable stack ----
         // Issue 23i: BuildMergeTargets asked the merge rule about every stack on the target disk for
-        // every donor stack, which at the supported maximum is a 376 ms freeze on the game thread.
+        // every donor stack, which at the supported maximum froze the game thread for about a third
+        // of a second.
         // The index narrows the field to stacks sharing the donor's type and prefix - but a key that
         // disagreed with DiskData.CanMergeStacks would be issue 04 again, as silent duplication.
         private static void MergeCandidateIndexAgreesWithTheMergeRule()
@@ -2712,7 +2724,7 @@ namespace TerraStorage.Tests
             var missing = index.GetCandidates(DistinctTypes + 5, 0);
             Eq(missing.Count, 0, "MX-03 an identity no stack carries has no candidates");
             IsTrue(ReferenceEquals(missing, index.GetCandidates(DistinctTypes + 6, 3)),
-                "MX-03a and a miss hands back one shared empty list rather than allocating");
+                "MX-03a and an identity never seen at all hands back one shared empty list, not a new one");
 
             // The sweep appends to the target disk as it moves stacks in - a whole stack relocated,
             // or a fresh slot taken - and a later donor of the same identity has to find them.
@@ -2750,15 +2762,30 @@ namespace TerraStorage.Tests
 
             IsTrue(stacksWithBody.Length > 0, "MX-07a the merge rule's identity test was located");
 
-            // If anything could make two stacks merge BEFORE this guard runs, a type-and-prefix key
-            // could hide a mergeable pair. It is the method's first statement, so nothing can.
-            int typeGuard = stacksWithBody.IndexOf("ItemType != other.ItemType", StringComparison.Ordinal);
-            int firstReturnTrue = stacksWithBody.IndexOf("return true", StringComparison.Ordinal);
-            IsTrue(typeGuard >= 0 && (firstReturnTrue < 0 || typeGuard < firstReturnTrue),
-                "MX-08 StacksWith refuses a different type or prefix before it can say yes to anything");
-            IsTrue(stacksWithBody.IndexOf("PrefixId != other.PrefixId", StringComparison.Ordinal) >= 0
-                   && stacksWithBody.IndexOf("PrefixId != other.PrefixId", StringComparison.Ordinal) < firstReturnTrue,
-                "MX-08a and refuses a different prefix in the same breath, so both halves of the key are necessary");
+            // The key is only safe while a mismatched type or prefix is an outright REFUSAL, and
+            // while nothing can say yes ahead of it. Asserting the guard's text comes first is not
+            // enough: a guard that fell through to GameAllowsStacking instead of returning false
+            // would read the same and would make the key hide real merges. Pin the whole statement.
+            string identityGuard = "if (ItemType != other.ItemType || PrefixId != other.PrefixId)";
+            int guardAt = stacksWithBody.IndexOf(identityGuard, StringComparison.Ordinal);
+            string afterGuard = guardAt < 0
+                ? string.Empty
+                : stacksWithBody.Substring(guardAt + identityGuard.Length).TrimStart();
+
+            IsTrue(guardAt >= 0 && afterGuard.StartsWith("return false;", StringComparison.Ordinal),
+                "MX-08 StacksWith refuses a mismatched type or prefix outright, so both halves of the key are necessary");
+
+            string beforeGuard = guardAt < 0 ? stacksWithBody : stacksWithBody.Substring(0, guardAt);
+            IsTrue(!beforeGuard.Contains("return"),
+                "MX-08a and nothing can say yes ahead of it - the guard is the first thing the rule does");
+
+            // The guard above lives on the StoredItemStack overload. The Item overload of StacksWith
+            // has no type or prefix test at all, so the key would be unsafe the moment the merge
+            // rule reached it - pin which one CanMergeStacks actually calls.
+            string diskData = ReadModSource(repoRoot, "Common/DiskData.cs");
+            IsTrue(diskData.Contains("public static bool CanMergeStacks(StoredItemStack a, StoredItemStack b)")
+                   && diskData.Contains("=> a.StacksWith(b) &&"),
+                "MX-08b the merge rule reaches StacksWith through the overload that carries the guard");
 
             string worldSystem = ReadModSource(repoRoot, "Systems/StorageWorldSystem.cs");
             string buildBody = ExtractMethodBody(worldSystem, "private static void BuildMergeTargets");
@@ -2767,8 +2794,12 @@ namespace TerraStorage.Tests
                 "MX-09 the merge rule, not the index, still decides whether a candidate accepts");
             IsTrue(buildBody.Contains("GetCandidates("),
                 "MX-10 and the candidates come from the index rather than a rescan of the disk");
-            IsTrue(!buildBody.Contains("target.Items.Count"),
+            // Pin the absence of the linear WALK, not of the token: the bounds check that keeps a
+            // stale slot from crediting the wrong stack has to read target.Items.Count too.
+            IsTrue(!buildBody.Contains("index < target.Items.Count"),
                 "MX-10a with no linear walk of the target left in it");
+            IsTrue(buildBody.Contains("index >= target.Items.Count"),
+                "MX-10b and a slot past the end of the disk is passed over rather than credited");
 
             // A disk list naming one disk twice makes it its own donor; removing a stack from the
             // donor then shifts every slot the index recorded for the target.

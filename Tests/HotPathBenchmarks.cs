@@ -689,7 +689,13 @@ namespace TerraStorage.Tests
                     var b = second[d].Items[i];
                     if (a.ItemType != b.ItemType || a.PrefixId != b.PrefixId
                         || a.StackCount != b.StackCount
+                        || a.InsertionOrder != b.InsertionOrder
                         || (a.ModData == null) != (b.ModData == null))
+                        return false;
+
+                    // The mod state is the whole subject of issues 04 and 24, so comparing counts
+                    // and calling it "same identity" would prove nothing about the thing at risk.
+                    if (!ModStateMatches(a.ModState, b.ModState))
                         return false;
                 }
             }

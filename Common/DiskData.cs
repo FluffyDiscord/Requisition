@@ -327,8 +327,10 @@ namespace TerraStorage.Common
         // discarded" test, and byte equality is exactly the right answer to that.
         public static bool ModStateMatches(TagCompound first, TagCompound second)
         {
-            // One tag cannot differ from itself. A defragment splits stacks with CopyStackWithCount,
-            // which shares the tag object, so this is the common answer rather than a rare one.
+            // One tag cannot differ from itself. This catches two stacks with no tag at all, which
+            // is every comparison in an unmodded world and none in a heavily modded one, and two
+            // stacks sharing a tag object - a split copy weighed against its source, which only
+            // meet on a second defragment before the world is next saved.
             if (ReferenceEquals(first, second))
                 return true;
 

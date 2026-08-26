@@ -18,7 +18,9 @@ namespace TerraStorage.Common
     // what happens when something other than that rule gets to say two stacks are the same item.
     public class MergeCandidateIndex
     {
-        private static readonly List<int> NoCandidates = new();
+        // An array rather than a List: this is handed out to every caller that asks about an
+        // identity no stack carries, and a List behind IReadOnlyList can be cast back and mutated.
+        private static readonly IReadOnlyList<int> NoCandidates = System.Array.Empty<int>();
 
         private readonly Dictionary<(int itemType, int prefixId), List<int>> _stackIndicesByIdentity = new();
 

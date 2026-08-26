@@ -672,6 +672,13 @@ namespace TerraStorage.Systems
             for (int candidate = 0; candidate < candidates.Count; candidate++)
             {
                 int index = candidates[candidate];
+
+                // The index records slots, and it is only correct while nothing removes from the
+                // target mid-sweep - which nothing does today. Should that ever change, a slot past
+                // the end must cost a merge, never credit whatever moved into its place.
+                if (index >= target.Items.Count)
+                    continue;
+
                 var existing = target.Items[index];
 
                 // A stack already at capacity has no room, and PlanDonorMove would pass over it
