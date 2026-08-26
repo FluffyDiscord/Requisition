@@ -34,6 +34,7 @@
     <Compile Include="..\Content\UI\PanelRefreshCache.cs" />
     <Compile Include="FakeEnvironment.cs" />
     <Compile Include="FakeStorage.cs" />
+    <Compile Include="HotPathBenchmarks.cs" />
     <Compile Include="Program.cs" />
     <!-- Scoped /tsdump slices: one scenario each, so a failure names the recipe that broke. -->
     <None Include="Fixtures\*.tsdump.txt" CopyToOutputDirectory="Always" />

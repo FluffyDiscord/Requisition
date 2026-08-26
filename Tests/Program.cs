@@ -71,6 +71,7 @@ namespace TerraStorage.Tests
             MaxAmountOnScopedDump();
             RealDumpBenchmark();
             MergeCandidateIndexAgreesWithTheMergeRule();
+            HotPathBenchmarks.Run(Check);
 
             WindowStackTests();
             DepositGateTests();
