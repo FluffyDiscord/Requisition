@@ -661,6 +661,23 @@ namespace TerraStorage.Systems
         // Get all disk data in the world.
         public IReadOnlyCollection<DiskData> GetAllDiskData() => _allDiskData.Values;
 
+        // Drop the entry for a disk that has just left its Drive Bay, but only when it is empty and
+        // no other bay still holds that GUID. Both arms are the safety argument: an entry with items
+        // is somebody's storage, and DiskAccess.MayPruneDiskData explains why the weaker "no disk in
+        // the world carries this id" rule cannot be used. Returns whether anything was dropped.
+        public bool PruneEmptyDiskData(Guid diskId, bool anotherBayHoldsDisk)
+        {
+            if (!_allDiskData.TryGetValue(diskId, out var data))
+                return false;
+
+            if (!DiskAccess.MayPruneDiskData(data.UsedStacks, anotherBayHoldsDisk))
+                return false;
+
+            RemoveDiskData(diskId);
+            RemoveDiskSeqNum(diskId);
+            return true;
+        }
+
         // Remove a disk's data entry (used when reassigning a blank disk's GUID during recovery).
         public void RemoveDiskData(Guid diskId)
         {
