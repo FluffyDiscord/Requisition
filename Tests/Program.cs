@@ -78,6 +78,7 @@ namespace TerraStorage.Tests
             VanillaMouseBlockingStaysInTheUIPhase();
             ScrollBoundsComeFromTheDrawGeometry();
             StackIdentityTests();
+            DenialReasonsSurviveTheWire();
             BandOfDoorIsPayableFromStacksThatStandAlone();
             SeparateStacksKeepTheirStateThroughARefund();
             BandOfDoorFixtureBuildsTheReportedPlan();
@@ -2750,6 +2751,306 @@ namespace TerraStorage.Tests
             var pastTheDisk = StackSelection.PlanWithdrawal(
                 new[] { disk, fruit }, 2, allowUniqueFallback: true, out _);
             Eq(pastTheDisk.Sum(d => d.Count), 1, "SI-08 a stack that stands for itself is not drained into a count");
+        }
+
+        // A server that refuses a storage operation used to send a bare success flag the client
+        // logged and threw away, so every denied craft was "click, nothing happens" in multiplayer.
+        // The byte codes below are the wire format and the decisions behind them are shared by the
+        // panel and the packet handler, neither of which can be compiled outside the game — so
+        // everything that CAN be checked here is checked here.
+        private static void DenialReasonsSurviveTheWire()
+        {
+            Section("Denial reasons: wire codes, the decisions behind them, and the burst throttle");
+
+            var denied = StorageOperationFailures.GetDeniedFailures();
+
+            // DN-14 first: these numbers ARE the wire format. Every other assertion in this
+            // section passes under any numbering, so without this one a reorder ships silently.
+            Eq((byte)StorageOperationFailure.None, 0, "DN-14 None is 0");
+            Eq((byte)StorageOperationFailure.Unspecified, 1, "DN-14a Unspecified is 1");
+            Eq((byte)StorageOperationFailure.RecipeNotFeasible, 2, "DN-14b RecipeNotFeasible is 2");
+            Eq((byte)StorageOperationFailure.NoRoomInInventory, 3, "DN-14c NoRoomInInventory is 3");
+            Eq((byte)StorageOperationFailure.NoRoomInStorageOrInventory, 4, "DN-14d NoRoomInStorageOrInventory is 4");
+            Eq((byte)StorageOperationFailure.CraftCostingNoLongerHolds, 5, "DN-14e CraftCostingNoLongerHolds is 5");
+            Eq((byte)StorageOperationFailure.NothingWithdrawn, 6, "DN-14f NothingWithdrawn is 6");
+            Eq((byte)StorageOperationFailure.NothingDeposited, 7, "DN-14g NothingDeposited is 7");
+            Eq((byte)StorageOperationFailure.NothingQuickStacked, 8, "DN-14h NothingQuickStacked is 8");
+            Eq((byte)StorageOperationFailure.NoStorageInRange, 9, "DN-14i NoStorageInRange is 9");
+            Eq((byte)StorageOperationFailure.NoStorageConnected, 10, "DN-14j NoStorageConnected is 10");
+            Eq((byte)StorageOperationFailure.NoTerminalFound, 11, "DN-14k NoTerminalFound is 11");
+            Eq(Enum.GetValues<StorageOperationFailure>().Length, 12,
+                "DN-14l a new member was appended without pinning its value");
+            Eq(denied.Count, Enum.GetValues<StorageOperationFailure>().Length - 1,
+                "DN-14m every member but None is reportable");
+
+            // DN-05: success is derived from the cause in one place, so the two cannot disagree.
+            IsTrue(StorageOperationFailures.IsSuccess(StorageOperationFailure.None),
+                "DN-05 None is the only success");
+            foreach (var failure in denied)
+            {
+                IsFalse(StorageOperationFailures.IsSuccess(failure),
+                    $"DN-05a {failure} is a denial");
+            }
+
+            // DN-01 / DN-02: a member added without a mapping arm collides with Unspecified.
+            var keys = new List<string>();
+            foreach (var failure in denied)
+            {
+                string key = StorageOperationFailures.GetLocalizationKey(failure);
+                IsTrue(key.EndsWith("." + failure, StringComparison.Ordinal),
+                    $"DN-02 {failure} maps to a key named after it  [{key}]");
+                keys.Add(key);
+            }
+            Eq(new HashSet<string>(keys, StringComparer.Ordinal).Count, denied.Count,
+                "DN-01 every reportable cause has its own key");
+
+            // None never travels, but if a patched peer spells it the generic line is what shows.
+            Eq(StorageOperationFailures.GetLocalizationKey(StorageOperationFailure.None)
+                == StorageOperationFailures.GetLocalizationKey(StorageOperationFailure.Unspecified) ? 1 : 0,
+                1, "DN-01a None falls back to the generic line rather than a key of its own");
+
+            // DN-03: sweep every byte a peer could send, not a sample of them.
+            int mappedToKnown = 0;
+            for (int wireValue = 0; wireValue <= 255; wireValue++)
+            {
+                var mapped = StorageOperationFailures.GetFailureFromWireValue((byte)wireValue);
+                bool isDefined = Enum.IsDefined(mapped);
+                if (!isDefined)
+                {
+                    Check(false, $"DN-03 byte {wireValue} mapped outside the enum");
+                    break;
+                }
+                if (wireValue < 12) mappedToKnown++;
+                else if (mapped != StorageOperationFailure.Unspecified)
+                {
+                    Check(false, $"DN-03a undefined byte {wireValue} must fall back to Unspecified");
+                    break;
+                }
+            }
+            Eq(mappedToKnown, 12, "DN-03 every defined byte survives the wire mapping");
+
+            // DN-04: round-trip, which also catches a member added without a mapping arm.
+            foreach (var failure in Enum.GetValues<StorageOperationFailure>())
+            {
+                Eq((int)StorageOperationFailures.GetFailureFromWireValue((byte)failure), (int)failure,
+                    $"DN-04 {failure} round-trips");
+            }
+
+            // DN-09: the four craft guards the panel and the server BOTH encode. Full truth table,
+            // because this is the decision neither of those two files can be compiled to check.
+            Eq((int)StorageOperationFailures.GetCraftFailure(false, false, true, true),
+                (int)StorageOperationFailure.RecipeNotFeasible, "DN-09 an infeasible plan outranks room");
+            Eq((int)StorageOperationFailures.GetCraftFailure(false, true, true, true),
+                (int)StorageOperationFailure.RecipeNotFeasible, "DN-09a even when crafting to inventory");
+            Eq((int)StorageOperationFailures.GetCraftFailure(true, true, false, true),
+                (int)StorageOperationFailure.NoRoomInInventory,
+                "DN-09b craft-to-inventory ignores storage room");
+            Eq((int)StorageOperationFailures.GetCraftFailure(true, true, true, false),
+                (int)StorageOperationFailure.None, "DN-09c and needs only the inventory");
+            Eq((int)StorageOperationFailures.GetCraftFailure(true, false, false, false),
+                (int)StorageOperationFailure.NoRoomInStorageOrInventory, "DN-09d neither has room");
+            Eq((int)StorageOperationFailures.GetCraftFailure(true, false, true, false),
+                (int)StorageOperationFailure.None, "DN-09e the inventory alone is enough");
+            Eq((int)StorageOperationFailures.GetCraftFailure(true, false, false, true),
+                (int)StorageOperationFailure.None, "DN-09f as is storage alone");
+
+            int craftCombinations = 0;
+            for (int bits = 0; bits < 16; bits++)
+            {
+                bool feasible = (bits & 1) != 0;
+                bool toInventory = (bits & 2) != 0;
+                bool playerRoom = (bits & 4) != 0;
+                bool storageRoom = (bits & 8) != 0;
+
+                var verdict = StorageOperationFailures.GetCraftFailure(feasible, toInventory, playerRoom, storageRoom);
+                bool shouldSucceed = feasible && (toInventory ? playerRoom : storageRoom || playerRoom);
+                if (StorageOperationFailures.IsSuccess(verdict) == shouldSucceed) craftCombinations++;
+            }
+            Eq(craftCombinations, 16, "DN-09g all sixteen guard combinations agree with the rule");
+
+            // DN-13: nothing matched and nothing fitted are different refusals with different fixes.
+            Eq((int)StorageOperationFailures.GetQuickStackFailure(false, false),
+                (int)StorageOperationFailure.NothingQuickStacked, "DN-13 nothing matched");
+            Eq((int)StorageOperationFailures.GetQuickStackFailure(true, false),
+                (int)StorageOperationFailure.NothingDeposited, "DN-13a matched, but a full network");
+            Eq((int)StorageOperationFailures.GetQuickStackFailure(true, true),
+                (int)StorageOperationFailure.None, "DN-13b something landed");
+
+            // DN-10 / DN-11 / DN-12: deposit-all sends one packet per inventory slot, so a full
+            // network denies forty times for one click.
+            var throttle = new StorageOperationFailureThrottle();
+            int reported = 0;
+            for (int slot = 0; slot < 40; slot++)
+            {
+                if (throttle.ShouldReport(StorageOperationFailure.NothingDeposited, 1000)) reported++;
+            }
+            Eq(reported, 1, "DN-10 forty denials from one click are one line");
+
+            IsTrue(throttle.ShouldReport(StorageOperationFailure.NothingWithdrawn, 1000),
+                "DN-11 a different cause is never suppressed");
+
+            var window = new StorageOperationFailureThrottle();
+            IsTrue(window.ShouldReport(StorageOperationFailure.NothingDeposited, 100), "DN-12 the first is heard");
+            IsFalse(window.ShouldReport(StorageOperationFailure.NothingDeposited, 159),
+                "DN-12a a repeat 59 ticks later is the same refusal");
+            IsTrue(window.ShouldReport(StorageOperationFailure.NothingDeposited, 160),
+                "DN-12b a repeat a full second later is heard again");
+
+            var wrapping = new StorageOperationFailureThrottle();
+            IsTrue(wrapping.ShouldReport(StorageOperationFailure.NothingDeposited, uint.MaxValue - 10),
+                "DN-12c the first before the tick counter wraps");
+            IsFalse(wrapping.ShouldReport(StorageOperationFailure.NothingDeposited, 20),
+                "DN-12d and the wrap does not turn 30 ticks into four billion");
+
+            DenialReasonsAreTranslated();
+            DenialReasonsAreNamedAtEverySite();
+        }
+
+        // The real failure mode of a reason code is a member nobody translated: the game then
+        // prints the raw key into chat. Both catalogs are checked, not just the one being edited.
+        private static void DenialReasonsAreTranslated()
+        {
+            string repoRoot = FindRepoRoot();
+            IsTrue(repoRoot != null, "DN-06 repo root located from " + AppContext.BaseDirectory);
+            if (repoRoot == null) return;
+
+            var catalogs = new[] { "en-US_Mods.TerraStorage.hjson", "ru-RU_Mods.TerraStorage.hjson" };
+            foreach (string catalogName in catalogs)
+            {
+                string path = Path.Combine(repoRoot, "Localization", catalogName);
+                if (!File.Exists(path)) { Check(false, $"DN-06 missing catalog {catalogName}"); continue; }
+
+                string block = ExtractCatalogGroup(File.ReadAllText(path), "OperationFailed");
+                IsTrue(block.Length > 0, $"DN-06a {catalogName} carries an OperationFailed group");
+
+                IsTrue(!string.IsNullOrWhiteSpace(GetCatalogValue(block, "Prefix")),
+                    $"DN-06b {catalogName} carries the shared Prefix");
+
+                int translated = 0;
+                foreach (var failure in StorageOperationFailures.GetDeniedFailures())
+                {
+                    string value = GetCatalogValue(block, failure.ToString());
+                    if (!string.IsNullOrWhiteSpace(value)) translated++;
+                    else Check(false, $"DN-06c {catalogName} has no line for {failure}");
+                }
+                Eq(translated, StorageOperationFailures.GetDeniedFailures().Count,
+                    $"DN-06d {catalogName} translates every reportable cause");
+            }
+
+            // DN-15: the four craft lines moved out of C# literals into the catalog. Paraphrasing
+            // one is a silent wording regression that presence-checking alone would pass.
+            string english = ExtractCatalogGroup(
+                File.ReadAllText(Path.Combine(repoRoot, "Localization", "en-US_Mods.TerraStorage.hjson")),
+                "OperationFailed");
+
+            Eq(GetCatalogValue(english, "RecipeNotFeasible")
+                == "this recipe cannot be crafted from what the network can hand over." ? 1 : 0, 1,
+                "DN-15 the infeasible-plan line is the one singleplayer already printed");
+            Eq(GetCatalogValue(english, "NoRoomInInventory")
+                == "no room in your inventory for the result." ? 1 : 0, 1,
+                "DN-15a the inventory-full line is unchanged");
+            Eq(GetCatalogValue(english, "NoRoomInStorageOrInventory")
+                == "no room in storage or your inventory for the result." ? 1 : 0, 1,
+                "DN-15b the nowhere-to-put-it line is unchanged");
+            Eq(GetCatalogValue(english, "CraftCostingNoLongerHolds")
+                == "the craft was cancelled — storage no longer holds what the plan was costed against." ? 1 : 0, 1,
+                "DN-15c the costed-against line keeps its wording and its em dash");
+        }
+
+        // The packet handler and the crafting panel cannot be compiled outside the game, so a
+        // mistyped or invented member would ship unnoticed. This is the compiler that is missing.
+        private static void DenialReasonsAreNamedAtEverySite()
+        {
+            string repoRoot = FindRepoRoot();
+            if (repoRoot == null) return;
+
+            var memberNames = new HashSet<string>(Enum.GetNames<StorageOperationFailure>(), StringComparer.Ordinal);
+            var sources = new[]
+            {
+                "Systems/NetworkHandler.cs",
+                "Content/UI/Elements/UICraftingPanel.cs",
+                "Systems/StorageOperationReporter.cs"
+            };
+
+            int invented = 0;
+            int vague = 0;
+            int referenced = 0;
+            foreach (string relativePath in sources)
+            {
+                string source = ReadModSource(repoRoot, relativePath);
+                foreach (string member in FindFailureMemberReferences(source))
+                {
+                    referenced++;
+                    if (!memberNames.Contains(member)) invented++;
+                    if (member == nameof(StorageOperationFailure.Unspecified)) vague++;
+                }
+            }
+
+            IsTrue(referenced > 0, "DN-08 the reason vocabulary is actually used by the mod sources");
+            Eq(invented, 0, "DN-08a every named cause is a real enum member");
+            Eq(vague, 0, "DN-08b no site settles for Unspecified when it could name its cause");
+
+            // DN-07: the four English literals are gone from the panel, moved rather than copied.
+            string panel = ReadModSource(repoRoot, "Content/UI/Elements/UICraftingPanel.cs");
+            IsFalse(panel.Contains("Requisition:", StringComparison.Ordinal),
+                "DN-07 no hardcoded denial text survives in the crafting panel");
+
+            string network = ReadModSource(repoRoot, "Systems/NetworkHandler.cs");
+            IsTrue(!network.Contains("EndTrackingAndRespond(mod, whoAmI, !", StringComparison.Ordinal)
+                && !network.Contains("EndTrackingAndRespond(mod, whoAmI, outcome", StringComparison.Ordinal)
+                && !network.Contains("EndTrackingAndRespond(mod, whoAmI, results", StringComparison.Ordinal),
+                "DN-08c no response site still reports a bare boolean");
+        }
+
+        private static IEnumerable<string> FindFailureMemberReferences(string source)
+        {
+            const string marker = "StorageOperationFailure.";
+
+            int at = source.IndexOf(marker, StringComparison.Ordinal);
+            while (at >= 0)
+            {
+                int start = at + marker.Length;
+                int end = start;
+                while (end < source.Length && (char.IsLetterOrDigit(source[end]) || source[end] == '_'))
+                    end++;
+
+                if (end > start) yield return source.Substring(start, end - start);
+                at = source.IndexOf(marker, end, StringComparison.Ordinal);
+            }
+        }
+
+        // Returns the body of a named hjson group, braces excluded.
+        private static string ExtractCatalogGroup(string catalog, string groupName)
+        {
+            int start = catalog.IndexOf(groupName + ": {", StringComparison.Ordinal);
+            if (start < 0) return string.Empty;
+
+            int open = catalog.IndexOf('{', start);
+            if (open < 0) return string.Empty;
+
+            int depth = 0;
+            for (int i = open; i < catalog.Length; i++)
+            {
+                if (catalog[i] == '{') depth++;
+                else if (catalog[i] == '}' && --depth == 0)
+                    return catalog.Substring(open, i - open);
+            }
+            return string.Empty;
+        }
+
+        private static string GetCatalogValue(string group, string key)
+        {
+            foreach (string line in group.Split('\n'))
+            {
+                string trimmed = line.Trim();
+                if (!trimmed.StartsWith(key + ":", StringComparison.Ordinal)) continue;
+
+                string value = trimmed.Substring(key.Length + 1).Trim();
+                if (value.Length >= 2 && value[0] == '"' && value[^1] == '"')
+                    value = value.Substring(1, value.Length - 2);
+                return value;
+            }
+            return null;
         }
 
         private static void Section(string title) => Console.WriteLine($"-- {title}");
