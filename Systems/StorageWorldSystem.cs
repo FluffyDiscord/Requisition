@@ -60,15 +60,32 @@ namespace TerraStorage.Systems
         //Remove sequence tracking for a disk (used when disk is removed).
         public void RemoveDiskSeqNum(Guid diskId) => _diskSeqNums.Remove(diskId);
 
-        public void BeginModificationTracking()
+        // Snapshots the disks this operation can touch, so the deltas afterwards have a before-state
+        // to compare against.
+        //
+        // Scoped, not the whole registry. Snapshotting every entry made registry size a multiplier on
+        // EVERY deposit, withdrawal, craft and quick-stack - and the registry grows on inserts nobody
+        // can bound (issue 27). An operation reaches the disks of the Terminal it was issued from and
+        // no others, so that network is the honest scope.
+        //
+        // Under-scoping cannot corrupt a client: a disk modified without a snapshot is reported for a
+        // full resync rather than given an empty before-state, which would have read as "everything
+        // on this disk is new".
+        public void BeginModificationTracking(IEnumerable<Guid> operationDiskIds)
         {
             _modifiedTracker = new HashSet<Guid>();
-
-            // Snapshot all disk states so we can compute item-level deltas after the operation.
             _preModificationSnapshot = new Dictionary<Guid, List<StoredItemStack>>();
-            foreach (var kvp in _allDiskData)
+
+            if (operationDiskIds == null)
+                return;
+
+            foreach (var diskId in operationDiskIds)
             {
-                _preModificationSnapshot[kvp.Key] = SnapshotItems(kvp.Value.Items);
+                if (_preModificationSnapshot.ContainsKey(diskId))
+                    continue;
+
+                if (_allDiskData.TryGetValue(diskId, out var disk))
+                    _preModificationSnapshot[diskId] = SnapshotItems(disk.Items);
             }
         }
 
@@ -83,17 +100,30 @@ namespace TerraStorage.Systems
         // Ends modification tracking and computes item-level deltas for each modified disk.
         // Returns (modifiedDiskIds, deltas) where deltas maps diskGuid → list of changed items.
         // Each delta entry is the NEW state of that item stack on the disk (or stack=0 if removed). 
-        public (List<Guid> modified, Dictionary<Guid, DiskDelta> deltas) EndModificationTrackingWithDeltas()
+        // needsFullSync names disks that changed without a snapshot to compare against, so no delta
+        // describes them. Treating a missing snapshot as "the disk was empty before" would tell the
+        // client every stack on it had just appeared, which for a disk it already knows is a
+        // duplicated view of the whole disk. The caller sends those in full instead.
+        public (List<Guid> modified, Dictionary<Guid, DiskDelta> deltas, List<Guid> needsFullSync)
+            EndModificationTrackingWithDeltas()
         {
             var modifiedIds = _modifiedTracker?.ToList() ?? new List<Guid>();
             var deltas = new Dictionary<Guid, DiskDelta>();
+            var needsFullSync = new List<Guid>();
 
             if (_preModificationSnapshot != null)
             {
                 foreach (var diskId in modifiedIds)
                 {
-                    var before = _preModificationSnapshot.TryGetValue(diskId, out var snap)
-                        ? snap : new List<StoredItemStack>();
+                    if (!_preModificationSnapshot.TryGetValue(diskId, out var before))
+                    {
+                        // Bumped here, like a delta's, so the full state that goes out instead is not
+                        // read as older than deltas the client has already applied.
+                        IncrementDiskSeqNum(diskId);
+                        needsFullSync.Add(diskId);
+                        continue;
+                    }
+
                     var after = _allDiskData.TryGetValue(diskId, out var disk)
                         ? disk.Items : new List<StoredItemStack>();
 
@@ -105,7 +135,7 @@ namespace TerraStorage.Systems
 
             _modifiedTracker = null;
             _preModificationSnapshot = null;
-            return (modifiedIds, deltas);
+            return (modifiedIds, deltas, needsFullSync);
         }
 
         //Shallow-clone item list for snapshotting (clones each StoredItemStack's mutable fields).

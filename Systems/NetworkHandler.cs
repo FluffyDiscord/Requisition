@@ -322,7 +322,10 @@ namespace TerraStorage.Systems
         // remove, and every storage operation snapshots every entry — so a forged insert/remove
         // loop grew a per-operation cost as well as the world save. An empty entry is safe to drop:
         // it is a GUID and a tier, and the tier is re-read off the disk item on the next insert.
-        private static void DropOrphanedDiskData(Guid diskId)
+        // Internal because singleplayer takes a disk out of a bay without a packet, so the UI calls
+        // this directly. Left only on the server path, empty entries accumulated in a singleplayer
+        // world until the next load purged them.
+        internal static void DropOrphanedDiskData(Guid diskId)
         {
             if (diskId == Guid.Empty)
                 return;
@@ -499,7 +502,7 @@ namespace TerraStorage.Systems
                 return;
 
             DBG($"HandleWithdrawItemByFullItemTag: from={whoAmI} terminal={terminalEntityId} disks=[{string.Join(", ", diskIds.Select(g => g.ToString()[..8]))}]");
-            StorageWorldSystem.Instance.BeginModificationTracking();
+            StorageWorldSystem.Instance.BeginModificationTracking(diskIds);
             var extracted = StorageWorldSystem.Instance.ExtractItemWithFullItemTag(diskIds, fullItemTag);
 
             var withdrawFailure = extracted.IsAir
@@ -528,7 +531,7 @@ namespace TerraStorage.Systems
                 return;
 
             DBG($"HandleWithdrawItemByModData: from={whoAmI} terminal={terminalEntityId} disks=[{string.Join(", ", diskIds.Select(g => g.ToString()[..8]))}]");
-            StorageWorldSystem.Instance.BeginModificationTracking();
+            StorageWorldSystem.Instance.BeginModificationTracking(diskIds);
             var extracted = StorageWorldSystem.Instance.ExtractItemWithModData(diskIds, modData);
             DBG($"  ExtractItemWithModData result: type={extracted.type} stack={extracted.stack} isAir={extracted.IsAir}");
 
@@ -563,7 +566,7 @@ namespace TerraStorage.Systems
             }
 
             DBG($"HandleDepositItem: from={whoAmI} item={item.type}x{item.stack} terminal={terminalEntityId}");
-            StorageWorldSystem.Instance.BeginModificationTracking();
+            StorageWorldSystem.Instance.BeginModificationTracking(diskIds);
             int leftover = StorageWorldSystem.Instance.InsertItem(diskIds, item);
             DBG($"  InsertItem result: leftover={leftover}");
 
@@ -632,7 +635,7 @@ namespace TerraStorage.Systems
                 return;
             }
 
-            StorageWorldSystem.Instance.BeginModificationTracking();
+            StorageWorldSystem.Instance.BeginModificationTracking(diskIds);
             int leftover = StorageWorldSystem.Instance.InsertItem(diskIds, item);
 
             // Built before item.stack becomes the leftover — see HandleDepositItem.
@@ -681,7 +684,7 @@ namespace TerraStorage.Systems
                 return;
 
             DBG($"HandleWithdrawItem: from={whoAmI} type={itemType} count={count} prefix={prefix} terminal={terminalEntityId}");
-            StorageWorldSystem.Instance.BeginModificationTracking();
+            StorageWorldSystem.Instance.BeginModificationTracking(diskIds);
             var extracted = StorageWorldSystem.Instance.ExtractItem(diskIds, itemType, count, prefix);
             DBG($"  ExtractItem result: type={extracted.type} stack={extracted.stack} isAir={extracted.IsAir}");
 
@@ -782,7 +785,7 @@ namespace TerraStorage.Systems
             var plan = recipeIndex >= 0 && recipeIndex < Recipe.numRecipes
                 ? RecipeResolver.ResolveRecipe(Main.recipe[recipeIndex], craftAmount, diskIds, stations, conditions)
                 : RecipeResolver.ResolveForceCraft(recipeItemType, craftAmount, diskIds, stations, conditions);
-            StorageWorldSystem.Instance.BeginModificationTracking();
+            StorageWorldSystem.Instance.BeginModificationTracking(diskIds);
 
             // Pre-check: block the craft if neither storage nor player inventory has room.
             // This prevents consuming ingredients with nowhere to put the result. The verdict
@@ -1365,7 +1368,7 @@ namespace TerraStorage.Systems
             // station in the game and pay for an upgrade it has no Crafting Core for.
             var (stations, conditions) = StorageNetwork.GetAllStationsAndConditions(terminal.Position);
 
-            sys.BeginModificationTracking();
+            sys.BeginModificationTracking(networkDiskIds);
 
             // Affordability is re-checked here, not trusted from the client: the panel's gate lives
             // on the client only, and storage can change between its check and this packet arriving.
@@ -1492,9 +1495,28 @@ namespace TerraStorage.Systems
         private static void EndTrackingAndBroadcast(Mod mod)
         {
             var sys = StorageWorldSystem.Instance;
-            var (_, deltas) = sys.EndModificationTrackingWithDeltas();
+            var (_, deltas, needsFullSync) = sys.EndModificationTrackingWithDeltas();
             if (deltas.Count > 0)
                 BroadcastDiskDeltas(mod, deltas);
+
+            BroadcastFullSyncFor(mod, needsFullSync);
+        }
+
+        // A disk that changed outside the operation's snapshot has no delta describing it, so the
+        // whole disk goes out instead. Correct but heavy, which is the point: an under-scoped
+        // BeginModificationTracking costs bandwidth here rather than desynchronising a client.
+        private static void BroadcastFullSyncFor(Mod mod, List<Guid> diskIds)
+        {
+            if (diskIds == null || diskIds.Count == 0)
+                return;
+
+            var sys = StorageWorldSystem.Instance;
+            foreach (var diskId in diskIds)
+            {
+                var disk = sys.GetDiskData(diskId);
+                if (disk != null)
+                    SendDiskPacket(mod, disk, sys.GetDiskSeqNum(diskId));
+            }
         }
 
         // Ends modification tracking, sends OperationResponse to the requester,
@@ -1507,13 +1529,14 @@ namespace TerraStorage.Systems
             StorageOperationFailure failure, List<Guid> requestedDiskIds = null)
         {
             var sys = StorageWorldSystem.Instance;
-            var (_, deltas) = sys.EndModificationTrackingWithDeltas();
+            var (_, deltas, needsFullSync) = sys.EndModificationTrackingWithDeltas();
             bool success = StorageOperationFailures.IsSuccess(failure);
 
-            if (success && deltas.Count > 0)
+            if (success && (deltas.Count > 0 || needsFullSync.Count > 0))
             {
                 SendOperationResponse(mod, toClient, StorageOperationFailure.None);
                 BroadcastDiskDeltas(mod, deltas);
+                BroadcastFullSyncFor(mod, needsFullSync);
             }
             else if (!success)
             {
@@ -1965,7 +1988,7 @@ namespace TerraStorage.Systems
 
             var existingTypes = StorageWorldSystem.Instance.GetItemCounts(diskIds);
 
-            StorageWorldSystem.Instance.BeginModificationTracking();
+            StorageWorldSystem.Instance.BeginModificationTracking(diskIds);
 
             var results = new List<(byte slot, int newStack)>();
             bool matchedAnySlot = false;
