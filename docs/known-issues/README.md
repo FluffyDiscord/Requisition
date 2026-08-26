@@ -123,7 +123,7 @@ file warns about — one rule, fixed at one of its encodings.
 
 ## Test suite
 
-`cd Tests && dotnet run` — 713 assertions, zero dependencies, links the shipped source directly.
+`cd Tests && dotnet run` — 716 assertions, zero dependencies, links the shipped source directly.
 The real-game benchmark reads `ts_recipe_dump.txt` from the tModLoader save folder when present
 (produce one in-game with `/tsdump` next to a Terminal); full craftability revalidation over
 14 178 recipes runs in 2 ms. Scenario fixtures live in `Tests/Fixtures/*.tsdump.txt` — scoped

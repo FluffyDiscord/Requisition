@@ -146,10 +146,25 @@ eight one-line bindings, of which `CanMerge` is `DiskData.CanMergeStacks` and no
 specialised and inlined by the JIT. Measured: without it the sweep gave back ~30% on the bulk-storage
 fixture, because the rules are asked several times per candidate stack.
 
-`DG-01`..`DG-18c` — 39 assertions — drive the shipped sweep. Eight deliberate mutations of it were
-each confirmed to turn a specific one red; the one for `DG-02` (two donors of one identity must end as
-one stack, which needs the index fed before every append) turned **nothing** in `DF-*` or `MX-*` red,
-which is the measurement of what this gap was worth.
+`DG-01`..`DG-18c` — 42 assertions — drive the shipped sweep. Nine deliberate mutations of it were
+tried and **eight turned a specific assertion red**; the one for `DG-02` (two donors of one identity
+must end as one stack, which needs the index fed before every append) turned **nothing** in `DF-*` or
+`MX-*` red, which is the measurement of what this gap was worth.
+
+The ninth is recorded because it did not: swapping `Items.Add` and `Items.RemoveAt` in the whole-move
+branch changes nothing. The core holds the stack in a local before either call, so the ordering has
+no observable consequence — it was a real constraint only in a rejected design where the sweep passed
+slot positions across an interface and the removal invalidated the handle. No assertion covers it
+because there is nothing there to cover.
+
+Two of the first-draft assertions were themselves vacuous and were caught by review rather than by
+the suite, which is worth recording as the same lesson one level up. `DG-12b` — the one certifying
+that a stack of another item shifted into a recorded slot is never credited — passed unchanged when
+the merge rule was mutated to accept everything: `PlanDonorMove` stops as soon as the donor is
+placed, so a 6-unit donor never reached the second candidate. Enlarging the donor to 200 fixes it.
+Then it passed *again*, because the fixture sprang its trap from inside `CanMerge`, the very call the
+mutation deleted. The trigger moved to `GetCount`, which the sweep reads for every candidate whatever
+the rule answers.
 
 `Tests/HotPathBenchmarks.cs` no longer transcribes the sweep either: `DisksHoldTheSame` now compares
 the shipped sweep against the linear rescan it replaced, at six scales up to 65 520 stacks. The old

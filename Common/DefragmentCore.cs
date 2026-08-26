@@ -63,10 +63,10 @@ namespace TerraStorage.Common
         public static List<int> Sweep<TStack, TRules>(IReadOnlyList<DefragmentDisk<TStack>> disks,
             TRules rules) where TStack : class where TRules : IDefragmentRules<TStack>
         {
+            // No null check on rules: TRules is usually a struct, where the comparison is constant
+            // false and the guard would read as protection it does not give.
             if (disks == null)
                 throw new ArgumentNullException(nameof(disks));
-            if (rules == null)
-                throw new ArgumentNullException(nameof(rules));
 
             // A flag per disk rather than a set: the sweep marks a disk on every single move, which at
             // the supported maximum is tens of thousands of marks, and a set pays a lookup for each.

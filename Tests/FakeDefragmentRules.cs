@@ -43,21 +43,34 @@ namespace TerraStorage.Tests
 
         private List<FakeStack> _removeFromList;
         private int _removeAtSlot = -1;
+        private FakeStack _removeWhenTouched;
 
-        // Drops a stack out of a disk the moment the sweep next consults the merge rule, so a slot
+        // Drops a stack out of a disk the moment the sweep reads the given stack's count, so a slot
         // the merge index recorded goes stale mid-sweep. Nothing does this today; the guards exist
         // so that if anything ever does, the cost is a missed merge and never a miscredit.
-        public void RemoveSlotBeforeNextCanMerge(List<FakeStack> from, int slotIndex)
+        //
+        // The trigger is GetCount rather than CanMerge on purpose. Hanging it off the merge rule
+        // made the test vacuous against the one mutation it exists to catch: deleting the rule's
+        // say also deleted the call that sprang the trap, so the disk never shrank and the
+        // assertion passed. GetCount is read for every candidate whatever the rule answers.
+        public void RemoveSlotWhenStackIsWeighed(List<FakeStack> from, int slotIndex, FakeStack trigger)
         {
             _removeFromList = from;
             _removeAtSlot = slotIndex;
+            _removeWhenTouched = trigger;
         }
 
         public int GetItemType(FakeStack stack) => stack.ItemType;
 
         public int GetPrefixId(FakeStack stack) => stack.PrefixId;
 
-        public int GetCount(FakeStack stack) => stack.Count;
+        public int GetCount(FakeStack stack)
+        {
+            if (ReferenceEquals(stack, _removeWhenTouched))
+                ApplyPendingRemoval();
+
+            return stack.Count;
+        }
 
         public void SetCount(FakeStack stack, int count) => stack.Count = count;
 
@@ -73,8 +86,6 @@ namespace TerraStorage.Tests
 
         public bool CanMerge(FakeStack target, FakeStack donor)
         {
-            ApplyPendingRemoval();
-
             AskedPairs.Add((target, donor));
 
             if (target.ItemType != donor.ItemType || target.PrefixId != donor.PrefixId)
@@ -96,6 +107,7 @@ namespace TerraStorage.Tests
 
             _removeFromList = null;
             _removeAtSlot = -1;
+            _removeWhenTouched = null;
 
             if (slot < from.Count)
                 from.RemoveAt(slot);
