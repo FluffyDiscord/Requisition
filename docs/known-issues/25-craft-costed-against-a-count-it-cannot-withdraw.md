@@ -247,20 +247,94 @@ the reason this defect survived `ID-04`.
   It is precision by **state**, not by object: two stacks carrying byte-identical state are
   indistinguishable in every observable respect, so taking either is equivalent. The size guard is
   what stops more units coming back than the run put in.
-- **Within one disk, two drawn plain stacks with different state still lose it.**
-  `DiskData.ExtractItem` sets the returned tag only when `AllDrawsShareModState`, so a bulk
-  withdrawal that draws two plain stacks carrying different `globalData` returns them with **no**
-  state — issue [05](05-extractitem-stamps-tag-on-whole-withdrawal.md)'s harm, one level down from
-  where it was fixed. Reachable since [24](24-globaldata-treated-as-item-identity.md) stopped
-  treating `globalData` as identity, so such stacks pool. Pre-existing and untouched here.
-  The shape the next change to this area should take is to have `StackSelection.PlanWithdrawal`
-  return **handles** rather than a flat draw list, planned over the network's matching slots rather
-  than one disk's: it would close this and delete `NetworkWithdrawal` at the same time, at the cost
-  of rewriting the `SL-*`/`SG-*` assertions.
+- **A withdrawal onto the cursor now yields the first run, not the whole cell.** The cost of the
+  fix below, stated where a reader will look for it. `handleLimit: 1` — every UI and network
+  withdrawal — stops at the first state boundary, and that boundary can be anywhere: the yield is
+  the size of the **first** run, not the largest. A disk holding one unit of state A in front of
+  999 of state B answers a 999-unit click with **one**, and the player clicks again for the rest.
+  Nothing is lost — the units and their state are all still there — but the click count is real.
+  The one caller that could legitimately raise its budget is `TerminalUIState.cs:701-707`'s
+  shift-click branch, which hands the result to `player.GetItem` (the inventory, which holds many
+  items) rather than to the cursor; it is left at 1 here because that file is outside this change
+  and has no assertion surface. `SB-12` pins the worst case.
+- **`DiskWithdrawal.PutBack` re-dates the stack it restores.** It inserts through
+  `disk.InsertItem(item, ++_insertionCounter)`, and `DiskData.InsertItem` writes that order onto the
+  merge target, so a stack the player never received jumps to the front of the "recently added"
+  sort. Pre-existing across disks; the fix below makes it fire within one disk on every mixed-state
+  cursor withdrawal, so it is now routine rather than rare. Cosmetic — a sort order, not an item —
+  and fixing it needs `DrawnUnits` to carry the order it took, which this change did not add.
+  **No assertion pins it, in either direction.** `InsertionOrder` lives on `StoredItemStack`, which
+  `DiskWithdrawal` reaches through `DiskData.InsertItem`; neither file can be linked into the
+  runner, and neither fake models an insertion order at all. Pinning the current behaviour first
+  would mean teaching a fake to carry one, which is the same work as fixing it.
+
+## Fix applied 2026-08-26 — the plan ends at the boundary instead of dropping the state
+
+The second `## Not fixed` bullet, closed. `DiskData.ExtractItem` decided *after* planning whether
+every stack it had drawn from carried the same mod state, and when they disagreed its only lever was
+to drop the state: a bulk withdrawal spanning two plain stacks with different `globalData` came back
+with **none**. `AllDrawsShareModState` is deleted, not bypassed.
+
+**The rule moved into the planner.** `StackSlot` carries the run of stacks it merges into, and
+`StackSelection.PlanWithdrawal` ends its plain pass at the first stack outside that run. A plan can
+no longer span a boundary, so the stack that opened the run speaks for every unit drawn — and three
+copies of "did these draws share state?" (`DiskData`, `FakeDiskNetwork`, `FakeStorage`) collapse
+into one rule with no runtime check left to disagree with it. A stack that stands for itself is
+skipped rather than drawn from, so it is transparent to the stacks either side of it, not a
+boundary.
+
+**`DrainPooledStock` asks a disk until it stops yielding**, the shape `DrainStandaloneStacks` and
+`StorageWorldSystem.ExtractStoredItem` already had. This is not optional: `RefundLedger.TryTakeExact`
+reads its whole amount from one `ExtractStacks` call, so without it a step needing twelve units off
+an `[A x7, B x5]` disk would be paid seven and the craft would fail in the exact shape 25-A was.
+Reverting only this loop turns `SB-11` red at `[expected 20, got 16]` and `SB-13a` at
+`[expected 8, got 4]`.
+
+**A second axis of the same defect, found by the design review and confirmed against the source.**
+`StoredItemStack.Matches(type, -1)` matches **any** prefix, and `-1` is what every crafting path
+passes (`RecipeResolver.cs:679`, `UICraftingPanel.cs:1297,1307`). `ModStateMatches` reads only
+`globalData`, so two stacks of one type with different prefixes and identical mod state were drawn
+together and `ItemIO.Load` stamped one prefix over both. The run rule is therefore
+`DiskData.CanMergeStacks` — prefix and mod state together, the same rule defragmenting asks — and
+the returned item takes its prefix from the stack that opened the run rather than from a request
+that named none. `DiskWithdrawal` groups its draws on the same terms, using the tag the disk just
+built rather than re-serializing.
+
+**Runs are numbered, not interned.** The planner only ever compares a stack against the one that
+opened the run, and the sweep only ever compares a draw against the handle it is holding open
+(`NW-09`), so one comparison per stack is enough. Interning distinct states would put the disk's
+stack count inside the loop; a full Terra disk of one `maxStack = 1` type — armour, the class this
+issue was reported against — makes that quadratic. `ExtractBenchmark` now measures that shape and
+finds it **linear**: 0.0128 / 0.0991 / 0.4003 ms at 64 / 512 / 2048 stacks, on a per-action path.
+
+### Verified by `SB-*`
+
+`SB-01`..`SB-06` pin the planner's rule; `SB-07`..`SB-13` pin what the sweep and the fakes do with
+it. On the unfixed code `SB-07` reports the defect verbatim — `[expected A,B, got none]`, two states
+folded into one item carrying neither — and disabling only `PlanWithdrawal`'s boundary turns
+fourteen assertions red with that same shape. `SB-14` is a source scan of `DiskData.cs`, which cannot
+be linked into the runner; it is the only guard on the prefix half, and swapping `CanMergeStacks`
+back to `ModStateMatches` turns `SB-14f` red while everything else stays green.
+
+`NW-12` keeps its differential against `Tests/LegacySingleHandleDrain.cs`, but the layout matrix now
+declares what each layout is *expected* to do rather than leaving the divergent shapes out of the
+list — the omission [20](20-depth-origin-off-by-one.md) is about. Most layouts still assert
+equality, including the mixed-state single-disk ones, because the legacy rule never asks a disk
+twice and a one-item caller puts the second run back: both hand over the first run. The one shape
+where they part is an in-disk boundary with the opening state waiting on a **later** disk, which the
+old rule walked past and folded; that is pinned by value as `SB-15`, and a layout parked in the
+divergent list that quietly agrees everywhere now fails. `SB-16` sweeps both arms asserting no item
+comes back stateless and no drain overdraws.
+
+Needs in-game testing, and specific to this pass: **withdraw a large count of a `maxStack = 1`
+poolable type** — armour in a world running a mod that writes per-instance state on it, which
+[24](24-globaldata-treated-as-item-identity.md)'s "Accepted, not fixed" names Calamity's `Charge`
+and `AppliedEnchantment` as — and confirm the per-click count and that no piece loses its state.
+Then craft with that type as an ingredient and confirm the step is paid in full from one sweep.
 
 ## Verified by
 
-`BD-*`, `ID-*`, `FX-*`, `NW-*`, `HB-*` and `PX-07` in `Tests/Program.cs`. Reverting only the loop in
+`BD-*`, `ID-*`, `FX-*`, `NW-*`, `HB-*`, `SB-*` and `PX-07` in `Tests/Program.cs`. Reverting only the loop in
 `TryTakeExact` turns `BD-02*` and `FX-06*` red with the reported outcome — the craft produces
 nothing and all 18 Door Pants stay put. Reverting only `Refund`'s direction turns `ID-04` red with
 one of the player's three stacks left and two stateless copies in place of the others.

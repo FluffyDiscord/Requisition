@@ -453,31 +453,8 @@ namespace TerraStorage.Tests
 
             foreach (int stacksPerDisk in new[] { 64, 512, 2048 })
             {
-                var disk = new Disk { MaxStacks = stacksPerDisk };
-                var rng = new Random(9);
-                for (int i = 0; i < stacksPerDisk; i++)
-                    disk.Items.Add(new Stack { ItemType = rng.Next(1500), StackCount = rng.Next(1, 999), InsertionOrder = i });
-
-                // Exactly what DiskData.ExtractItem does before it touches Terraria types.
-                Action extract = () =>
-                {
-                    var matching = new List<StackSlot>();                    // DiskData.cs:165
-                    for (int index = 0; index < disk.Items.Count; index++)
-                    {
-                        var stored = disk.Items[index];
-                        if (!stored.Matches(700, -1)) continue;
-                        matching.Add(new StackSlot
-                        {
-                            Index = index,
-                            Stack = stored.StackCount,
-                            IsUnique = HasPerInstanceData(stored)
-                        });
-                    }
-                    // The shipped selection rule, linked directly.
-                    StackSelection.PlanWithdrawal(matching, 50, true, out _);
-                    var toRemove = new List<Stack>();                        // DiskData.cs:107
-                    GC.KeepAlive(toRemove);
-                };
+                var disk = MixedTypeDisk(stacksPerDisk);
+                Action extract = () => ExtractOnce(disk, 700);
 
                 extract(); // warm + JIT
                 GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
@@ -497,6 +474,115 @@ namespace TerraStorage.Tests
             Console.WriteLine("   (disk x ingredient). The scan, not the two lists, is the part that grows.");
 
             check(bytesAtLateGame > 0, $"extract path allocation measured ({bytesAtLateGame} B/extract at 512 stacks)");
+
+            // The shape MatchingSlots' state grouping is worst at, and the one the mixed-type rows
+            // above never reach: ONE maxStack=1 type filling the disk, so every stack matches and
+            // ~1 in 20 opens a new run. Grouping runs rather than interning distinct states is what
+            // keeps this one comparison per stack instead of one per stack per state seen so far.
+            Console.WriteLine();
+            Console.WriteLine("-- ...the same path where every stack on the disk matches (one maxStack=1 type)");
+            Console.WriteLine("   stacks/disk | ms per extract | B per extract");
+            Console.WriteLine("   ------------|----------------|---------------");
+
+            double msAtFullDisk = 0;
+
+            foreach (int stacksPerDisk in new[] { 64, 512, 2048 })
+            {
+                var disk = SingleTypeDisk(stacksPerDisk);
+                Action extract = () => ExtractOnce(disk, 700);
+
+                extract();
+                GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+
+                const int iters = 2000;
+                long a0 = GC.GetAllocatedBytesForCurrentThread();
+                double ms = MsOf(extract, iters);
+                long bytes = (GC.GetAllocatedBytesForCurrentThread() - a0) / iters;
+
+                Console.WriteLine($"   {stacksPerDisk,11} | {ms,11:0.0000} ms | {bytes,11} B");
+                if (stacksPerDisk == 2048) msAtFullDisk = ms;
+            }
+
+            // One press of a withdraw button is one of these per disk. A tenth of a millisecond on a
+            // full Terra disk is a per-action cost nobody can feel; interning every distinct state
+            // instead of numbering runs would put the disk's stack count into the inner loop.
+            const double PerActionBudgetMs = 1.0;
+            check(msAtFullDisk < PerActionBudgetMs,
+                $"state grouping stays per-action on a full disk of one type ({msAtFullDisk:0.0000} ms < {PerActionBudgetMs} ms)");
+        }
+
+        // Exactly what DiskData.ExtractItem does before it touches Terraria types: the scan, the
+        // run-index grouping, the shipped selection rule, and the removal list.
+        private static void ExtractOnce(Disk disk, int itemType)
+        {
+            var matching = new List<StackSlot>();                    // DiskData.cs MatchingSlots
+            Stack previousPooled = null;
+            int runIndex = 0;
+
+            for (int index = 0; index < disk.Items.Count; index++)
+            {
+                var stored = disk.Items[index];
+                if (!stored.Matches(itemType, -1)) continue;
+
+                bool standsForItself = HasPerInstanceData(stored);
+                if (!standsForItself)
+                {
+                    if (previousPooled != null && !CanMergeStacks(previousPooled, stored))
+                        runIndex++;
+
+                    previousPooled = stored;
+                }
+
+                matching.Add(new StackSlot
+                {
+                    Index = index,
+                    Stack = stored.StackCount,
+                    IsUnique = standsForItself,
+                    StateGroup = runIndex
+                });
+            }
+
+            StackSelection.PlanWithdrawal(matching, 50, true, out _);
+            var toRemove = new List<Stack>();                        // DiskData.cs ExtractItem
+            GC.KeepAlive(toRemove);
+        }
+
+        // A drive bay of general stock: 1500 types spread over the disk, so a withdrawal matches a
+        // handful of stacks.
+        private static Disk MixedTypeDisk(int stacksPerDisk)
+        {
+            var disk = new Disk { MaxStacks = stacksPerDisk };
+            var rng = new Random(9);
+            for (int i = 0; i < stacksPerDisk; i++)
+            {
+                disk.Items.Add(new Stack
+                {
+                    ItemType = rng.Next(1500),
+                    StackCount = rng.Next(1, 999),
+                    InsertionOrder = i,
+                    ModState = BuildModState(rng)
+                });
+            }
+            return disk;
+        }
+
+        // One maxStack=1 type filling the disk - armour, the item class issue 25 was reported
+        // against - so every stack matches the withdrawal and every one is grouped.
+        private static Disk SingleTypeDisk(int stacksPerDisk)
+        {
+            var disk = new Disk { MaxStacks = stacksPerDisk };
+            var rng = new Random(9);
+            for (int i = 0; i < stacksPerDisk; i++)
+            {
+                disk.Items.Add(new Stack
+                {
+                    ItemType = 700,
+                    StackCount = 1,
+                    InsertionOrder = i,
+                    ModState = BuildModState(rng)
+                });
+            }
+            return disk;
         }
 
         // ================================================================================

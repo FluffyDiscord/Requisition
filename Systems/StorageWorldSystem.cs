@@ -403,8 +403,11 @@ namespace TerraStorage.Systems
             private readonly int                _itemType;
             private readonly int                _prefixId;
 
-            private readonly List<Item>        _drawnItems = new();
-            private readonly List<TagCompound> _stateGroups = new();
+            private readonly List<Item> _drawnItems = new();
+
+            private Item        _previousDraw;
+            private TagCompound _previousDrawState;
+            private int         _drawnRunIndex;
 
             public DiskWithdrawal(StorageWorldSystem storage, List<Guid> diskIds, int itemType, int prefixId)
             {
@@ -488,23 +491,34 @@ namespace TerraStorage.Systems
                 if (extracted.IsAir)
                     return DrawnUnits.Nothing(diskIndex);
 
+                int stateGroup = RunIndexOf(extracted, modState);
                 _drawnItems.Add(extracted);
-                return new DrawnUnits(diskIndex, _drawnItems.Count - 1, extracted.stack, StateGroupOf(modState));
+                return new DrawnUnits(diskIndex, _drawnItems.Count - 1, extracted.stack, stateGroup);
             }
 
-            // Reduces "would folding these two discard anything" to an integer the sweep can compare.
-            // Sound because ModStateMatches partitions stacks into one stateless class plus a class
-            // per distinct globalData value, so equal group numbers mean exactly what it means.
-            private int StateGroupOf(TagCompound modState)
+            // Reduces "would folding these two discard anything" to an integer the sweep can
+            // compare. It numbers RUNS of consecutive draws rather than distinct states, because
+            // the sweep only ever weighs a draw against the handle it is holding open - a state
+            // that comes back later opens a new handle either way (NW-09).
+            //
+            // Prefix counts as much as mod state: a withdrawal naming no prefix matches every stack
+            // of the type, and one returned Item carries one prefix, so folding two would stamp the
+            // first draw's prefix onto units that never had it. The tag comes from the disk that
+            // just built it, so this costs no serialization.
+            private int RunIndexOf(Item drawn, TagCompound modState)
             {
-                for (int group = 0; group < _stateGroups.Count; group++)
+                if (_previousDraw != null)
                 {
-                    if (DiskData.ModStateMatches(_stateGroups[group], modState))
-                        return group;
+                    bool prefixChanged = _previousDraw.prefix != drawn.prefix;
+                    bool modStateChanged = !DiskData.ModStateMatches(_previousDrawState, modState);
+
+                    if (prefixChanged || modStateChanged)
+                        _drawnRunIndex++;
                 }
 
-                _stateGroups.Add(modState);
-                return _stateGroups.Count - 1;
+                _previousDraw = drawn;
+                _previousDrawState = modState;
+                return _drawnRunIndex;
             }
         }
 

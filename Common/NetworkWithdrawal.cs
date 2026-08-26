@@ -79,28 +79,37 @@ namespace TerraStorage.Common
 
             for (int diskIndex = 0; diskIndex < network.DiskCount; diskIndex++)
             {
-                DrawnUnits draw = network.DrawPooled(diskIndex, count - taken);
-
-                // A disk holding none of the type is not a state boundary. Reading its state group
-                // would end the sweep here and abandon every disk behind it.
-                if (draw.Units <= 0)
-                    continue;
-
-                WithdrawalHandle openHandle = handles.Count == 0 ? null : handles[handles.Count - 1];
-                bool foldsIntoOpenHandle = openHandle != null && openHandle.StateGroup == draw.StateGroup;
-
-                if (!foldsIntoOpenHandle && handles.Count >= handleLimit)
+                // A disk is asked until it stops yielding, not once: one draw carries units of ONE
+                // mod state, so a disk holding the type under two of them answers twice. Asking
+                // once would abandon everything behind the first state boundary on that disk - and
+                // a caller that reads the whole amount from a single sweep, as a crafting step's
+                // ledger does, would be told the network was short.
+                while (taken < count)
                 {
-                    network.PutBack(draw);
-                    return taken;
+                    DrawnUnits draw = network.DrawPooled(diskIndex, count - taken);
+
+                    // A disk holding none of the type is not a state boundary. Reading its state
+                    // group would end the sweep here and abandon every disk behind it.
+                    if (draw.Units <= 0)
+                        break;
+
+                    WithdrawalHandle openHandle = handles.Count == 0 ? null : handles[handles.Count - 1];
+                    bool foldsIntoOpenHandle = openHandle != null && openHandle.StateGroup == draw.StateGroup;
+
+                    if (!foldsIntoOpenHandle && handles.Count >= handleLimit)
+                    {
+                        network.PutBack(draw);
+                        return taken;
+                    }
+
+                    if (foldsIntoOpenHandle)
+                        AddDraw(openHandle, draw);
+                    else
+                        handles.Add(NewHandle(draw));
+
+                    taken += draw.Units;
                 }
 
-                if (foldsIntoOpenHandle)
-                    AddDraw(openHandle, draw);
-                else
-                    handles.Add(NewHandle(draw));
-
-                taken += draw.Units;
                 if (taken >= count)
                     break;
             }

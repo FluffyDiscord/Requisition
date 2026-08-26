@@ -128,6 +128,7 @@ namespace TerraStorage.Common
             var toRemove = new List<StoredItemStack>();
             TagCompound extractedModData = null;
             TagCompound extractedFullTag = null;
+            int extractedPrefixId = prefixId;
 
             // Which stacks to draw from, and whether the unique fallback applies, is decided by
             // StackSelection so the rule can be asserted without NBT. Everything below just carries
@@ -135,23 +136,25 @@ namespace TerraStorage.Common
             var matching = MatchingSlots(itemType, prefixId);
             var draws = StackSelection.PlanWithdrawal(matching, count, allowUniqueFallback, out uniqueStack);
 
-            // Mod state is handed back only when every stack drawn from carried the same state.
-            // Plain stacks carry state too now that they pool, so keeping it is worth doing; but
-            // stamping one stack's state onto units drawn from another is how a single enchanted
-            // copy became a whole stack of them.
-            bool allDrawsShareModState = AllDrawsShareModState(draws);
+            // Every stack in the plan merges with the one that opened it - PlanWithdrawal ends its
+            // pass at the first that does not - so the opening stack speaks for all of them. There
+            // used to be an after-the-fact check here that dropped the state when the draws
+            // disagreed, which handed a mixed withdrawal back with NO state at all: issue 05's harm
+            // inverted. The prefix comes off the same stack, because a request asking by "any
+            // prefix" cannot say which one the units it is getting actually carry.
+            if (draws.Count > 0)
+            {
+                var runOpener = Items[draws[0].Index];
+                extractedModData = runOpener.ModData;
+                extractedFullTag = runOpener.FullItemTag;
+                extractedPrefixId = runOpener.PrefixId;
+            }
 
             foreach (var draw in draws)
             {
                 var stored = Items[draw.Index];
                 stored.Stack -= draw.Count;
                 extracted += draw.Count;
-
-                if (allDrawsShareModState)
-                {
-                    extractedModData = stored.ModData;
-                    extractedFullTag = stored.FullItemTag;
-                }
 
                 if (stored.Stack <= 0)
                     toRemove.Add(stored);
@@ -177,8 +180,8 @@ namespace TerraStorage.Common
                 result = new Item();
                 result.SetDefaults(itemType);
                 result.stack = extracted;
-                if (prefixId > 0)
-                    result.Prefix(prefixId);
+                if (extractedPrefixId > 0)
+                    result.Prefix(extractedPrefixId);
 
                 // Restore mod item data (e.g. the DiskId GUID).
                 if (extractedModData != null && result.ModItem != null)
@@ -188,26 +191,22 @@ namespace TerraStorage.Common
             return result;
         }
 
-        private bool AllDrawsShareModState(List<StackDraw> draws)
-        {
-            if (draws.Count <= 1)
-                return true;
-
-            var first = Items[draws[0].Index].FullItemTag;
-            for (int index = 1; index < draws.Count; index++)
-            {
-                if (!ModStateMatches(first, Items[draws[index].Index].FullItemTag))
-                    return false;
-            }
-
-            return true;
-        }
-
         // The stacks a withdrawal of this item type may draw from, in storage order, reduced to
         // what the selection rules need.
+        //
+        // StateGroup numbers the RUNS of consecutive stacks that merge into one another, so equal
+        // numbers mean CanMergeStacks - the same rule defragmenting asks, prefix and mod state
+        // together. Numbering runs rather than interning every distinct state keeps this to one
+        // comparison per stack: a request naming no prefix matches every stack of the type, and a
+        // drive bay's worth of them would otherwise each be weighed against every state seen so far.
+        //
+        // Only pooled stacks are weighed at all. One that stands for itself is taken alone, so it
+        // belongs to no run and is transparent to the stacks either side of it.
         private List<StackSlot> MatchingSlots(int itemType, int prefixId)
         {
             var matching = new List<StackSlot>();
+            StoredItemStack previousPooled = null;
+            int runIndex = 0;
 
             for (int index = 0; index < Items.Count; index++)
             {
@@ -215,11 +214,22 @@ namespace TerraStorage.Common
                 if (!stored.Matches(itemType, prefixId))
                     continue;
 
+                bool standsForItself = HasPerInstanceData(stored);
+                if (!standsForItself)
+                {
+                    bool opensANewRun = previousPooled != null && !CanMergeStacks(previousPooled, stored);
+                    if (opensANewRun)
+                        runIndex++;
+
+                    previousPooled = stored;
+                }
+
                 matching.Add(new StackSlot
                 {
                     Index = index,
                     Stack = stored.Stack,
-                    IsUnique = HasPerInstanceData(stored)
+                    IsUnique = standsForItself,
+                    StateGroup = runIndex
                 });
             }
 

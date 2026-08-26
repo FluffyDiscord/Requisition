@@ -227,11 +227,9 @@ namespace TerraStorage.Tests
                 if (draws.Count == 0 || (allowStandalone && !standaloneStack))
                     return DrawnUnits.Nothing(diskIndex);
 
-                // Mirrors DiskData.AllDrawsShareModState: state rides along when every stack drawn
-                // from carried the same state, and is dropped when they disagree - not merely when
-                // one stack was drawn. A fake that dropped it on any multi-draw could not catch a
-                // regression that stamps one stack's state onto units from another.
-                string mark = _storage.AllDrawsShareMark(draws) ? _storage._stacks[draws[0].Index].Mark : null;
+                // Mirrors DiskData.ExtractItem: the plan cannot span a state boundary, so the stack
+                // that opened it speaks for every unit drawn.
+                string mark = _storage._stacks[draws[0].Index].Mark;
 
                 var from = new List<Stack>();
                 var units = new List<int>();
@@ -257,15 +255,13 @@ namespace TerraStorage.Tests
                 return new DrawnUnits(diskIndex, _drawnItems.Count - 1, taken, StateGroupOf(mark));
             }
 
+            // Mirrors StorageWorldSystem.DiskWithdrawal.RunIndexOf: consecutive draws sharing a mark
+            // share a group, and a mark that comes back later gets one of its own.
             private int StateGroupOf(string mark)
             {
-                for (int group = 0; group < _stateGroups.Count; group++)
-                {
-                    if (_stateGroups[group] == mark)
-                        return group;
-                }
+                if (_stateGroups.Count == 0 || _stateGroups[_stateGroups.Count - 1] != mark)
+                    _stateGroups.Add(mark);
 
-                _stateGroups.Add(mark);
                 return _stateGroups.Count - 1;
             }
         }
@@ -366,36 +362,37 @@ namespace TerraStorage.Tests
             return slot;
         }
 
-        private bool AllDrawsShareMark(List<StackDraw> draws)
-        {
-            if (draws.Count <= 1)
-                return draws.Count == 1;
-
-            string first = _stacks[draws[0].Index].Mark;
-            for (int index = 1; index < draws.Count; index++)
-            {
-                if (_stacks[draws[index].Index].Mark != first)
-                    return false;
-            }
-
-            return true;
-        }
-
+        // Mirrors DiskData.MatchingSlots: StateGroup numbers the runs of consecutive pooled stacks
+        // that merge into one another, and a stack standing for itself belongs to no run.
         private List<StackSlot> MatchingSlots(int itemType)
         {
             var matching = new List<StackSlot>();
+            Stack previousPooled = null;
+            int runIndex = 0;
+
             for (int index = 0; index < _stacks.Count; index++)
             {
-                if (_stacks[index].Type != itemType)
+                Stack stack = _stacks[index];
+                if (stack.Type != itemType)
                     continue;
+
+                if (!stack.IsUnique)
+                {
+                    if (previousPooled != null && previousPooled.Mark != stack.Mark)
+                        runIndex++;
+
+                    previousPooled = stack;
+                }
 
                 matching.Add(new StackSlot
                 {
                     Index = index,
-                    Stack = _stacks[index].Count,
-                    IsUnique = _stacks[index].IsUnique
+                    Stack = stack.Count,
+                    IsUnique = stack.IsUnique,
+                    StateGroup = runIndex
                 });
             }
+
             return matching;
         }
     }

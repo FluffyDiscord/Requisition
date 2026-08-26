@@ -40,13 +40,13 @@ Not shipped in the `.tmod` (`build.txt` `buildIgnore` covers `*.md`).
 | [03](03-executeplan-unchecked-extract-insert.md) | HIGH | `ExecutePlan` ignored extraction shortfall and insert leftover | `PX-*` |
 | [22](22-aborted-plan-keeps-its-intermediates.md) | HIGH | An aborted craft refunded the materials AND kept what it made | `PX-03c`, `TX-06b` |
 | [04](04-defragment-destroys-per-instance-data.md) | HIGH | `Defragment` destroyed and duplicated per-instance mod data | `DF-*` |
-| [05](05-extractitem-stamps-tag-on-whole-withdrawal.md) | HIGH | `ExtractItem` stamped one stack's tag onto the whole withdrawal | `SL-*` |
+| [05](05-extractitem-stamps-tag-on-whole-withdrawal.md) | HIGH | `ExtractItem` stamped one stack's tag onto the whole withdrawal — and later dropped the tag entirely when the draws disagreed | `SL-*` `SB-*` |
 | [12](12-storagediskbase-clone-drops-fullitemtag.md) | MEDIUM | `StorageDiskBase.Clone` dropped `FullItemTag` | multiplayer |
 | [13](13-partial-deposit-reports-failure.md) | MEDIUM | Partial deposit reported failure, skipping the delta broadcast | `DP-*` |
 | [23d](23-agent-audit-2026-08-25.md) | HIGH | Abort refund overflowed a full network and destroyed materials | `AF-*` |
 | [23e](23-agent-audit-2026-08-25.md) | CRITICAL | Withdrawal routed by a client-supplied index; `-1` broadcast it | multiplayer |
 | [24](24-globaldata-treated-as-item-identity.md) | HIGH | A `globalData` key was read as "this stack is its own item" — nothing ever stacked | `SI-*` |
-| [25](25-craft-costed-against-a-count-it-cannot-withdraw.md) | HIGH | A step paid for twenty units with one `Extract` call and took one — green button, silent no-op | `BD-*` `ID-*` `FX-*` `NW-*` `HB-*` `RF-*` |
+| [25](25-craft-costed-against-a-count-it-cannot-withdraw.md) | HIGH | A step paid for twenty units with one `Extract` call and took one — green button, silent no-op | `BD-*` `ID-*` `FX-*` `NW-*` `HB-*` `RF-*` `SB-*` |
 | [26](26-forged-disk-packets.md) | CRITICAL | A forged `SyncDiskInsert` wiped any player's disk; a wire count sized the server's allocations | `WB-*` `DC-*`, multiplayer |
 
 ## Recipe grid disagreed with the craft button
@@ -114,16 +114,22 @@ encodings are one helper.
 **Resolved 2026-08-26.** The last item here was `Defragment` rescanning the target's stacks for every
 donor stack. `Common/MergeCandidateIndex.cs` closes it — see [23i](23-agent-audit-2026-08-25.md).
 
-Opened 2026-08-26 while closing [25](25-craft-costed-against-a-count-it-cannot-withdraw.md)'s first,
-third and fourth bullets, and recorded there in full: `RefundLedger.Refund` still identifies conjured
-units by their **position** in the ledger, which is the same defect as the `TakeBack` one just
-fixed at the site that runs on every abort; and within a single disk a bulk withdrawal that draws two
-plain stacks carrying different `globalData` still returns them with none. Both are the shape this
-file warns about — one rule, fixed at one of its encodings.
+**Resolved 2026-08-26.** The two divergences opened while closing
+[25](25-craft-costed-against-a-count-it-cannot-withdraw.md)'s first, third and fourth bullets are
+both closed. `RefundLedger.Refund` no longer identifies conjured units by their position in the
+ledger (`RF-*`), and a withdrawal that draws two plain stacks carrying different `globalData` no
+longer returns them with none: the plan ends at the boundary rather than a runtime check dropping
+the state afterwards (`SB-*`). The same pass found the rule was blind on the **prefix** axis too —
+`Matches(type, -1)` matches any prefix, so a crafting draw could stamp one prefix over two stacks —
+and closed that on the same terms.
+
+What is left there is a cost, not a defect, and is recorded in [25]'s `## Not fixed`: a withdrawal
+onto the cursor now hands over the first run of matching state rather than the whole cell, and
+`DiskWithdrawal.PutBack` re-dates the stack it restores.
 
 ## Test suite
 
-`cd Tests && dotnet run` — 667 assertions, zero dependencies, links the shipped source directly.
+`cd Tests && dotnet run` — 703 assertions, zero dependencies, links the shipped source directly.
 The real-game benchmark reads `ts_recipe_dump.txt` from the tModLoader save folder when present
 (produce one in-game with `/tsdump` next to a Terminal); full craftability revalidation over
 14 178 recipes runs in 2 ms. Scenario fixtures live in `Tests/Fixtures/*.tsdump.txt` — scoped
@@ -142,6 +148,7 @@ Suite prefixes, so a failure names its area: `TX`/`PX` transaction, `SL`/`DF` st
 `MX` the defragment merge-candidate index, `DN` the denial vocabulary sent to a refused client,
 `NW` the one-sweep network drain, `HB` taking back the stack the run made rather than the player's,
 `RF` refunding the player's stack rather than whichever was drawn last,
+`SB` a withdrawal ending at the state boundary rather than dropping the state,
 `WB`/`DC` what a packet may claim and how large a count it may declare.
 Also live: `BI`/`SC` blocking ingredient, `DS` duplicate slots, `GM`/`IC` recipe groups,
 `NC` no-op recipes, `PR` pool restore, `PU` preview own-stock, `RS` repeated slots, `SG`/`SI` stack
