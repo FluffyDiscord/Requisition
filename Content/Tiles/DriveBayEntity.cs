@@ -218,11 +218,13 @@ namespace TerraStorage.Content.Tiles
             return true;
         }
 
-        // The slot this disk would land in, or -1 if there is nowhere for it to go.
+        // The slot this disk would land in, or -1 if there is nowhere for it to go. A request for a
+        // slot that exists is taken as a demand for that slot; anything else falls back to the first
+        // free one.
         private int FindInsertionSlot(int requestedSlot)
         {
-            if (requestedSlot >= 0)
-                return requestedSlot < DiskSlotCount && DiskSlots[requestedSlot].IsAir ? requestedSlot : -1;
+            if (requestedSlot >= 0 && requestedSlot < DiskSlotCount)
+                return DiskSlots[requestedSlot].IsAir ? requestedSlot : -1;
 
             for (int i = 0; i < DiskSlotCount; i++)
                 if (DiskSlots[i].IsAir)
@@ -252,13 +254,17 @@ namespace TerraStorage.Content.Tiles
             // none or one minted for this very insertion. Take the items under a GUID of our own
             // rather than refusing: refusing would have to be signalled to the sender, whose copy of
             // the disk is already gone.
-            if (!storage.RegisterDiskWithItems(disk.DiskId, disk.Tier, disk.ArchivedItems))
+            bool restored = storage.RegisterDiskWithItems(disk.DiskId, disk.Tier, disk.ArchivedItems);
+            if (!restored)
             {
                 disk.DiskId = Guid.NewGuid();
-                storage.RegisterDiskWithItems(disk.DiskId, disk.Tier, disk.ArchivedItems);
+                restored = storage.RegisterDiskWithItems(disk.DiskId, disk.Tier, disk.ArchivedItems);
             }
 
-            disk.ArchivedItems.Clear();
+            // Only once the items are somewhere else. Clearing them on a refusal would destroy the
+            // one copy the disk still carries.
+            if (restored)
+                disk.ArchivedItems.Clear();
         }
 
         // Remove a disk from a specific slot. Returns the removed disk item.

@@ -2804,20 +2804,27 @@ namespace TerraStorage.Tests
         {
             Section("DiskClaim - who may name a disk GUID over the wire");
 
-            const bool Empty = true, NotEmpty = false;
+            var Unassigned = Guid.Empty;
+            var SomeDisk = Guid.NewGuid();
             const bool InUse = true, NotInUse = false;
             const bool Held = true, NotHeld = false;
 
-            IsTrue(DiskClaim.SenderMayClaim(Empty, InUse, NotHeld),
+            IsTrue(DiskClaim.SenderMayClaim(Unassigned, InUse, NotHeld),
                 "DC-01 a fresh uninitialised disk is always allowed");
-            IsTrue(DiskClaim.SenderMayClaim(NotEmpty, NotInUse, NotHeld),
+            IsTrue(DiskClaim.SenderMayClaim(SomeDisk, NotInUse, NotHeld),
                 "DC-02 a GUID no physical disk carries is allowed (unarchive mints one client-side)");
-            IsTrue(DiskClaim.SenderMayClaim(NotEmpty, InUse, Held),
+            IsTrue(DiskClaim.SenderMayClaim(SomeDisk, InUse, Held),
                 "DC-03 the sender's own disk is allowed");
-            IsFalse(DiskClaim.SenderMayClaim(NotEmpty, InUse, NotHeld),
+            IsFalse(DiskClaim.SenderMayClaim(SomeDisk, InUse, NotHeld),
                 "DC-04 someone else's live disk is refused");
-            IsTrue(DiskClaim.SenderMayClaim(Empty, InUse, Held),
-                "DC-05 empty short-circuits the in-use scan, which answers true for empty");
+
+            // The scans the caller passes in answer meaninglessly for an empty GUID: "is it in use"
+            // says true so that recovery refuses it, and "does the sender hold one" finds any other
+            // blank disk in their inventory. The empty arm has to win over both.
+            IsTrue(DiskClaim.SenderMayClaim(Unassigned, InUse, Held),
+                "DC-05 empty wins over an in-use scan that answers true for empty");
+            IsTrue(DiskClaim.SenderMayClaim(Unassigned, NotInUse, NotHeld),
+                "DC-05a and over both scans answering false");
 
             IsTrue(DiskClaim.MayRestoreArchivedItems(worldAlreadyHasDisk: false),
                 "DC-06 archived items restore onto a GUID the world does not know");

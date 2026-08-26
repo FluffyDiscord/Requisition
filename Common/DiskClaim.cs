@@ -1,3 +1,5 @@
+using System;
+
 namespace TerraStorage.Common
 {
     // Whether the client that sent a packet may name a particular disk GUID. Disk GUIDs travel to
@@ -6,12 +8,14 @@ namespace TerraStorage.Common
     // taken as arguments so the rule itself can be exercised without Terraria.
     public static class DiskClaim
     {
-        // An empty GUID belongs to nobody yet: the disk is uninitialised and the server is about to
-        // mint one. It has to be its own arm, because the "is this GUID in use" scan deliberately
-        // answers true for empty so that disk recovery refuses it.
-        public static bool SenderMayClaim(bool diskIdIsEmpty, bool diskGuidInUse, bool senderHoldsDisk)
+        // Takes the GUID itself rather than a caller-computed "is it empty" flag, so that the
+        // empty case is decided here and pinned by a test. An empty GUID belongs to nobody yet: the
+        // disk is uninitialised and the server is about to mint one. It has to come first, because
+        // the scans the caller passes in answer meaninglessly for an empty GUID - "is this in use"
+        // deliberately says true for empty so that disk recovery refuses it.
+        public static bool SenderMayClaim(Guid diskId, bool diskGuidInUse, bool senderHoldsDisk)
         {
-            if (diskIdIsEmpty)
+            if (diskId == Guid.Empty)
                 return true;
 
             if (!diskGuidInUse)

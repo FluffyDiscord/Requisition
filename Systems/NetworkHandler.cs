@@ -206,7 +206,7 @@ namespace TerraStorage.Systems
                     var insertedDisk = item.ModItem as StorageDiskBase;
                     if (insertedDisk != null && !SenderMayClaimDisk(whoAmI, insertedDisk.DiskId))
                     {
-                        ReturnDiskToSender(mod, whoAmI, item);
+                        RefuseInsert(mod, whoAmI, sbe, item);
                         return;
                     }
 
@@ -214,17 +214,10 @@ namespace TerraStorage.Systems
                     // so clients can retrieve disk data by the correct GUID via RequestDiskData.
                     if (!sbe.InsertDisk(item, slot))
                     {
-                        // The slot filled before this packet arrived. The sender emptied its cursor
-                        // when it sent, so without this the disk exists nowhere.
-                        ReturnDiskToSender(mod, whoAmI, item);
+                        // The slot filled before this packet arrived.
+                        RefuseInsert(mod, whoAmI, sbe, item);
                         return;
                     }
-
-                    // InsertDisk may have had to mint a GUID of its own; the relay below carries the
-                    // item, not the disk's contents, so push those too or the bay lights read empty
-                    // until someone opens a Terminal.
-                    if (insertedDisk != null)
-                        BroadcastDiskData(mod, new List<Guid> { insertedDisk.DiskId }, -1);
                 }
                 else
                 {
@@ -911,6 +904,11 @@ namespace TerraStorage.Systems
 
             byte[] data = reader.ReadBytes(dataLength);
 
+            // Checked before the buffer below is sized from totalChunks, not after: the same
+            // check-before-you-allocate rule the count bounds exist for.
+            if (totalChunks == 0 || chunkIndex >= totalChunks)
+                return;
+
             if (!_chunkBuffers.TryGetValue(diskId, out var buf) || buf.SeqNum != seqNum)
             {
                 buf = new ChunkBuffer
@@ -923,9 +921,13 @@ namespace TerraStorage.Systems
                 _chunkBuffers[diskId] = buf;
             }
 
-            // The buffer was sized by whichever packet arrived first for this sequence number, so an
-            // index past it is out of range whether it disagrees with this packet or an earlier one.
+            // The buffer may have been sized by an earlier packet claiming a different total.
             if (chunkIndex >= buf.TotalChunks)
+                return;
+
+            // Counting a chunk that already arrived would let a repeat stand in for one still
+            // missing, and the reassembly below would then read a null chunk.
+            if (buf.Chunks[chunkIndex] != null)
                 return;
 
             buf.Chunks[chunkIndex] = data;
@@ -1018,8 +1020,9 @@ namespace TerraStorage.Systems
                 for (int i = 0; i < count; i++)
                 {
                     var data = DiskData.ReadNet(reader);
+                    // Break rather than return: the disks already applied still need the refresh.
                     if (data == null)
-                        return;
+                        break;
 
                     sys.ApplyDiskDataFromNetwork(data);
                     sys.SetDiskSeqNum(data.DiskId, seqNum);
@@ -1471,18 +1474,23 @@ namespace TerraStorage.Systems
         // nothing — either no physical disk carries it, or the sender is the one carrying it.
         private static bool SenderMayClaimDisk(int whoAmI, Guid diskId)
         {
-            bool diskIdIsEmpty = diskId == Guid.Empty;
-            bool diskGuidInUse = !diskIdIsEmpty && IsDiskGuidInUse(diskId);
-            bool senderHoldsDisk = !diskIdIsEmpty && PlayerHoldsDisk(whoAmI, diskId);
+            bool diskGuidInUse = IsDiskGuidInUse(diskId);
+            bool senderHoldsDisk = PlayerHoldsDisk(whoAmI, diskId);
 
-            return DiskClaim.SenderMayClaim(diskIdIsEmpty, diskGuidInUse, senderHoldsDisk);
+            return DiskClaim.SenderMayClaim(diskId, diskGuidInUse, senderHoldsDisk);
         }
 
-        // Hand a refused disk back to the client that sent it. Only ever a Storage Disk: the sender
-        // gave one up to send this packet, and anything else in that slot was never theirs to
-        // receive back.
-        private static void ReturnDiskToSender(Mod mod, int toClient, Item item)
+        // Turn away a disk insert without costing the sender the disk or leaving it believing the
+        // insert happened. Both matter: the client puts the disk into its own copy of the bay and
+        // empties its cursor before the packet is sent, so a refusal that said nothing would leave
+        // that client showing a disk the server does not have, while the disk itself existed nowhere.
+        private static void RefuseInsert(Mod mod, int toClient, DriveBayEntity bay, Item item)
         {
+            if (bay != null)
+                SendSyncDriveBay(mod, bay, toClient);
+
+            // Only ever a Storage Disk. The sender gave one up to send this packet; anything else in
+            // that slot was never theirs to be handed back.
             if (item == null || item.IsAir || item.ModItem is not StorageDiskBase)
                 return;
 

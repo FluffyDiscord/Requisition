@@ -694,7 +694,8 @@ namespace TerraStorage.Systems
         // may only ever create a disk - never overwrite one.
         public bool RegisterDiskWithItems(Guid diskId, DiskTier tier, List<StoredItemStack> items)
         {
-            if (!DiskClaim.MayRestoreArchivedItems(_allDiskData.ContainsKey(diskId)))
+            bool worldAlreadyHasDisk = _allDiskData.ContainsKey(diskId);
+            if (!DiskClaim.MayRestoreArchivedItems(worldAlreadyHasDisk))
                 return false;
 
             var data = new DiskData
