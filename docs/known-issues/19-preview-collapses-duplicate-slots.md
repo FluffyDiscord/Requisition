@@ -49,7 +49,9 @@ slot need=6 -> text '6/6' ORANGE
 
 Tests `DS-001..007`.
 
-## Still open
+## The same double-count reached the list flag too — closed
 
-The **list flag** has the same double-count through a different path — see
-[06](06-list-flag-skips-shared-pool-confirm.md).
+Through a different path: `RecheckRecipeCraftable` skipped the shared-pool confirm when every slot
+looked directly satisfied. Fixed alongside this one by `HasRepeatedIngredientType`, covered by
+`LF-dup*` — see [06](06-list-flag-skips-shared-pool-confirm.md). This section previously said it was
+still open, which stopped being true the day it was written.
