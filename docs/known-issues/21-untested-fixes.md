@@ -59,9 +59,11 @@ none changed shipped behaviour except where it fixed [22](22-aborted-plan-keeps-
 
 ### 1. `ICraftingStorage<TItem>` for the consume/execute transaction — covers 01, 02, 03
 
-`Helpers/Resolver/CraftingTransaction.cs`. Storage reduced to four operations over opaque item
-handles: `CountItem`, `Extract`, `Insert`, `StackOf`. Terraria binds `TItem` to `Item`; the tests
-bind it to a plain class and a dictionary.
+`Helpers/Resolver/CraftingTransaction.cs`. Storage reduced to a handful of operations over opaque
+item handles: `CountItem`, `ExtractStacks`, `ExtractStored`, `Insert`, `StackOf`, `SplitOff`.
+Terraria binds `TItem` to `Item`; the tests bind it to a plain class and a dictionary.
+(`Extract` was replaced by `ExtractStacks` on 2026-08-26 — see
+[25](25-craft-costed-against-a-count-it-cannot-withdraw.md).)
 
 - `RefundLedger<TItem>` — everything taken this run, and putting it back
 - `MaterialConsumer<TItem>` — the all-or-nothing material list behind both disk-upgrade paths
@@ -107,6 +109,24 @@ rows into a 200px body and asserts exactly 5 register.
 `Common/DepositOutcome.cs`. The offered count and the leftover held as one value, with `Deposited`,
 `AnyDeposited` and `NeedsReturn` derived from them, so reading the offered count after overwriting
 it is unspellable. Both deposit sites in `NetworkHandler` build one before touching `item.stack`.
+
+### 6. `NetworkWithdrawal` — covers 25-A, and closes 25-D
+
+`Common/NetworkWithdrawal.cs`, added 2026-08-26. How a withdrawal walks the disks: pooled stock
+first across the whole network, then stacks that each stand for themselves, with a handle opened at
+every state boundary and a `handleLimit` saying how many items the caller can hold. Deciding whether
+two draws may share one item needs NBT and stays on `DiskData`; deciding what to *do* about that
+verdict does not, so the draw reports a `StateGroup` and the rule compares integers.
+
+This is what [25](25-craft-costed-against-a-count-it-cannot-withdraw.md)'s fourth bullet asked for.
+`StorageWorldSystem` and `DiskData` still cannot be linked — they bind `Terraria.Item`,
+`TagCompound` and `Main.*`, exactly as this file said — so the rule came out instead of the files
+going in. `Tests/FakeStorage.cs` runs through it too, so the crafting tests exercise the shipped
+sweep rather than a copy of it.
+
+`Tests/LegacySingleHandleDrain.cs` keeps the pre-change rule so `NW-12` can assert a one-item
+withdrawal still agrees with it across a matrix of layouts — `BuggyPreview`'s trick applied to
+item movement.
 
 ## Still not extracted
 
