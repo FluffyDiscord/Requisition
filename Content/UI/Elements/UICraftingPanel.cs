@@ -1435,9 +1435,14 @@ namespace TerraStorage.Content.UI.Elements
         {
             base.ScrollWheel(evt);
             if (_recipeGridPanel != null && _recipeGridPanel.ContainsPoint(Main.MouseScreen))
-                _recipeScrollTarget -= evt.ScrollWheelValue / 120f * CellSize;
+            {
+                int gridScrollRows = RequisitionClientConfig.GetGridScrollRows();
+                _recipeScrollTarget -= evt.ScrollWheelValue / 120f * CellSize * gridScrollRows;
+            }
             else if (_detailPanel != null && _detailPanel.ContainsPoint(Main.MouseScreen))
+            {
                 _detailScrollTarget -= evt.ScrollWheelValue / 120f * 20f;
+            }
         }
 
         protected override void DrawChildren(SpriteBatch spriteBatch)

@@ -106,7 +106,10 @@ namespace TerraStorage.Content.UI.Elements
         {
             base.ScrollWheel(evt);
             if (_scrollbar != null)
-                _scrollTarget -= evt.ScrollWheelValue / 120f * _cellSize;
+            {
+                int gridScrollRows = RequisitionClientConfig.GetGridScrollRows();
+                _scrollTarget -= evt.ScrollWheelValue / 120f * _cellSize * gridScrollRows;
+            }
         }
 
         public override void Update(GameTime gameTime)

@@ -5,6 +5,7 @@
 - **Lock Recipe toggle** — checkbox in the crafting panel pins crafting to the exact selected recipe variant instead of auto-picking one, so it won't switch recipes mid mass-craft
 - **androLib (Vacuum Bags) support** — optional "Deposit to Requisition" button on vacuum bag UIs that empties the bag into a Terminal's network in range (only appears when androLib is installed)
 - **`/tsdump` command** — diagnostic chat command that dumps the recipe graph and current storage to a file for performance analysis
+- **Grid Scroll Rows setting** — client config option (1-255, default 2) for how many rows one mouse wheel notch scrolls in the item, recipe, disk and NPC grids
 
 ### Changed
 - Held items can now be dropped anywhere in the Storage tab, including empty grid slots

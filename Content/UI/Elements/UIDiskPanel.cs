@@ -205,7 +205,8 @@ namespace TerraStorage.Content.UI.Elements
                 int visibleRows = Math.Max(1, (int)(gridH / ItemCellSize));
                 int totalRows   = (items.Count + cols - 1) / cols;
                 int maxScroll   = Math.Max(0, totalRows - visibleRows);
-                _contentsScroll = Math.Clamp(_contentsScroll + delta, 0, maxScroll);
+                int gridScrollRows = RequisitionClientConfig.GetGridScrollRows();
+                _contentsScroll = Math.Clamp(_contentsScroll + delta * gridScrollRows, 0, maxScroll);
             }
         }
 

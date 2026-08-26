@@ -1300,7 +1300,10 @@ namespace TerraStorage.Content.UI.Encyclopedia
         {
             base.ScrollWheel(evt);
             if (_scrollbar != null)
-                _scrollbar.ViewPosition -= evt.ScrollWheelValue / 120f;
+            {
+                int gridScrollRows = RequisitionClientConfig.GetGridScrollRows();
+                _scrollbar.ViewPosition -= evt.ScrollWheelValue / 120f * gridScrollRows;
+            }
         }
 
         public override void LeftClick(UIMouseEvent evt)

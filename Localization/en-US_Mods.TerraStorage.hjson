@@ -158,6 +158,11 @@ Configs: {
 			Tooltip: Show 'In Storage: X' on item tooltips when a Terminal has been opened
 			Label: In Storage Tooltip
 		}
+
+		GridScrollRows: {
+			Tooltip: How many rows one mouse wheel notch scrolls in item, recipe, disk and NPC grids (1-255)
+			Label: Grid Scroll Rows
+		}
 	}
 }
 
