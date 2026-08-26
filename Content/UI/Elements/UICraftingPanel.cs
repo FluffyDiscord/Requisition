@@ -808,6 +808,14 @@ namespace TerraStorage.Content.UI.Elements
             _currentVariantIndex = 0;
             _recipeHistory.Clear();
             _detailScrollOffset = 0f;
+
+            // The plan describes the recipe that was selected, and the craft button is gated on the
+            // plan alone. Leaving it behind meant clicking the selected recipe a second time and
+            // then CRAFT ran ExecuteCraft with no recipe: a null dereference in single player, and a
+            // silent no-op on a client, where the send path happens to check.
+            _currentPlan = null;
+            _craftIsNoOp = false;
+            _ingredientCache.Clear();
         }
 
         private void SelectRecipe(Recipe recipe, bool canCraft)
