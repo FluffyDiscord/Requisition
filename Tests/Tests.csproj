@@ -28,6 +28,11 @@
     <Compile Include="..\Common\WireCount.cs" />
     <!-- Whether the sender of a packet may name a particular disk GUID. -->
     <Compile Include="..\Common\DiskClaim.cs" />
+    <!-- How close a player has to be to a block to operate it - one origin, not the UI's and the
+         server's disagreeing by the 1.5 tiles between a block's corner and its centre. -->
+    <Compile Include="..\Common\TerminalReach.cs" />
+    <!-- Whether a client may operate a Terminal, and when a disk's world entry may be dropped. -->
+    <Compile Include="..\Common\DiskAccess.cs" />
     <!-- Deposit arithmetic: the pair of numbers a partial deposit has to keep straight. -->
     <Compile Include="..\Common\DepositOutcome.cs" />
     <!-- Why a storage operation was refused: the wire codes, the decisions behind them, and the
