@@ -59,3 +59,24 @@ Extraction is two passes: plain stacks are drained first, and a stack with per-i
 Disks still extract correctly: every disk stack is unique, so the fallback pass takes exactly one.
 
 Needs in-game testing: withdraw a large stack from a network that also holds one enchanted copy; withdraw and re-insert a storage disk.
+
+## The same harm, inverted — closed 2026-08-26
+
+The fix above stops one stack's state being stamped onto units from another. It left the opposite
+loss open one level down, and [24](24-globaldata-treated-as-item-identity.md) made it reachable by
+letting stacks that carry mod-written bytes pool: `DiskData.ExtractItem` decided *after* planning
+whether the stacks it had drawn from agreed, and when they did not it dropped the state from all of
+them. Two plain stacks with different `globalData` drawn in one withdrawal came back carrying
+neither. Prefix was the same story — `Matches(type, -1)` matches any prefix, so a crafting draw
+could span two and stamp one over both.
+
+The rule no longer runs after the plan; it *is* the plan. `StackSelection.PlanWithdrawal` ends its
+plain pass at the first stack outside the run it opened, on `DiskData.CanMergeStacks` — prefix and
+mod state together — so a withdrawal can neither mix states nor lose them, and the caller's handle
+budget decides whether the next run opens another item or ends the sweep. See
+[25](25-craft-costed-against-a-count-it-cannot-withdraw.md), "the plan ends at the boundary". The
+cost is that a one-item withdrawal now hands over the first run rather than the whole cell; that is
+recorded there too.
+
+Verified by `SB-*` alongside the `SL-*` assertions above, which still pin this issue's own rule
+unchanged.

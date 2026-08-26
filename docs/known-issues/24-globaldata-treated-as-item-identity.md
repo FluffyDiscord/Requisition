@@ -63,13 +63,21 @@ Plain stacks carry a tag too now that they pool, so keeping it is worth doing �
 stack's state onto units drawn from another is
 [05](05-extractitem-stamps-tag-on-whole-withdrawal.md) all over again.
 
+**Superseded 2026-08-26.** Deciding that *after* planning left only one lever when the draws
+disagreed — drop the state from all of them — so making these stacks pool made a mixed withdrawal
+return them with none. The plan itself now ends at the first stack outside the run it opened, so the
+question no longer arises: see
+[25](25-craft-costed-against-a-count-it-cannot-withdraw.md), "the plan ends at the boundary".
+
 ## Accepted, not fixed
 
 The terminal grid pools on type and prefix. An item a mod keeps per-instance state on **without**
 declaring it through `CanStack` — Calamity's `Charge` and `AppliedEnchantment` are the live example
 — is therefore poolable, so a charged copy shares a cell with plain ones and cannot be picked out
-of that cell deliberately. Its state is not lost: `ExtractItem` hands the tag back when the draw
-does not mix states. Keying the grid on mod state as well was tried and reverted — it produces
+of that cell deliberately. Its state is not lost: since 2026-08-26 a draw cannot mix states at all,
+so `ExtractItem` always hands the tag back — the cell is drawn a run at a time instead, which
+[25](25-craft-costed-against-a-count-it-cannot-withdraw.md) records. Keying the grid on mod state as
+well was tried and reverted — it produces
 cells that draw identically, are not individually addressable (withdrawal routes on type and prefix
 alone), and desynchronise from delta sync, which buckets the same way. Making them addressable
 means carrying the state key through `MatchingSlots` and `DeltaItemEntry`, i.e. a wire-format
