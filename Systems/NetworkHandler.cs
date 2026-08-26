@@ -201,9 +201,30 @@ namespace TerraStorage.Systems
                 sbe = blockEntity;
                 if (Main.netMode == NetmodeID.Server)
                 {
+                    // The GUID on this item came off the wire, and every client is told every
+                    // disk's GUID, so naming one proves nothing about whose disk it is.
+                    var insertedDisk = item.ModItem as StorageDiskBase;
+                    if (insertedDisk != null && !SenderMayClaimDisk(whoAmI, insertedDisk.DiskId))
+                    {
+                        ReturnDiskToSender(mod, whoAmI, item);
+                        return;
+                    }
+
                     // InsertDisk assigns the GUID and registers the disk in StorageWorldSystem
                     // so clients can retrieve disk data by the correct GUID via RequestDiskData.
-                    sbe.InsertDisk(item, slot);
+                    if (!sbe.InsertDisk(item, slot))
+                    {
+                        // The slot filled before this packet arrived. The sender emptied its cursor
+                        // when it sent, so without this the disk exists nowhere.
+                        ReturnDiskToSender(mod, whoAmI, item);
+                        return;
+                    }
+
+                    // InsertDisk may have had to mint a GUID of its own; the relay below carries the
+                    // item, not the disk's contents, so push those too or the bay lights read empty
+                    // until someone opens a Terminal.
+                    if (insertedDisk != null)
+                        BroadcastDiskData(mod, new List<Guid> { insertedDisk.DiskId }, -1);
                 }
                 else
                 {
@@ -286,6 +307,10 @@ namespace TerraStorage.Systems
             int slot = reader.ReadInt32();
             var item = ItemIO.Receive(reader, true);
 
+            // Fixed-size array, index off the wire — the same guard the disk slots carry.
+            if (slot < 0 || slot >= CraftingCoreEntity.StationSlotCount)
+                return;
+
             if (Terraria.DataStructures.TileEntity.ByID.TryGetValue(entityId, out var entity)
                 && entity is CraftingCoreEntity cce)
             {
@@ -308,6 +333,10 @@ namespace TerraStorage.Systems
         {
             int entityId = reader.ReadInt32();
             int slot = reader.ReadInt32();
+
+            // Fixed-size array, index off the wire — see HandleSyncStationInsert.
+            if (slot < 0 || slot >= CraftingCoreEntity.StationSlotCount)
+                return;
 
             if (Terraria.DataStructures.TileEntity.ByID.TryGetValue(entityId, out var entity)
                 && entity is CraftingCoreEntity cce)
@@ -584,6 +613,9 @@ namespace TerraStorage.Systems
 
         private static void HandleWithdrawItemResult(BinaryReader reader)
         {
+            // Server → client only. Main.LocalPlayer on a dedicated server is the dummy player.
+            if (Main.netMode != NetmodeID.MultiplayerClient) return;
+
             var item = ItemIO.Receive(reader, true);
             bool shift = reader.ReadBoolean();
 
@@ -1014,6 +1046,9 @@ namespace TerraStorage.Systems
 
         private static void HandleSyncDriveBay(Mod mod, BinaryReader reader, int whoAmI)
         {
+            // Server → client only. Without this a client could rewrite all 40 slots of any bay.
+            if (Main.netMode != NetmodeID.MultiplayerClient) return;
+
             int entityId = reader.ReadInt32();
             if (Terraria.DataStructures.TileEntity.ByID.TryGetValue(entityId, out var entity)
                 && entity is DriveBayEntity sbe)
@@ -1430,6 +1465,29 @@ namespace TerraStorage.Systems
 
         // 15 tiles, matching the range quick-stack and position-deposit already enforce.
         private const float TerminalRangeSq = 240f * 240f;
+
+        // Whether the client that sent a packet may name this disk GUID. Disk GUIDs reach every
+        // client (StorageDiskBase.NetSend sends all 16 bytes), so the GUID itself establishes
+        // nothing — either no physical disk carries it, or the sender is the one carrying it.
+        private static bool SenderMayClaimDisk(int whoAmI, Guid diskId)
+        {
+            bool diskIdIsEmpty = diskId == Guid.Empty;
+            bool diskGuidInUse = !diskIdIsEmpty && IsDiskGuidInUse(diskId);
+            bool senderHoldsDisk = !diskIdIsEmpty && PlayerHoldsDisk(whoAmI, diskId);
+
+            return DiskClaim.SenderMayClaim(diskIdIsEmpty, diskGuidInUse, senderHoldsDisk);
+        }
+
+        // Hand a refused disk back to the client that sent it. Only ever a Storage Disk: the sender
+        // gave one up to send this packet, and anything else in that slot was never theirs to
+        // receive back.
+        private static void ReturnDiskToSender(Mod mod, int toClient, Item item)
+        {
+            if (item == null || item.IsAir || item.ModItem is not StorageDiskBase)
+                return;
+
+            SendReturnItemToClient(mod, toClient, item);
+        }
 
         // True if this player physically holds a Storage Disk carrying that GUID.
         private static bool PlayerHoldsDisk(int whoAmI, Guid diskId)

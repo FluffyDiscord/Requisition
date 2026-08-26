@@ -183,8 +183,11 @@ namespace TerraStorage.Content.Tiles
             return ids;
         }
 
-        // Try to insert a disk into the first available slot.
-        // Returns true if successful.
+        // Try to insert a disk into the given slot, or the first available one.
+        // Returns true if successful. A false return leaves the world exactly as it was: the slot is
+        // resolved before anything is registered, because the caller that syncs this over the network
+        // tells every client the slot's contents afterwards, and a half-completed insert there costs
+        // the sender their disk.
         public bool InsertDisk(Item diskItem, int slot = -1)
         {
             if (diskItem == null || diskItem.IsAir || diskItem.ModItem is not StorageDiskBase disk)
@@ -196,66 +199,66 @@ namespace TerraStorage.Content.Tiles
 
             InitializeSlots();
 
+            int targetSlot = FindInsertionSlot(slot);
+            if (targetSlot < 0)
+                return false;
+
             // Assign a GUID the first time a disk enters a Drive Bay. This is the canonical
             // point at which a disk becomes a storage identity in StorageWorldSystem.
             if (disk.DiskId == Guid.Empty)
-            {
                 disk.DiskId = Guid.NewGuid();
 
-                if (Main.netMode != NetmodeID.MultiplayerClient)
-                {
-                    if (disk.ArchivedItems.Count > 0)
-                    {
-                        // Restore items from an unarchived disk into this world's storage.
-                        StorageWorldSystem.Instance?.RegisterDiskWithItems(disk.DiskId, disk.Tier, disk.ArchivedItems);
-                        disk.ArchivedItems.Clear();
-                    }
-                    else
-                    {
-                        StorageWorldSystem.Instance?.RegisterDisk(disk.DiskId, disk.Tier);
-                    }
-                }
-                // MP client: GUID assigned but ArchivedItems left intact so they are
-                // serialized in the SyncDiskInsert packet. The server handles restoration.
-            }
-            else if (Main.netMode != NetmodeID.MultiplayerClient)
-            {
-                // Disk already has a GUID — either a normal re-insert, a world-load, or
-                // a client-assigned GUID arriving via SyncDiskInsert with ArchivedItems.
-                if (disk.ArchivedItems.Count > 0)
-                {
-                    StorageWorldSystem.Instance?.RegisterDiskWithItems(disk.DiskId, disk.Tier, disk.ArchivedItems);
-                    disk.ArchivedItems.Clear();
-                }
-                else
-                {
-                    StorageWorldSystem.Instance?.RegisterDisk(disk.DiskId, disk.Tier);
-                    StorageWorldSystem.Instance?.UpgradeDisk(disk.DiskId, disk.Tier);
-                }
-            }
+            // On an MP client the GUID is assigned but ArchivedItems are left intact, so they are
+            // serialized into the SyncDiskInsert packet and the server does the restoring.
+            if (Main.netMode != NetmodeID.MultiplayerClient)
+                RegisterInWorldStorage(disk);
 
-            if (slot >= 0 && slot < DiskSlotCount)
-            {
-                if (DiskSlots[slot].IsAir)
-                {
-                    DiskSlots[slot] = diskItem.Clone();
-                    RefreshVisualState(IsConnected);
-                    return true;
-                }
-                return false;
-            }
+            DiskSlots[targetSlot] = diskItem.Clone();
+            RefreshVisualState(IsConnected);
+            return true;
+        }
+
+        // The slot this disk would land in, or -1 if there is nowhere for it to go.
+        private int FindInsertionSlot(int requestedSlot)
+        {
+            if (requestedSlot >= 0)
+                return requestedSlot < DiskSlotCount && DiskSlots[requestedSlot].IsAir ? requestedSlot : -1;
 
             for (int i = 0; i < DiskSlotCount; i++)
-            {
                 if (DiskSlots[i].IsAir)
-                {
-                    DiskSlots[i] = diskItem.Clone();
-                    RefreshVisualState(IsConnected);
-                    return true;
-                }
+                    return i;
+
+            return -1;
+        }
+
+        // Give this disk its entry in world storage. Server and singleplayer only — clients receive
+        // disk data over the network.
+        private static void RegisterInWorldStorage(StorageDiskBase disk)
+        {
+            var storage = StorageWorldSystem.Instance;
+            if (storage == null)
+                return;
+
+            if (disk.ArchivedItems.Count == 0)
+            {
+                storage.RegisterDisk(disk.DiskId, disk.Tier);
+                storage.UpgradeDisk(disk.DiskId, disk.Tier);
+                return;
             }
 
-            return false;
+            // Restoring an unarchived disk replaces everything the GUID held, and the GUID arrived on
+            // an item that crossed the network. If it already names a disk, the honest explanations
+            // are exhausted — archiving always clears the GUID, so an unarchived disk carries either
+            // none or one minted for this very insertion. Take the items under a GUID of our own
+            // rather than refusing: refusing would have to be signalled to the sender, whose copy of
+            // the disk is already gone.
+            if (!storage.RegisterDiskWithItems(disk.DiskId, disk.Tier, disk.ArchivedItems))
+            {
+                disk.DiskId = Guid.NewGuid();
+                storage.RegisterDiskWithItems(disk.DiskId, disk.Tier, disk.ArchivedItems);
+            }
+
+            disk.ArchivedItems.Clear();
         }
 
         // Remove a disk from a specific slot. Returns the removed disk item.

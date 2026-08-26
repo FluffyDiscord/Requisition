@@ -689,8 +689,14 @@ namespace TerraStorage.Systems
 
         // Register a disk with a pre-existing item list (used when an unarchived disk is
         // first inserted into a Drive Bay to restore its items into this world).
-        public void RegisterDiskWithItems(Guid diskId, DiskTier tier, List<StoredItemStack> items)
+        // Returns false when the GUID already names a disk. Restoring replaces everything the GUID
+        // held, and the GUID reaching here came off a disk item that crossed the network, so this
+        // may only ever create a disk - never overwrite one.
+        public bool RegisterDiskWithItems(Guid diskId, DiskTier tier, List<StoredItemStack> items)
         {
+            if (!DiskClaim.MayRestoreArchivedItems(_allDiskData.ContainsKey(diskId)))
+                return false;
+
             var data = new DiskData
             {
                 DiskId = diskId,
@@ -700,12 +706,18 @@ namespace TerraStorage.Systems
             _allDiskData[diskId] = data;
             StorageVersion++;
             BackupSystem.MarkDirty();
+            return true;
         }
 
         // Applies a DiskData received from the server, replacing any local copy.
         // Used by clients in multiplayer to stay in sync with the authoritative server state.
+        // Guarded here rather than at each caller: this replaces a whole disk, so a handler that
+        // forgets its own netMode check must not be able to let a client rewrite server storage.
         public void ApplyDiskDataFromNetwork(DiskData data)
         {
+            if (Terraria.Main.netMode != Terraria.ID.NetmodeID.MultiplayerClient)
+                return;
+
             if (data == null)
                 return;
 
@@ -718,6 +730,13 @@ namespace TerraStorage.Systems
         {
             if (_allDiskData.TryGetValue(diskId, out var data))
             {
+                // Upgrades only ever go up. The stale-tier case this exists to correct is a disk
+                // whose world entry lags the item, never the reverse - and a disk item claiming a
+                // lower tier came off the network, where lowering a disk below what it already
+                // holds is a way to break it rather than a way to fix it.
+                if (newTier < data.Tier)
+                    return;
+
                 // No-op when the tier is unchanged. This is called for every disk on every disk-
                 // connection refresh (~every 2s while a Terminal is open) to defensively sync the
                 // tier; bumping StorageVersion / marking the backup dirty here forced a full UI
