@@ -1239,7 +1239,6 @@ namespace TerraStorage.Systems
         private static void HandleDefragRequest(Mod mod, BinaryReader reader, int whoAmI)
         {
             int count = reader.ReadInt32();
-            var diskIds = ReadGuidList(reader, count);
 
             if (Main.netMode != NetmodeID.Server) return;
 
@@ -1250,11 +1249,24 @@ namespace TerraStorage.Systems
             // list — in an attacker-chosen order — drains one player's disk into another's.
             // Only disks the sender is actually standing at may take part.
             var reachable = GetReachableDiskIds(whoAmI);
+
+            // The count is read straight off the wire, and ReadGuidList pre-sizes a list from it:
+            // left unbounded that is a remote out-of-memory. A defrag can never involve more disks
+            // than the sender can reach, so that is the ceiling.
+            if (count < 0 || count > reachable.Count) return;
+
+            var diskIds = ReadGuidList(reader, count);
             foreach (var diskId in diskIds)
             {
                 if (!reachable.Contains(diskId))
                     return;
             }
+
+            // Every id passing the reachability check does not make the list a defrag request: one
+            // reachable id repeated fills it legally, and Defragment's sweep is quadratic in the
+            // number of disks. A real request names each disk once.
+            var distinctDiskIds = new HashSet<Guid>(diskIds);
+            if (distinctDiskIds.Count != diskIds.Count) return;
 
             var modified = sys.Defragment(diskIds);
             if (modified.Count > 0)
