@@ -81,6 +81,7 @@ namespace TerraStorage.Tests
             BandOfDoorIsPayableFromStacksThatStandAlone();
             SeparateStacksKeepTheirStateThroughARefund();
             BandOfDoorFixtureBuildsTheReportedPlan();
+            NetworkDrainsInOneSweep();
 
             Console.WriteLine($"\n=== {_pass} passed, {_fail} failed ===");
             if (_fail > 0)
@@ -2750,6 +2751,165 @@ namespace TerraStorage.Tests
             var pastTheDisk = StackSelection.PlanWithdrawal(
                 new[] { disk, fruit }, 2, allowUniqueFallback: true, out _);
             Eq(pastTheDisk.Sum(d => d.Count), 1, "SI-08 a stack that stands for itself is not drained into a count");
+        }
+
+        // ---- One sweep of the network, one handle per group of units that share state ----
+        // Issue 25-A: a step needing N units called Extract N times, and every call walked every
+        // disk. The sweep now drains up to `count` in one pass and hands back a handle per state
+        // boundary, so nothing has to ask again - and a caller that can hold several items gets both
+        // disks' units instead of stopping at the first boundary.
+        private static void NetworkDrainsInOneSweep()
+        {
+            Section("A withdrawal drains the whole network in one sweep");
+            const int unlimited = int.MaxValue;
+
+            var standaloneOnly = new FakeDiskNetwork().WithDisk().WithDisk().WithDisk();
+            standaloneOnly.WithStandalone(0, 1).WithStandalone(1, 1).WithStandalone(2, 1);
+            var drawn = NetworkWithdrawal.Drain(standaloneOnly, 3, unlimited);
+            Eq(drawn.Count, 3, "NW-01 three stacks that each stand for themselves come back as three handles");
+            Eq(TotalUnits(drawn), 3, "NW-01a paying for all three units");
+
+            var mixed = new FakeDiskNetwork().WithDisk().WithDisk();
+            mixed.WithPooled(0, 4, "A").WithStandalone(1, 6);
+            var mixedDraw = NetworkWithdrawal.Drain(mixed, 10, unlimited);
+            Eq(mixed.PooledDraws, 2, "NW-02 the network is swept for pooled stock exactly once");
+            // Two pooled draws, one empty probe at the drained disk, then one per stack taken: nine
+            // for ten units across two disks, where asking per unit would have made twenty.
+            Eq(mixed.TotalDraws, 9, "NW-02a and asked nine times in total, not once per unit");
+            Eq(TotalUnits(mixedDraw), 10, "NW-02b for all ten units");
+
+            var samePool = new FakeDiskNetwork().WithDisk().WithDisk();
+            samePool.WithPooled(0, 7, "A").WithPooled(1, 9, "A");
+            Eq(NetworkWithdrawal.Drain(samePool, 12, unlimited).Count, 1,
+                "NW-03 pooled stock sharing one state folds into a single handle");
+
+            var samePoolCapped = new FakeDiskNetwork().WithDisk().WithDisk();
+            samePoolCapped.WithPooled(0, 7, "A").WithPooled(1, 9, "A");
+            var capped = NetworkWithdrawal.Drain(samePoolCapped, 12, 1);
+            Eq(capped.Count, 1, "NW-04 and still one handle for a caller that can only hold one");
+            Eq(TotalUnits(capped), 12, "NW-04a carrying all twelve units");
+
+            // The reported cross-disk case: one disk's state must not be stamped over the other's,
+            // but a caller holding two items loses nothing by taking both.
+            var twoStates = new FakeDiskNetwork().WithDisk().WithDisk();
+            twoStates.WithPooled(0, 7, "A").WithPooled(1, 9, "B");
+            var split = NetworkWithdrawal.Drain(twoStates, 12, unlimited);
+            Eq(split.Count, 2, "NW-05 a disk whose state differs opens a second handle");
+            Eq(TotalUnits(split), 12, "NW-05a so both disks pay into the same withdrawal");
+
+            var twoStatesCapped = new FakeDiskNetwork().WithDisk().WithDisk();
+            twoStatesCapped.WithPooled(0, 7, "A").WithPooled(1, 9, "B");
+            var stopped = NetworkWithdrawal.Drain(twoStatesCapped, 12, 1);
+            Eq(TotalUnits(stopped), 7, "NW-06 one item handle still stops at the state boundary");
+            Eq(twoStatesCapped.UnitsOn(1), 9, "NW-06a with the second disk's draw put back");
+            Eq(twoStatesCapped.SlotsOn(1), 1, "NW-06b into the slot it came from");
+
+            var pooledThenStandalone = new FakeDiskNetwork().WithDisk().WithDisk();
+            pooledThenStandalone.WithPooled(0, 4, "A").WithStandalone(1, 6);
+            var followed = NetworkWithdrawal.Drain(pooledThenStandalone, 10, unlimited);
+            Eq(TotalUnits(followed), 10, "NW-07 stacks that stand alone are drawn after pooled stock");
+            Eq(followed.Count, 7, "NW-07a each as its own handle");
+
+            var pooledThenStandaloneCapped = new FakeDiskNetwork().WithDisk().WithDisk();
+            pooledThenStandaloneCapped.WithPooled(0, 4, "A").WithStandalone(1, 6);
+            var suppressed = NetworkWithdrawal.Drain(pooledThenStandaloneCapped, 10, 1);
+            Eq(TotalUnits(suppressed), 4, "NW-08 a caller already holding an item refuses the fallback");
+            Eq(pooledThenStandaloneCapped.UnitsOn(1), 6, "NW-08a leaving every standalone stack alone");
+
+            // Fold into the most recent handle only. Folding into any earlier matching one would
+            // return two handles here, changing what RefundLedger.Refund withholds from the end.
+            var alternating = new FakeDiskNetwork().WithDisk().WithDisk().WithDisk();
+            alternating.WithPooled(0, 10, "A").WithPooled(1, 10, "B").WithPooled(2, 10, "A");
+            Eq(NetworkWithdrawal.Drain(alternating, 30, unlimited).Count, 3,
+                "NW-09 a state that comes back later opens a new handle rather than rejoining the first");
+
+            Eq(NetworkWithdrawal.Drain(mixed, 0, unlimited).Count, 0, "NW-10a nothing asked for, nothing drawn");
+            Eq(NetworkWithdrawal.Drain(mixed, 5, 0).Count, 0, "NW-10b no handle to hold it, nothing drawn");
+            Eq(NetworkWithdrawal.Drain(new FakeDiskNetwork(), 5, unlimited).Count, 0, "NW-10c an empty network draws nothing");
+
+            var short1 = new FakeDiskNetwork().WithDisk();
+            short1.WithPooled(0, 12, "A");
+            Eq(TotalUnits(NetworkWithdrawal.Drain(short1, 50, unlimited)), 12, "NW-10d a short network never over-draws");
+
+            // Sweep the handle budget contiguously rather than sampling it: issue 20 shipped a
+            // passing test over a defect because the only divergent value was never tried.
+            bool everyBudgetHolds = true;
+            for (int budget = 0; budget <= 13; budget++)
+            {
+                var swept = new FakeDiskNetwork().WithDisk();
+                swept.WithStandalone(0, 12);
+                var handles = NetworkWithdrawal.Drain(swept, 12, budget);
+                int expected = budget < 12 ? budget : 12;
+                if (handles.Count != expected || TotalUnits(handles) != expected)
+                    everyBudgetHolds = false;
+            }
+            IsTrue(everyBudgetHolds, "NW-11 every handle budget from 0 to 13 draws exactly what it can hold");
+
+            IsTrue(SingleHandleDrainMatchesLegacy(), "NW-12 one-handle drains still agree with the pre-change rule on every layout");
+
+            // A put-back leaves the disk for the next draw to find. This is the one shape where the
+            // one-sweep drain and the old per-call loop could have diverged.
+            var reDrawn = new FakeDiskNetwork().WithDisk().WithDisk();
+            reDrawn.WithPooled(0, 5, "A").WithPooled(1, 6, "B");
+            NetworkWithdrawal.Drain(reDrawn, 11, 1);
+            Eq(reDrawn.TotalUnits, 6, "NW-13 what a put-back restored is still there for the next draw");
+        }
+
+        private static int TotalUnits(List<WithdrawalHandle> handles)
+        {
+            int total = 0;
+            foreach (WithdrawalHandle handle in handles)
+                total += handle.Units;
+            return total;
+        }
+
+        // Holds the rewritten sweep against the rule it replaced across a matrix of layouts, rather
+        // than at the handful of points a reader would think to pick.
+        private static bool SingleHandleDrainMatchesLegacy()
+        {
+            var layouts = new List<Func<FakeDiskNetwork>>
+            {
+                () => Layout(net => net.WithPooled(0, 7, "A").WithPooled(1, 9, "A"), 2),
+                () => Layout(net => net.WithPooled(0, 7, "A").WithPooled(1, 9, "B"), 2),
+                () => Layout(net => net.WithPooled(0, 7, "B").WithPooled(1, 9, "A"), 2),
+                () => Layout(net => net.WithStandalone(0, 3).WithStandalone(1, 4), 2),
+                () => Layout(net => net.WithPooled(0, 4, "A").WithStandalone(1, 6), 2),
+                () => Layout(net => net.WithStandalone(0, 6).WithPooled(1, 4, "A"), 2),
+                () => Layout(net => net.WithPooled(1, 9, "A"), 2),
+                () => Layout(net => net.WithPooled(0, 10, "A").WithPooled(2, 10, "B"), 3),
+                () => Layout(net => net.WithPooled(0, 3, "A").WithPooled(1, 3, "A").WithPooled(2, 3, "B"), 3),
+                () => Layout(net => net.WithStandalone(0, 2, 3).WithPooled(1, 5, "A"), 2),
+                () => Layout(net => net, 2)
+            };
+
+            foreach (var layout in layouts)
+            {
+                for (int count = 0; count <= 20; count++)
+                {
+                    var rewritten = NetworkWithdrawal.Drain(layout(), count, 1);
+                    var legacy = LegacySingleHandleDrain.Drain(layout(), count);
+
+                    if (rewritten.Count != legacy.Count || TotalUnits(rewritten) != TotalUnits(legacy))
+                        return false;
+
+                    for (int handle = 0; handle < rewritten.Count; handle++)
+                    {
+                        if (rewritten[handle].Units != legacy[handle].Units
+                            || rewritten[handle].Draws.Count != legacy[handle].Draws.Count)
+                            return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private static FakeDiskNetwork Layout(Func<FakeDiskNetwork, FakeDiskNetwork> stock, int diskCount)
+        {
+            var network = new FakeDiskNetwork();
+            for (int disk = 0; disk < diskCount; disk++)
+                network.WithDisk();
+            return stock(network);
         }
 
         private static void Section(string title) => Console.WriteLine($"-- {title}");
