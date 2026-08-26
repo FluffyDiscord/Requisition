@@ -82,6 +82,7 @@ namespace TerraStorage.Tests
             SeparateStacksKeepTheirStateThroughARefund();
             BandOfDoorFixtureBuildsTheReportedPlan();
             NetworkDrainsInOneSweep();
+            TakeBackRecoversTheRunsOwnStack();
 
             Console.WriteLine($"\n=== {_pass} passed, {_fail} failed ===");
             if (_fail > 0)
@@ -1880,7 +1881,7 @@ namespace TerraStorage.Tests
             var crafting = new MaterialConsumer<FakeItem>(craftable, (type, need) =>
             {
                 craftRequests.Add((type, need));
-                craftable.Extract(SAND, 12);
+                craftable.ExtractStacks(SAND, 12);
                 return new FakeItem { Type = GLASS, Stack = 6 };
             });
             IsTrue(crafting.TryConsume(new[] { (GLASS, 10) }), "TX-04 a craftable shortfall is crafted and consumed");
@@ -2751,6 +2752,90 @@ namespace TerraStorage.Tests
             var pastTheDisk = StackSelection.PlanWithdrawal(
                 new[] { disk, fruit }, 2, allowUniqueFallback: true, out _);
             Eq(pastTheDisk.Sum(d => d.Count), 1, "SI-08 a stack that stands for itself is not drained into a count");
+        }
+
+        // ---- Taking back what the run made, not what the player owned ----
+        // Issue 25-C: recovering a conjured product by TYPE draws in storage order, and for a type
+        // whose stacks each stand for themselves that is whichever sorts first - the player's own as
+        // readily as the one this run conjured. The units balanced; the identity did not.
+        private static void TakeBackRecoversTheRunsOwnStack()
+        {
+            Section("Recovering a conjured product takes the run's stack, not the player's");
+            const int CHARM = 7, IRON = 3, GOLD = 8, TARGET = 4, PLANK = 9;
+
+            var abandoned = new FakeStorage()
+                .WithUniqueType(CHARM)
+                .WithUniqueStack(CHARM, 1, "own")
+                .With(IRON, 2);
+
+            // The run makes a charm, then cannot pay for the step that would have consumed it.
+            var chain = Steps(
+                (new[] { (IRON, 2) }, CHARM, 1),
+                (new[] { (GOLD, 1) }, TARGET, 1));
+            new PlanExecutor<FakeItem>(abandoned).Run(chain, 1, new FakeStepProducer(chain, "made"));
+
+            string survivor = string.Join(",", abandoned.MarksOf(CHARM));
+            Check(survivor == "own",
+                $"HB-01 the charm left standing is the player's, not the run's copy  [got {survivor}]");
+            Eq(abandoned.CountItem(CHARM), 1, "HB-02 with the conjured one taken back");
+            Eq(abandoned.CountItem(IRON), 2, "HB-02a and the iron it was made from refunded");
+
+            // The same recovery reached through a full store: only part of the intermediate lands,
+            // so what did land has to come back before the materials can be refunded.
+            var full = new FakeStorage()
+                .WithUniqueType(CHARM)
+                .WithUniqueStack(CHARM, 1, "own")
+                .With(IRON, 1);
+            full.Capacity = 3;
+
+            var overflowing = Steps(
+                (new[] { (IRON, 1) }, CHARM, 3),
+                (new[] { (GOLD, 1) }, TARGET, 1));
+            new PlanExecutor<FakeItem>(full).Run(overflowing, 1, new FakeStepProducer(overflowing, "made"));
+
+            string keptThroughOverflow = string.Join(",", full.MarksOf(CHARM));
+            Check(keptThroughOverflow == "own",
+                $"HB-03 a part-stored intermediate is recovered by handle too  [got {keptThroughOverflow}]");
+            Eq(full.CountItem(IRON), 1, "HB-03a with its materials put back");
+
+            // And through the material consumer, the second place the same recovery runs.
+            var consumed = new FakeStorage()
+                .WithUniqueType(CHARM)
+                .WithUniqueStack(CHARM, 1, "own");
+            consumed.Capacity = 3;
+
+            var consumer = new MaterialConsumer<FakeItem>(consumed,
+                (type, need) => new FakeItem { Type = CHARM, Stack = 3, Mark = "made" });
+            IsFalse(consumer.TryConsume(new[] { (CHARM, 4) }), "HB-04 a shortfall that will not fit fails the consume");
+
+            string keptThroughConsumer = string.Join(",", consumed.MarksOf(CHARM));
+            Check(keptThroughConsumer == "own",
+                $"HB-04a and the player's charm is still the one in storage  [got {keptThroughConsumer}]");
+
+            // Plain units are interchangeable, so there is no handle to match and nothing changes.
+            var plain = new FakeStorage().With(PLANK, 3).With(IRON, 2);
+            var plainChain = Steps(
+                (new[] { (IRON, 2) }, PLANK, 2),
+                (new[] { (GOLD, 1) }, TARGET, 1));
+            new PlanExecutor<FakeItem>(plain).Run(plainChain, 1, new FakeStepProducer(plainChain));
+
+            Eq(plain.CountItem(PLANK), 3, "HB-05 a plain conjured stack is still taken back by type");
+            Eq(plain.CountItem(IRON), 2, "HB-05a with its materials refunded");
+
+            // A stack carrying the same state but holding more than this run stored also holds units
+            // the player owned. Taking it whole to recover one unit would destroy the rest.
+            var shared = new FakeStorage()
+                .WithUniqueType(CHARM)
+                .WithUniqueStack(CHARM, 3, "shared")
+                .With(IRON, 2);
+
+            var sharedChain = Steps(
+                (new[] { (IRON, 2) }, CHARM, 1),
+                (new[] { (GOLD, 1) }, TARGET, 1));
+            new PlanExecutor<FakeItem>(shared).Run(sharedChain, 1, new FakeStepProducer(sharedChain, "shared"));
+
+            Eq(shared.CountItem(CHARM), 3, "HB-06 a matching stack bigger than the run stored is left whole");
+            Eq(shared.MarksOf(CHARM).Count, 1, "HB-06a with only the conjured stack taken back");
         }
 
         // ---- One sweep of the network, one handle per group of units that share state ----

@@ -675,7 +675,14 @@ namespace TerraStorage.Helpers
 
             public int CountItem(int itemType) => StorageWorldSystem.Instance.CountItem(_diskList, itemType);
 
-            public Item Extract(int itemType, int amount) => StorageWorldSystem.Instance.ExtractItem(_diskList, itemType, amount);
+            public List<Item> ExtractStacks(int itemType, int amount)
+                => StorageWorldSystem.Instance.ExtractItemStacks(_diskList, itemType, amount);
+
+            public int ExtractStored(Item stored, int count)
+            {
+                Item recovered = StorageWorldSystem.Instance.ExtractStoredItem(_diskList, stored, count);
+                return recovered.IsAir ? 0 : recovered.stack;
+            }
 
             public int Insert(Item item) => StorageWorldSystem.Instance.InsertItem(_diskList, item);
 

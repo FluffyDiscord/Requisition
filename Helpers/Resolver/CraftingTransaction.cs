@@ -3,8 +3,8 @@ using System.Collections.Generic;
 
 namespace TerraStorage.Helpers.Resolver
 {
-    // Storage as the crafting transaction sees it: four operations over opaque item handles.
-    // Terraria binds TItem to Item; the tests bind it to a plain struct, which is what makes the
+    // Storage as the crafting transaction sees it: a handful of operations over opaque item handles.
+    // Terraria binds TItem to Item; the tests bind it to a plain class, which is what makes the
     // consume/execute bookkeeping assertable without Terraria, TagCompound or a live world.
     //
     // Insert must NOT mutate the handle it is given - it reports how many units did not fit and
@@ -15,8 +15,16 @@ namespace TerraStorage.Helpers.Resolver
 
         int CountItem(int itemType);
 
-        // Best-effort: returns a handle for however much was actually removed, possibly nothing.
-        TItem Extract(int itemType, int amount);
+        // Drains up to `amount` in ONE sweep of the network, handing back one handle per group of
+        // units that share state, in draw order. Best-effort: an empty list, never null, when
+        // nothing came out. A type held as stacks that each stand for themselves comes back as one
+        // handle per stack, because folding them would stamp one stack's state onto another's units.
+        List<TItem> ExtractStacks(int itemType, int amount);
+
+        // Units recovered carrying exactly the state `stored` was inserted with, or 0 when nothing
+        // matches. A single stored stack per call, bounded by `count` so a stack holding units this
+        // run did not store is left alone.
+        int ExtractStored(TItem stored, int count);
 
         // Returns the number of units that did not fit.
         int Insert(TItem item);
@@ -29,24 +37,42 @@ namespace TerraStorage.Helpers.Resolver
         TItem SplitOff(TItem item, int count);
     }
 
-    // Undoing an insert, for both transactions. Extract is best-effort and hands back one stack per
-    // call for a type held as stacks that each stand for themselves, so a single call abandoned the
-    // rest in storage - the ingredients refunded AND the product they paid for kept.
+    // Undoing an insert, for both transactions.
     internal static class StorageRecovery
     {
-        public static void TakeBack<TItem>(ICraftingStorage<TItem> storage, int itemType, int count)
+        // Recovering by type alone draws in storage order, which for a type whose stacks each stand
+        // for themselves is whichever sorts first - the player's own as readily as the one this run
+        // conjured. The units balance either way; the identity does not. So each handle this run put
+        // in is asked for its own units first, and only what no handle accounts for falls back to a
+        // plain draw by type, which is right there because plain units are interchangeable.
+        public static void TakeBack<TItem>(ICraftingStorage<TItem> storage, TItem conjuredHandle,
+            int itemType, int count)
+            => TakeBack(storage, new[] { conjuredHandle }, itemType, count);
+
+        public static void TakeBack<TItem>(ICraftingStorage<TItem> storage,
+            IReadOnlyList<TItem> conjuredHandles, int itemType, int count)
         {
             int remaining = count;
 
-            while (remaining > 0)
+            foreach (TItem handle in conjuredHandles)
             {
-                TItem returned = storage.Extract(itemType, remaining);
-                int taken = storage.StackOf(returned);
-                if (taken <= 0)
-                    return;
+                // One stored stack per call: an insert too big for a single slot is several stacks
+                // sharing one state, so the same handle is asked until it stops matching.
+                while (remaining > 0)
+                {
+                    int recovered = storage.ExtractStored(handle, remaining);
+                    if (recovered <= 0)
+                        break;
 
-                remaining -= taken;
+                    remaining -= recovered;
+                }
             }
+
+            if (remaining <= 0)
+                return;
+
+            foreach (TItem returned in storage.ExtractStacks(itemType, remaining))
+                remaining -= storage.StackOf(returned);
         }
     }
 
@@ -77,21 +103,20 @@ namespace TerraStorage.Helpers.Resolver
         // extractor, so an unchecked call lets a step consume less than its recipe listed and
         // still produce the output. Whatever did come out is recorded either way.
         //
-        // One call is not enough: a stack that stands for itself comes out alone, so a material
+        // One handle is not enough: a stack that stands for itself comes out alone, so a material
         // held as twenty such stacks answered a request for twenty with one, and every recipe
-        // needing it was offered and then quietly refused. Each draw is kept as its own handle, so
-        // no stack's state is folded into another's - which is the rule that made the withdrawal
-        // hand back one stack in the first place.
+        // needing it was offered and then quietly refused. The sweep hands back a handle per stack,
+        // so no stack's state is folded into another's - the rule that made the withdrawal come up
+        // short in the first place - and it does it in one walk of the network rather than twenty.
         public bool TryTakeExact(int itemType, int amount)
         {
             int taken = 0;
 
-            while (taken < amount)
+            foreach (TItem extracted in _storage.ExtractStacks(itemType, amount))
             {
-                TItem extracted = _storage.Extract(itemType, amount - taken);
                 int extractedStack = _storage.StackOf(extracted);
                 if (extractedStack <= 0)
-                    break;
+                    continue;
 
                 _taken.Add((extracted, itemType));
                 taken += extractedStack;
@@ -235,7 +260,7 @@ namespace TerraStorage.Helpers.Resolver
             // caller is about to abandon anyway.
             int stored = craftedStack - leftover;
             if (stored > 0)
-                StorageRecovery.TakeBack(_storage, itemType, stored);
+                StorageRecovery.TakeBack(_storage, crafted, itemType, stored);
 
             return false;
         }
@@ -269,7 +294,7 @@ namespace TerraStorage.Helpers.Resolver
         public TItem Run(IReadOnlyList<ExecutionStep> steps, int finalItemCount, IStepProducer<TItem> producer)
         {
             var ledger = new RefundLedger<TItem>(_storage);
-            var intermediates = new List<(int itemType, int count)>();
+            var intermediates = new List<(TItem handle, int itemType, int count)>();
             TItem finalResult = _storage.Nothing;
 
             for (int stepIndex = 0; stepIndex < steps.Count; stepIndex++)
@@ -293,7 +318,7 @@ namespace TerraStorage.Helpers.Resolver
                 if (!TryStoreIntermediate(produced, step.ProducedType))
                     return Abort(ledger, intermediates);
 
-                intermediates.Add((step.ProducedType, producedStack));
+                intermediates.Add((produced, step.ProducedType, producedStack));
             }
 
             return finalResult;
@@ -302,18 +327,34 @@ namespace TerraStorage.Helpers.Resolver
         // Materials go back, but anything this run conjured must not. A later step consumes an
         // earlier step's intermediate, which puts it in the ledger; refunding alone would hand it
         // back alongside the ingredients it was made from and leave the player holding both.
-        private TItem Abort(RefundLedger<TItem> ledger, List<(int itemType, int count)> intermediates)
+        private TItem Abort(RefundLedger<TItem> ledger, List<(TItem handle, int itemType, int count)> intermediates)
         {
-            foreach (var (itemType, count) in intermediates)
+            foreach (var (_, itemType, count) in intermediates)
                 ledger.MarkConjured(itemType, count);
 
             ledger.Refund();
 
-            // Whatever no later step consumed is still where the step that made it left it.
+            // Whatever no later step consumed is still where the step that made it left it. The
+            // handles that made it are offered back first, so taking a conjured stack of a type
+            // whose stacks stand for themselves cannot take the player's stack of it instead.
             foreach (var (itemType, count) in ledger.DrainRemainingConjured())
-                StorageRecovery.TakeBack(_storage, itemType, count);
+                StorageRecovery.TakeBack(_storage, HandlesConjuredAs(intermediates, itemType), itemType, count);
 
             return _storage.Nothing;
+        }
+
+        private static List<TItem> HandlesConjuredAs(List<(TItem handle, int itemType, int count)> intermediates,
+            int itemType)
+        {
+            var handles = new List<TItem>();
+
+            foreach (var intermediate in intermediates)
+            {
+                if (intermediate.itemType == itemType)
+                    handles.Add(intermediate.handle);
+            }
+
+            return handles;
         }
 
         private bool TryPayFor(ExecutionStep step, RefundLedger<TItem> ledger)
@@ -360,7 +401,7 @@ namespace TerraStorage.Helpers.Resolver
             // nothing: its ingredients go back untouched.
             int stored = producedStack - leftover;
             if (stored > 0)
-                StorageRecovery.TakeBack(_storage, producedType, stored);
+                StorageRecovery.TakeBack(_storage, produced, producedType, stored);
 
             return false;
         }

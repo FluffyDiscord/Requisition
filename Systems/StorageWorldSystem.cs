@@ -361,96 +361,196 @@ namespace TerraStorage.Systems
             return remaining <= 0;
         }
 
-        // Extract an item from across multiple disks.
+        // Extract an item from across multiple disks. A withdrawal onto the cursor or into the
+        // player's inventory holds exactly one item, so the sweep stops at the first state boundary
+        // and hands that draw straight back - what every UI and network caller has always seen.
         public Item ExtractItem(IEnumerable<Guid> diskIds, int itemType, int count, int prefixId = -1)
         {
-            // Use the item returned by DiskData.ExtractItem directly so that mod data
-            // (e.g. UnloadedItem's original tag, Storage Disk GUIDs) is preserved.
-            // Reconstructing via SetDefaults would produce a blank item with no state.
-            Item result = null;
-            int totalExtracted = 0;
+            const int oneItemHandle = 1;
+            List<Item> drawn = ExtractItemStacks(diskIds, itemType, count, prefixId, oneItemHandle);
+            return drawn.Count == 0 ? new Item() : drawn[0];
+        }
 
-            // Pooled stock first, across the WHOLE network. Letting the first disk fall back to a
-            // unique stack ended the withdrawal there and returned one item, even when a later disk
-            // held hundreds of pooled ones.
-            TagCompound resultModState = null;
+        // Drains up to `count` across the network in ONE sweep, one item per group of units that
+        // share mod state. A caller that can hold several items - a crafting step paying for itself
+        // out of stacks that each stand for themselves - no longer walks every disk once per stack.
+        public List<Item> ExtractItemStacks(IEnumerable<Guid> diskIds, int itemType, int count, int prefixId = -1)
+            => ExtractItemStacks(diskIds, itemType, count, prefixId, int.MaxValue);
 
-            foreach (var diskId in diskIds)
-            {
-                if (!_allDiskData.TryGetValue(diskId, out var disk))
-                    continue;
+        private List<Item> ExtractItemStacks(IEnumerable<Guid> diskIds, int itemType, int count,
+            int prefixId, int handleLimit)
+        {
+            var diskList = diskIds as List<Guid> ?? diskIds.ToList();
+            var withdrawal = new DiskWithdrawal(this, diskList, itemType, prefixId);
 
-                int needed = count - totalExtracted;
-                var extracted = disk.ExtractItem(itemType, needed, prefixId,
-                    allowUniqueFallback: false, out _, out var extractedModState);
-                if (extracted.IsAir)
-                    continue;
-
-                // ONE returned item carries ONE stack's mod state, so folding a disk whose state
-                // differs would stamp this item's bytes over it - the same loss DiskData refuses
-                // within a disk. Hand back what is in hand instead; the units go straight back to
-                // the disk they came from, and a caller that wants the rest asks again.
-                if (result != null && !DiskData.ModStateMatches(resultModState, extractedModState))
-                {
-                    // Back into the disk it came from, whose slots this draw just freed, so the
-                    // insert cannot come up short.
-                    disk.InsertItem(extracted, ++_insertionCounter);
-                    break;
-                }
-
-                _modifiedTracker?.Add(diskId);
-                totalExtracted += extracted.stack;
-                if (result == null)
-                {
-                    result = extracted;
-                    resultModState = extractedModState;
-                }
-
-                if (totalExtracted >= count)
-                    break;
-            }
-
-            // Nothing pooled anywhere, so the fallback applies - this is how a disk, always its own
-            // item, still comes out. Its mod state describes those units and no others, so it is
-            // returned as-is rather than absorbing counts from another stack.
-            if (result == null)
-            {
-                foreach (var diskId in diskIds)
-                {
-                    if (!_allDiskData.TryGetValue(diskId, out var disk))
-                        continue;
-
-                    var extracted = disk.ExtractItem(itemType, count, prefixId,
-                        allowUniqueFallback: true, out _);
-                    if (extracted.IsAir)
-                        continue;
-
-                    _modifiedTracker?.Add(diskId);
-                    StorageVersion++;
-                    BackupSystem.MarkDirty();
-                    return extracted;
-                }
-            }
-
-            if (result == null)
-                return new Item();
+            List<WithdrawalHandle> handles = NetworkWithdrawal.Drain(withdrawal, count, handleLimit);
+            List<Item> drawn = withdrawal.BuildItems(handles);
+            if (drawn.Count == 0)
+                return drawn;
 
             StorageVersion++;
             BackupSystem.MarkDirty();
-            result.stack = totalExtracted;
-            return result;
+            return drawn;
+        }
+
+        // Binds the withdrawal sweep to real disks. Everything Terraria-shaped lives here - building
+        // the item, reading NBT to decide whether two draws may share one - so the rule itself stays
+        // in NetworkWithdrawal where it can be exercised without a live world.
+        private sealed class DiskWithdrawal : IWithdrawalNetwork
+        {
+            private readonly StorageWorldSystem _storage;
+            private readonly List<Guid>         _diskIds;
+            private readonly int                _itemType;
+            private readonly int                _prefixId;
+
+            private readonly List<Item>        _drawnItems = new();
+            private readonly List<TagCompound> _stateGroups = new();
+
+            public DiskWithdrawal(StorageWorldSystem storage, List<Guid> diskIds, int itemType, int prefixId)
+            {
+                _storage = storage;
+                _diskIds = diskIds;
+                _itemType = itemType;
+                _prefixId = prefixId;
+            }
+
+            public int DiskCount => _diskIds.Count;
+
+            public DrawnUnits DrawPooled(int diskIndex, int amount)
+            {
+                if (!TryGetDisk(diskIndex, out DiskData disk))
+                    return DrawnUnits.Nothing(diskIndex);
+
+                Item extracted = disk.ExtractItem(_itemType, amount, _prefixId,
+                    allowUniqueFallback: false, out _, out TagCompound modState);
+                return Record(diskIndex, extracted, modState);
+            }
+
+            public DrawnUnits DrawStandalone(int diskIndex, int amount)
+            {
+                if (!TryGetDisk(diskIndex, out DiskData disk))
+                    return DrawnUnits.Nothing(diskIndex);
+
+                Item extracted = disk.ExtractItem(_itemType, amount, _prefixId,
+                    allowUniqueFallback: true, out bool standaloneStack, out TagCompound modState);
+
+                // Pooled stock is exhausted network-wide before this pass runs, so anything that is
+                // not a stack standing for itself means the disk had nothing left to give.
+                if (!standaloneStack)
+                {
+                    if (!extracted.IsAir)
+                        disk.InsertItem(extracted, ++_storage._insertionCounter);
+                    return DrawnUnits.Nothing(diskIndex);
+                }
+
+                return Record(diskIndex, extracted, modState);
+            }
+
+            public void PutBack(DrawnUnits draw)
+            {
+                if (!TryGetDisk(draw.DiskIndex, out DiskData disk))
+                    return;
+
+                // Back into the disk whose slots this same draw just freed, so the insert cannot
+                // come up short.
+                disk.InsertItem(_drawnItems[draw.DrawIndex], ++_storage._insertionCounter);
+                _drawnItems[draw.DrawIndex] = null;
+            }
+
+            // One item per handle, carrying the state of the draw that opened it and the units of
+            // every draw folded into it.
+            public List<Item> BuildItems(List<WithdrawalHandle> handles)
+            {
+                var items = new List<Item>(handles.Count);
+
+                foreach (WithdrawalHandle handle in handles)
+                {
+                    Item item = _drawnItems[handle.Draws[0].DrawIndex];
+                    item.stack = handle.Units;
+                    items.Add(item);
+
+                    // Only disks behind draws the sweep kept changed; one that was put back left its
+                    // disk as it found it.
+                    foreach (DrawnUnits draw in handle.Draws)
+                        _storage._modifiedTracker?.Add(_diskIds[draw.DiskIndex]);
+                }
+
+                return items;
+            }
+
+            private bool TryGetDisk(int diskIndex, out DiskData disk)
+                => _storage._allDiskData.TryGetValue(_diskIds[diskIndex], out disk);
+
+            private DrawnUnits Record(int diskIndex, Item extracted, TagCompound modState)
+            {
+                if (extracted.IsAir)
+                    return DrawnUnits.Nothing(diskIndex);
+
+                _drawnItems.Add(extracted);
+                return new DrawnUnits(diskIndex, _drawnItems.Count - 1, extracted.stack, StateGroupOf(modState));
+            }
+
+            // Reduces "would folding these two discard anything" to an integer the sweep can compare.
+            // Sound because ModStateMatches partitions stacks into one stateless class plus a class
+            // per distinct globalData value, so equal group numbers mean exactly what it means.
+            private int StateGroupOf(TagCompound modState)
+            {
+                for (int group = 0; group < _stateGroups.Count; group++)
+                {
+                    if (DiskData.ModStateMatches(_stateGroups[group], modState))
+                        return group;
+                }
+
+                _stateGroups.Add(modState);
+                return _stateGroups.Count - 1;
+            }
+        }
+
+        // Takes back units carrying exactly the state `stored` was inserted with, so recovering what
+        // a crafting run conjured does not take the player's stack of the same type instead. A
+        // matching stack larger than `refuseIfLargerThan` also holds units this run did not store,
+        // so it is refused rather than taken whole.
+        public Item ExtractStoredItem(IEnumerable<Guid> diskIds, Item stored, int refuseIfLargerThan)
+        {
+            if (stored == null || stored.IsAir || refuseIfLargerThan <= 0)
+                return new Item();
+
+            TagCompound modData = ModItemDataOf(stored);
+            if (modData != null)
+            {
+                Item byModData = ExtractItemWithModData(diskIds, modData, refuseIfLargerThan);
+                if (!byModData.IsAir)
+                    return byModData;
+            }
+
+            var fullTag = ItemIO.Save(stored);
+            if (!StackIdentity.MustPreserveFullTag(modData != null, fullTag.ContainsKey("globalData")))
+                return new Item();
+
+            return ExtractItemWithFullItemTag(diskIds, fullTag, refuseIfLargerThan);
+        }
+
+        private static TagCompound ModItemDataOf(Item item)
+        {
+            if (item.ModItem == null)
+                return null;
+
+            var tag = new TagCompound();
+            item.ModItem.SaveData(tag);
+            return tag.Count > 0 ? tag : null;
         }
 
         // Extract a specific per-instance item (e.g. UnloadedItem) identified by its exact
         // ModData. Searches disks in order and returns the first matching stack.
-        public Item ExtractItemWithModData(IEnumerable<Guid> diskIds, TagCompound modData)
+        public Item ExtractItemWithModData(IEnumerable<Guid> diskIds, TagCompound modData,
+            int refuseIfLargerThan = int.MaxValue)
         {
             foreach (var diskId in diskIds)
             {
                 if (!_allDiskData.TryGetValue(diskId, out var disk))
                     continue;
 
-                var extracted = disk.ExtractItemWithModData(modData);
+                var extracted = disk.ExtractItemWithModData(modData, refuseIfLargerThan);
                 if (!extracted.IsAir)
                 {
                     StorageVersion++;
@@ -464,14 +564,15 @@ namespace TerraStorage.Systems
 
         // Extract a specific per-instance item identified by its exact FullItemTag.
         // Used for GlobalItem-backed items (e.g. Entropy enchantments) that have no ModData.
-        public Item ExtractItemWithFullItemTag(IEnumerable<Guid> diskIds, TagCompound fullItemTag)
+        public Item ExtractItemWithFullItemTag(IEnumerable<Guid> diskIds, TagCompound fullItemTag,
+            int refuseIfLargerThan = int.MaxValue)
         {
             foreach (var diskId in diskIds)
             {
                 if (!_allDiskData.TryGetValue(diskId, out var disk))
                     continue;
 
-                var extracted = disk.ExtractItemWithFullItemTag(fullItemTag);
+                var extracted = disk.ExtractItemWithFullItemTag(fullItemTag, refuseIfLargerThan);
                 if (!extracted.IsAir)
                 {
                     StorageVersion++;

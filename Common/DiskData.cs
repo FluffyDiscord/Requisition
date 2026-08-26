@@ -228,11 +228,19 @@ namespace TerraStorage.Common
 
         // Extract the specific per-instance stack whose ModData matches <paramref name="targetModData"/>
         // byte-for-byte. Used to pull the exact UnloadedItem (or other unique item) the user clicked.
-        public Item ExtractItemWithModData(TagCompound targetModData)
+        //
+        // refuseIfLargerThan skips a match holding more units than the caller can account for. A
+        // stack recovering a crafting run's product must never be taken whole when it also holds
+        // units the player owned: a stack can be born larger than a later partial recovery asks for,
+        // and taking the difference destroys it.
+        public Item ExtractItemWithModData(TagCompound targetModData, int refuseIfLargerThan = int.MaxValue)
         {
             StoredItemStack match = null;
             foreach (var stored in Items)
             {
+                if (stored.Stack > refuseIfLargerThan)
+                    continue;
+
                 if (stored.ModData != null && TagCompoundEquals(stored.ModData, targetModData))
                 {
                     match = stored;
@@ -258,11 +266,14 @@ namespace TerraStorage.Common
         // Extract the specific per-instance stack whose FullItemTag matches <paramref name="targetFullTag"/>
         // byte-for-byte. Used for items with GlobalItem data (e.g. Entropy enchantments) that have no ModData.
         // 
-        public Item ExtractItemWithFullItemTag(TagCompound targetFullTag)
+        public Item ExtractItemWithFullItemTag(TagCompound targetFullTag, int refuseIfLargerThan = int.MaxValue)
         {
             StoredItemStack match = null;
             foreach (var stored in Items)
             {
+                if (stored.Stack > refuseIfLargerThan)
+                    continue;
+
                 if (stored.FullItemTag != null && TagCompoundEquals(stored.FullItemTag, targetFullTag))
                 {
                     match = stored;
