@@ -226,6 +226,79 @@ namespace TerraStorage.Common
             return matching;
         }
 
+        // Extract the stack a crafting run stored, identified by everything that makes it that stack
+        // rather than one like it: its type and prefix, the mod item data it carries, and the
+        // mod-written state riding on it.
+        //
+        // Matching on ModData alone is not enough for this. It carries no type, so a different item
+        // whose mod wrote the same bytes matches - StorageDiskBase writes {"archived": true} and
+        // nothing else for an archived empty disk, which is every tier of them. And it says nothing
+        // about globalData, so the player's enchanted copy answers for the plain one this run made,
+        // which is the whole of what recovering by handle exists to avoid.
+        //
+        // refuseIfLargerThan skips a match holding more units than the caller can account for: a
+        // stack can be born larger than a later partial recovery asks for, and taking the difference
+        // destroys units the player owned.
+        public Item ExtractStoredStack(int itemType, int prefixId, TagCompound modData,
+            TagCompound fullItemTag, int refuseIfLargerThan)
+        {
+            StoredItemStack match = null;
+
+            foreach (var stored in Items)
+            {
+                if (stored.Stack > refuseIfLargerThan)
+                    continue;
+
+                if (!stored.Matches(itemType, prefixId))
+                    continue;
+
+                if (!ModItemDataMatches(stored.ModData, modData))
+                    continue;
+
+                if (!ModStateMatches(stored.FullItemTag, fullItemTag))
+                    continue;
+
+                match = stored;
+                break;
+            }
+
+            if (match == null)
+                return new Item();
+
+            Items.Remove(match);
+            return BuildExtractedItem(match);
+        }
+
+        private static bool ModItemDataMatches(TagCompound stored, TagCompound target)
+        {
+            if (stored == null && target == null)
+                return true;
+            if (stored == null || target == null)
+                return false;
+
+            return TagCompoundEquals(stored, target);
+        }
+
+        private static Item BuildExtractedItem(StoredItemStack stack)
+        {
+            if (stack.FullItemTag != null)
+            {
+                var restored = ItemIO.Load(stack.FullItemTag);
+                restored.stack = stack.Stack;
+                return restored;
+            }
+
+            var result = new Item();
+            result.SetDefaults(stack.ItemType);
+            result.stack = stack.Stack;
+            if (stack.PrefixId > 0)
+                result.Prefix(stack.PrefixId);
+            if (stack.ModData != null && result.ModItem != null)
+                result.ModItem.LoadData(stack.ModData);
+
+            return result;
+        }
+
         // Extract the specific per-instance stack whose ModData matches <paramref name="targetModData"/>
         // byte-for-byte. Used to pull the exact UnloadedItem (or other unique item) the user clicked.
         public Item ExtractItemWithModData(TagCompound targetModData)

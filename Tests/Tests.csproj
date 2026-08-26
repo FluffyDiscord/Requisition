@@ -18,6 +18,8 @@
     <Compile Include="..\Helpers\Resolver\CoreResolver.cs" />
     <!-- Which stacks a withdrawal or a defragment touches: the rule, without the NBT. -->
     <Compile Include="..\Common\StackSelection.cs" />
+    <!-- How a withdrawal walks the disks: one sweep, one handle per group of units sharing state. -->
+    <Compile Include="..\Common\NetworkWithdrawal.cs" />
     <!-- What makes a stored stack its own item rather than so many units of a type. -->
     <Compile Include="..\Common\StackIdentity.cs" />
     <!-- Which stacks on a disk a donor could merge into, without asking the rule about all of them. -->
@@ -39,6 +41,9 @@
     <Compile Include="FakeEnvironment.cs" />
     <Compile Include="FakeStorage.cs" />
     <Compile Include="HotPathBenchmarks.cs" />
+    <Compile Include="FakeDiskNetwork.cs" />
+    <!-- The pre-change withdrawal rule, kept so "unchanged for one-item callers" stays checkable. -->
+    <Compile Include="LegacySingleHandleDrain.cs" />
     <Compile Include="Program.cs" />
     <!-- Scoped /tsdump slices: one scenario each, so a failure names the recipe that broke. -->
     <None Include="Fixtures\*.tsdump.txt" CopyToOutputDirectory="Always" />

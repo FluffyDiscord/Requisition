@@ -36,7 +36,7 @@ Not shipped in the `.tmod` (`build.txt` `buildIgnore` covers `*.md`).
 | [23d](23-agent-audit-2026-08-25.md) | HIGH | Abort refund overflowed a full network and destroyed materials | `AF-*` |
 | [23e](23-agent-audit-2026-08-25.md) | CRITICAL | Withdrawal routed by a client-supplied index; `-1` broadcast it | multiplayer |
 | [24](24-globaldata-treated-as-item-identity.md) | HIGH | A `globalData` key was read as "this stack is its own item" — nothing ever stacked | `SI-*` |
-| [25](25-craft-costed-against-a-count-it-cannot-withdraw.md) | HIGH | A step paid for twenty units with one `Extract` call and took one — green button, silent no-op | `BD-*` `ID-*` `FX-*` |
+| [25](25-craft-costed-against-a-count-it-cannot-withdraw.md) | HIGH | A step paid for twenty units with one `Extract` call and took one — green button, silent no-op | `BD-*` `ID-*` `FX-*` `NW-*` `HB-*` |
 
 ## Recipe grid disagreed with the craft button
 
@@ -103,9 +103,16 @@ encodings are one helper.
 **Resolved 2026-08-26.** The last item here was `Defragment` rescanning the target's stacks for every
 donor stack. `Common/MergeCandidateIndex.cs` closes it — see [23i](23-agent-audit-2026-08-25.md).
 
+Opened 2026-08-26 while closing [25](25-craft-costed-against-a-count-it-cannot-withdraw.md)'s first,
+third and fourth bullets, and recorded there in full: `RefundLedger.Refund` still identifies conjured
+units by their **position** in the ledger, which is the same defect as the `TakeBack` one just
+fixed at the site that runs on every abort; and within a single disk a bulk withdrawal that draws two
+plain stacks carrying different `globalData` still returns them with none. Both are the shape this
+file warns about — one rule, fixed at one of its encodings.
+
 ## Test suite
 
-`cd Tests && dotnet run` — 423 assertions, zero dependencies, links the shipped source directly.
+`cd Tests && dotnet run` — 519 assertions, zero dependencies, links the shipped source directly.
 The real-game benchmark reads `ts_recipe_dump.txt` from the tModLoader save folder when present
 (produce one in-game with `/tsdump` next to a Terminal); full craftability revalidation over
 14 178 recipes runs in 2 ms. Scenario fixtures live in `Tests/Fixtures/*.tsdump.txt` — scoped
@@ -121,4 +128,8 @@ Suite prefixes, so a failure names its area: `TX`/`PX` transaction, `SL`/`DF` st
 `RC` panel refresh, `HR` hit rects, `DP` deposit, `MD`/`DL`/`SA`/`LF` resolver depth and agreement,
 `FC`/`TC` UI caches and click arbitration, `FD`/`NG`/`IO`/`AF` the 2026-08-25 audit,
 `BD`/`ID`/`FX` paying for a step from stacks that each stand for themselves,
-`MX` the defragment merge-candidate index.
+`MX` the defragment merge-candidate index, `DN` the denial vocabulary sent to a refused client,
+`NW` the one-sweep network drain, `HB` taking back the stack the run made rather than the player's.
+Also live: `BI`/`SC` blocking ingredient, `DS` duplicate slots, `GM`/`IC` recipe groups,
+`NC` no-op recipes, `PR` pool restore, `PU` preview own-stock, `RS` repeated slots, `SG`/`SI` stack
+identity.

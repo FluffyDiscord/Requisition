@@ -159,22 +159,7 @@ same moment can attribute a reason to the wrong click. Today nothing is displaye
 a new risk rather than a pre-existing one; it is accepted because the causes are distinct enough to
 read and a correlation id is a much larger protocol change.
 
-## Not fixed
-
-- **A step needing N units walks every disk N times.** `TryTakeExact` loops, and each iteration
-  re-runs the whole network sweep. Fine for the twenty stacks this was reported over; worth
-  measuring before it matters on a large network. The fix both callers now want is for
-  `ExtractItem` to drain up to `count` in one sweep and return a `List<Item>` of per-stack handles —
-  which would also let the state-mismatch case above hand back both disks' units instead of
-  stopping at the first.
-- **`TakeBack` recovers by type, not by handle.** For a type whose stacks stand for themselves it
-  may take back the player's own stack rather than the one the run conjured. The unit arithmetic
-  balances; the identity does not. `ExtractItemWithFullItemTag` / `ExtractItemWithModData` already
-  exist for handle-precise recovery. Pre-existing, unchanged in kind by this fix.
-- **`StorageWorldSystem` and `DiskData` are not linked into the test project**, so the two-pass
-  drain and everything above is verified only in-game.
-
-## Verified by
+### Verified by — the denial vocabulary
 
 `DN-*` covers 25-B's testable half: the wire codes and their pinned byte values, the craft decision's
 full sixteen-row truth table, the quick-stack decision, the burst throttle (including the
@@ -183,7 +168,82 @@ real enum member and no site settles for `Unspecified`. That last one is deliber
 this change does not otherwise get. Reverting the enum's numbering turns `DN-14i`/`DN-14j` red;
 changing `GetCraftFailure`'s `||` to `&&` turns `DN-09e`, `DN-09f` and `DN-09g` red.
 
-`BD-*`, `ID-*`, `FX-*` and `PX-07` in `Tests/Program.cs`. Reverting only the loop in
+## Fix applied 2026-08-26 — one sweep, and recovery by handle
+
+Three of the four bullets below were closed. What changed:
+
+**The sweep now runs once.** `StorageWorldSystem.ExtractItem` walked every disk once per unit a
+caller needed, because one item handle carries one stack's mod state and a caller holding only one
+had to ask again — and `TryTakeExact` and `StorageRecovery.TakeBack` each carried that loop, at four
+call sites between them. The rule moved to `Common/NetworkWithdrawal.cs`, free of Terraria and
+parameterised by **how many items the caller can hold**: one for a withdrawal onto the cursor, as
+many as it takes for a crafting step's ledger. Both callers fall out of the one rule, so there is no
+second encoding to drift.
+
+**A state boundary opens another handle instead of ending the sweep**, so a material spread over two
+disks whose stacks carry different state now pays from both. At `handleLimit: 1` the draw is still
+put back and the sweep still stops, which is what every UI and network caller has always seen.
+
+**`TakeBack` recovers by handle.** Each handle the run inserted is asked for its own units first,
+bounded by what the run actually stored — a stack that grew past that also holds units the player
+owned, and taking it whole would destroy them. Plain units have no state to match on and still
+recover by type, which is correct: they are interchangeable.
+
+The match is `DiskData.ExtractStoredStack`, on item type, prefix, mod item data and mod-written
+state **together**. `ExtractItemWithModData` was the obvious thing to reach for and is the wrong
+tool: it carries no item type, so `StorageDiskBase`'s `{"archived": true}` — written identically by
+every disk tier — matches across types, and it says nothing about `globalData`, so the player's
+enchanted copy answers for the plain one the run made. Routing recovery through it would have
+introduced a way to destroy an item of a different type than the one being recovered.
+
+`ICraftingStorage.Extract` was **replaced** by `ExtractStacks` rather than joined by it, so the
+re-entrant loop could not survive inside `TakeBack`.
+
+## Not fixed
+
+- **`RefundLedger.Refund` identifies conjured units by POSITION.** The same defect as the `TakeBack`
+  one just fixed, at the site with the larger blast radius — `Refund` runs on every abort. It
+  withholds conjured units from the end of `_taken`, which is a guess about which handle the run
+  made, and the guess is wrong in a reachable case: the player owns unique `CHARM[own-a]` on disk 1
+  and `CHARM[own-b]` on disk 2; the run conjures one, which lands on disk 1 after `own-a`
+  (`StorageWorldSystem.InsertItem` walks disks in order, `DiskData.InsertItem` appends); a later
+  3-unit draw yields `_taken = [own-a, conjured, own-b]`; withholding one from the end drops
+  **`own-b`** and re-inserts the run's copy. The count balances, `own-b`'s state is gone.
+  The fix is the same move: `MarkConjured` takes the handle, and `Refund` withholds handles matching
+  it. Left alone here because this pass was scoped to the three bullets above, `Refund` had just
+  been stabilised (`ID-04` guards it), and it is the delicate part of the transaction core.
+  **`NW-09` is coupled to this defect**: the one-sweep drain folds into the most recent handle only,
+  which is what preserves `_taken`'s order and therefore what end-withholding drops. When `Refund`
+  recovers by identity, `NW-09`'s stated reason for existing becomes false and must be revisited.
+- **Recovery by handle only reaches a product that landed as its own stack.** `ExtractStoredStack`
+  matches on item type, prefix, mod item data and mod-written state together. When the conjured
+  product *merged* into a stack the player already had, `DiskData.InsertItem` leaves the
+  destination's `FullItemTag` in place (or has the mod rewrite it through `FoldInModState`), so
+  nothing the handle can be re-serialised into will match it and the recovery falls back to the
+  by-type draw. That fallback is correct there, though **not** because merging implies agreement:
+  `DiskData.InsertItem`'s merge gate is `Matches` + `StacksWith`, and `ModStateMatches` only decides
+  whether `FoldInModState` runs first — so a merge happens *even when state differs*, and the mod is
+  told to fold rather than asked whether to. The fallback is right for the downstream reason: once
+  `FoldInModState` has run, the resulting `globalData` is neither the player's nor the run's, so
+  there are no distinguishable "run's units" left to recover precisely. It does mean the precise
+  path fires for stacks that stand for themselves and not for stateful stock that still pools.
+  It is precision by **state**, not by object: two stacks carrying byte-identical state are
+  indistinguishable in every observable respect, so taking either is equivalent. The size guard is
+  what stops more units coming back than the run put in.
+- **Within one disk, two drawn plain stacks with different state still lose it.**
+  `DiskData.ExtractItem` sets the returned tag only when `AllDrawsShareModState`, so a bulk
+  withdrawal that draws two plain stacks carrying different `globalData` returns them with **no**
+  state — issue [05](05-extractitem-stamps-tag-on-whole-withdrawal.md)'s harm, one level down from
+  where it was fixed. Reachable since [24](24-globaldata-treated-as-item-identity.md) stopped
+  treating `globalData` as identity, so such stacks pool. Pre-existing and untouched here.
+  The shape the next change to this area should take is to have `StackSelection.PlanWithdrawal`
+  return **handles** rather than a flat draw list, planned over the network's matching slots rather
+  than one disk's: it would close this and delete `NetworkWithdrawal` at the same time, at the cost
+  of rewriting the `SL-*`/`SG-*` assertions.
+
+## Verified by
+
+`BD-*`, `ID-*`, `FX-*`, `NW-*`, `HB-*` and `PX-07` in `Tests/Program.cs`. Reverting only the loop in
 `TryTakeExact` turns `BD-02*` and `FX-06*` red with the reported outcome — the craft produces
 nothing and all 18 Door Pants stay put. Reverting only `Refund`'s direction turns `ID-04` red with
 one of the player's three stacks left and two stateless copies in place of the others.
@@ -196,9 +256,43 @@ to the same three steps as the full 14,178-recipe graph.
 `/tsdump` now writes item names on every storage and recipe line. Item type ids are assigned at load
 time, so a dump without names cannot be read against anyone else's mod list.
 
+`NW-*` covers the one-sweep drain against `FakeDiskNetwork`: that the network is swept for pooled
+stock exactly once, that a state boundary opens a second handle, and that the handle budget is
+honoured at every value from 0 to 13 rather than at sampled points. `NW-12` is the guard on
+*unchanged* behaviour — `Tests/LegacySingleHandleDrain.cs` keeps the pre-change rule, and `NW-12`
+sweeps a matrix of disk layouts asserting a one-item withdrawal still agrees with it everywhere.
+Kept for the same reason `BuggyPreview` is: once the new implementation has replaced the old, a
+committed copy of the old is the only thing that makes "unchanged" checkable.
+
+`HB-*` covers recovery by handle. Reverting only `TakeBack`'s handle lookup turns `HB-01`, `HB-03`,
+`HB-04a` and `HB-06a` red with the reported shape — `HB-01` reporting `got made`, the player's charm
+destroyed and the run's copy left in its place — while `HB-02`'s unit count stays green, which is
+the defect stated exactly: the arithmetic balances, the identity does not. `HB-05` stays green
+throughout, pinning that plain interchangeable units still recover by type.
+
+`Tests/FakeStorage.cs` now runs through `NetworkWithdrawal.Drain` rather than a second hand-written
+copy of the rule, so `BD-*`, `ID-*`, `FX-*`, `PX-*` and `TX-*` exercise the shipped sweep.
+
 Needs in-game testing: craft Band of Door; craft something whose material is spread over two disks;
 upgrade a storage disk (always its own item, and consumed as an ingredient); confirm a craft that
 cannot be paid for now prints a reason.
+
+And, specific to this pass — **the two things no assertion can reach**, because
+`StorageWorldSystem.cs` and `DiskData.cs` still cannot be linked into the runner:
+
+- **That recovery by handle fires at all.** For a product that landed as its own stack it depends on
+  `ItemIO.Save` on the still-unmutated produced item reproducing what `DiskData.InsertItem` stored
+  for it. Note the invariant is weaker than "the whole tag, byte for byte": `ExtractStoredStack`
+  compares through `ModStateMatches`, which reads **only the `globalData` key**, so the stack count
+  embedded in the tag is not part of the comparison. If it does not hold, every recovery quietly
+  falls back to the type-based draw: today's behaviour, never worse, but 25-C would not actually be
+  fixed in-game.
+  Craft a multi-step chain that aborts while the player holds a stack of the intermediate's type, and
+  confirm the player's stack is the one still there.
+  `Tests/FakeStorage.cs` cannot stand in for this: its insert never merges, so it models only the
+  own-stack case.
+- **The adapter itself** — `DiskWithdrawal`'s state grouping, put-back, `_modifiedTracker` marking
+  and `StorageVersion` bumping. The rule it carries out is asserted; the binding to real disks is not.
 
 ## Related
 

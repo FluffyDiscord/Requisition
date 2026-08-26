@@ -85,32 +85,145 @@ namespace TerraStorage.Tests
         public int CountItem(int itemType)
             => _stacks.Where(s => s.Type == itemType).Sum(s => s.Count);
 
-        public FakeItem Extract(int itemType, int amount)
+        // Goes through NetworkWithdrawal.Drain, the same rule StorageWorldSystem carries out, so the
+        // crafting tests exercise the shipped sweep rather than a second hand-written copy of it.
+        // One disk, because what a network of them does is NW-*'s job.
+        public List<FakeItem> ExtractStacks(int itemType, int amount)
         {
-            var matching = MatchingSlots(itemType);
-            var draws = StackSelection.PlanWithdrawal(matching, amount, allowUniqueFallback: true, out _);
+            var withdrawal = new StackWithdrawal(this, itemType);
+            var handles = NetworkWithdrawal.Drain(withdrawal, amount, int.MaxValue);
+            Log.Add($"extract {itemType}x{amount}->{withdrawal.TotalUnitsOf(handles)}");
+            return withdrawal.BuildItems(handles);
+        }
 
-            int taken = 0;
-            // Mirrors DiskData.AllDrawsShareModState: state rides along when every stack drawn from
-            // carried the same state, and is dropped when they disagree - not merely when one stack
-            // was drawn. A fake that dropped it on any multi-draw could not catch a regression that
-            // stamps one stack's state onto units from another.
-            string mark = AllDrawsShareMark(draws) ? _stacks[draws[0].Index].Mark : null;
+        // Takes back the stack this handle was stored as, and only when it can account for the whole
+        // of it: one that grew past `count` holds units this run did not store. A handle with no
+        // per-instance state has no identity to match on, so it recovers nothing here and falls back
+        // to a plain draw by type - which is right, because plain units are interchangeable.
+        public int ExtractStored(FakeItem stored, int count)
+        {
+            if (stored == null || stored.Mark == null || count <= 0)
+                return 0;
 
-            foreach (var draw in draws)
+            Stack match = _stacks.FirstOrDefault(s => s.Type == stored.Type && s.Mark == stored.Mark
+                && s.Count <= count);
+            if (match == null)
+                return 0;
+
+            _stacks.Remove(match);
+            Log.Add($"take back stored {stored.Type}[{stored.Mark}]->{match.Count}");
+            return match.Count;
+        }
+
+        // One disk's worth of stacks as the withdrawal sweep sees them.
+        private sealed class StackWithdrawal : IWithdrawalNetwork
+        {
+            private readonly FakeStorage _storage;
+            private readonly int         _itemType;
+
+            private readonly List<FakeItem>      _drawnItems = new();
+            private readonly List<List<Stack>>   _drawnFrom = new();
+            private readonly List<List<int>>     _drawnUnits = new();
+            private readonly List<string>        _stateGroups = new();
+
+            public StackWithdrawal(FakeStorage storage, int itemType)
             {
-                var stack = _stacks[draw.Index];
-                stack.Count -= draw.Count;
-                taken += draw.Count;
+                _storage = storage;
+                _itemType = itemType;
             }
-            _stacks.RemoveAll(s => s.Count <= 0);
 
-            Log.Add($"extract {itemType}x{amount}->{taken}");
+            public int DiskCount => 1;
 
-            if (taken <= 0)
-                return null;
+            public DrawnUnits DrawPooled(int diskIndex, int amount) => Draw(diskIndex, amount, allowStandalone: false);
 
-            return new FakeItem { Type = itemType, Stack = taken, Mark = mark };
+            public DrawnUnits DrawStandalone(int diskIndex, int amount) => Draw(diskIndex, amount, allowStandalone: true);
+
+            public void PutBack(DrawnUnits draw)
+            {
+                List<Stack> from = _drawnFrom[draw.DrawIndex];
+                for (int index = 0; index < from.Count; index++)
+                    from[index].Count += _drawnUnits[draw.DrawIndex][index];
+
+                foreach (Stack stack in from)
+                {
+                    if (!_storage._stacks.Contains(stack))
+                        _storage._stacks.Add(stack);
+                }
+            }
+
+            public List<FakeItem> BuildItems(List<WithdrawalHandle> handles)
+            {
+                var items = new List<FakeItem>(handles.Count);
+
+                foreach (WithdrawalHandle handle in handles)
+                {
+                    FakeItem item = _drawnItems[handle.Draws[0].DrawIndex];
+                    item.Stack = handle.Units;
+                    items.Add(item);
+                }
+
+                return items;
+            }
+
+            public int TotalUnitsOf(List<WithdrawalHandle> handles)
+            {
+                int total = 0;
+                foreach (WithdrawalHandle handle in handles)
+                    total += handle.Units;
+                return total;
+            }
+
+            private DrawnUnits Draw(int diskIndex, int amount, bool allowStandalone)
+            {
+                var matching = _storage.MatchingSlots(_itemType);
+                var draws = StackSelection.PlanWithdrawal(matching, amount, allowStandalone, out bool standaloneStack);
+
+                // Pooled stock is drained network-wide before the standalone pass, so a draw that is
+                // not a stack standing for itself means there was nothing left to take.
+                if (draws.Count == 0 || (allowStandalone && !standaloneStack))
+                    return DrawnUnits.Nothing(diskIndex);
+
+                // Mirrors DiskData.AllDrawsShareModState: state rides along when every stack drawn
+                // from carried the same state, and is dropped when they disagree - not merely when
+                // one stack was drawn. A fake that dropped it on any multi-draw could not catch a
+                // regression that stamps one stack's state onto units from another.
+                string mark = _storage.AllDrawsShareMark(draws) ? _storage._stacks[draws[0].Index].Mark : null;
+
+                var from = new List<Stack>();
+                var units = new List<int>();
+                int taken = 0;
+
+                foreach (var draw in draws)
+                {
+                    Stack stack = _storage._stacks[draw.Index];
+                    stack.Count -= draw.Count;
+                    from.Add(stack);
+                    units.Add(draw.Count);
+                    taken += draw.Count;
+                }
+
+                _storage._stacks.RemoveAll(s => s.Count <= 0);
+
+                if (taken <= 0)
+                    return DrawnUnits.Nothing(diskIndex);
+
+                _drawnItems.Add(new FakeItem { Type = _itemType, Stack = taken, Mark = mark });
+                _drawnFrom.Add(from);
+                _drawnUnits.Add(units);
+                return new DrawnUnits(diskIndex, _drawnItems.Count - 1, taken, StateGroupOf(mark));
+            }
+
+            private int StateGroupOf(string mark)
+            {
+                for (int group = 0; group < _stateGroups.Count; group++)
+                {
+                    if (_stateGroups[group] == mark)
+                        return group;
+                }
+
+                _stateGroups.Add(mark);
+                return _stateGroups.Count - 1;
+            }
         }
 
         // Mirrors StorageWorldSystem.InsertItem: reports what did not fit and leaves the caller's
@@ -189,17 +302,27 @@ namespace TerraStorage.Tests
     public sealed class FakeStepProducer : IStepProducer<FakeItem>
     {
         private readonly IReadOnlyList<ExecutionStep> _steps;
+        private readonly string                       _mark;
 
         public readonly List<int> Prepared = new();
 
-        public FakeStepProducer(IReadOnlyList<ExecutionStep> steps)
+        // A mark stands in for the per-instance state a real conjured item carries. Without one a
+        // recovery cannot tell the run's own product from the player's stack of the same type, which
+        // is the whole of what the handle-precise take-back exists to do.
+        public FakeStepProducer(IReadOnlyList<ExecutionStep> steps, string mark = null)
         {
             _steps = steps;
+            _mark = mark;
         }
 
         public void PrepareStep(int stepIndex) => Prepared.Add(stepIndex);
 
         public FakeItem ProduceStep(int stepIndex)
-            => new FakeItem { Type = _steps[stepIndex].ProducedType, Stack = _steps[stepIndex].ProducedCount };
+            => new FakeItem
+            {
+                Type = _steps[stepIndex].ProducedType,
+                Stack = _steps[stepIndex].ProducedCount,
+                Mark = _mark
+            };
     }
 }

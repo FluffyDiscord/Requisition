@@ -974,13 +974,26 @@ namespace TerraStorage.Tests
 
             public int CountItem(int itemType) => _counts.TryGetValue(itemType, out int c) ? c : 0;
 
-            public FakeItem Extract(int itemType, int amount)
+            // Pooled counts hold no per-instance state, so a draw never crosses a state boundary
+            // and the whole amount comes back as one handle - the list is still allocated per draw,
+            // the way the shipped sweep allocates it, so the measurement stays honest.
+            public List<FakeItem> ExtractStacks(int itemType, int amount)
             {
+                var handles = new List<FakeItem>();
+
                 int have = CountItem(itemType);
                 int take = Math.Min(have, amount);
+                if (take <= 0)
+                    return handles;
+
                 _counts[itemType] = have - take;
-                return new FakeItem { Type = itemType, Count = take };
+                handles.Add(new FakeItem { Type = itemType, Count = take });
+                return handles;
             }
+
+            // Nothing here carries state to match a stored handle against, so recovery always falls
+            // back to the by-type draw - which is correct for interchangeable pooled units.
+            public int ExtractStored(FakeItem stored, int count) => 0;
 
             public int Insert(FakeItem item)
             {

@@ -84,6 +84,8 @@ namespace TerraStorage.Tests
             BandOfDoorIsPayableFromStacksThatStandAlone();
             SeparateStacksKeepTheirStateThroughARefund();
             BandOfDoorFixtureBuildsTheReportedPlan();
+            NetworkDrainsInOneSweep();
+            TakeBackRecoversTheRunsOwnStack();
 
             Console.WriteLine($"\n=== {_pass} passed, {_fail} failed ===");
             if (_fail > 0)
@@ -1882,7 +1884,7 @@ namespace TerraStorage.Tests
             var crafting = new MaterialConsumer<FakeItem>(craftable, (type, need) =>
             {
                 craftRequests.Add((type, need));
-                craftable.Extract(SAND, 12);
+                craftable.ExtractStacks(SAND, 12);
                 return new FakeItem { Type = GLASS, Stack = 6 };
             });
             IsTrue(crafting.TryConsume(new[] { (GLASS, 10) }), "TX-04 a craftable shortfall is crafted and consumed");
@@ -3228,6 +3230,271 @@ namespace TerraStorage.Tests
                 return value;
             }
             return null;
+        }
+
+        // ---- Taking back what the run made, not what the player owned ----
+        // Issue 25-C: recovering a conjured product by TYPE draws in storage order, and for a type
+        // whose stacks each stand for themselves that is whichever sorts first - the player's own as
+        // readily as the one this run conjured. The units balanced; the identity did not.
+        private static void TakeBackRecoversTheRunsOwnStack()
+        {
+            Section("Recovering a conjured product takes the run's stack, not the player's");
+            const int CHARM = 7, IRON = 3, GOLD = 8, TARGET = 4, PLANK = 9;
+
+            var abandoned = new FakeStorage()
+                .WithUniqueType(CHARM)
+                .WithUniqueStack(CHARM, 1, "own")
+                .With(IRON, 2);
+
+            // The run makes a charm, then cannot pay for the step that would have consumed it.
+            var chain = Steps(
+                (new[] { (IRON, 2) }, CHARM, 1),
+                (new[] { (GOLD, 1) }, TARGET, 1));
+            new PlanExecutor<FakeItem>(abandoned).Run(chain, 1, new FakeStepProducer(chain, "made"));
+
+            string survivor = string.Join(",", abandoned.MarksOf(CHARM));
+            Check(survivor == "own",
+                $"HB-01 the charm left standing is the player's, not the run's copy  [got {survivor}]");
+            Eq(abandoned.CountItem(CHARM), 1, "HB-02 with the conjured one taken back");
+            Eq(abandoned.CountItem(IRON), 2, "HB-02a and the iron it was made from refunded");
+
+            // The same recovery reached through a full store: only part of the intermediate lands,
+            // so what did land has to come back before the materials can be refunded.
+            var full = new FakeStorage()
+                .WithUniqueType(CHARM)
+                .WithUniqueStack(CHARM, 1, "own")
+                .With(IRON, 1);
+            full.Capacity = 3;
+
+            var overflowing = Steps(
+                (new[] { (IRON, 1) }, CHARM, 3),
+                (new[] { (GOLD, 1) }, TARGET, 1));
+            new PlanExecutor<FakeItem>(full).Run(overflowing, 1, new FakeStepProducer(overflowing, "made"));
+
+            string keptThroughOverflow = string.Join(",", full.MarksOf(CHARM));
+            Check(keptThroughOverflow == "own",
+                $"HB-03 a part-stored intermediate is recovered by handle too  [got {keptThroughOverflow}]");
+            Eq(full.CountItem(IRON), 1, "HB-03a with its materials put back");
+
+            // And through the material consumer, the second place the same recovery runs.
+            var consumed = new FakeStorage()
+                .WithUniqueType(CHARM)
+                .WithUniqueStack(CHARM, 1, "own");
+            consumed.Capacity = 3;
+
+            var consumer = new MaterialConsumer<FakeItem>(consumed,
+                (type, need) => new FakeItem { Type = CHARM, Stack = 3, Mark = "made" });
+            IsFalse(consumer.TryConsume(new[] { (CHARM, 4) }), "HB-04 a shortfall that will not fit fails the consume");
+
+            string keptThroughConsumer = string.Join(",", consumed.MarksOf(CHARM));
+            Check(keptThroughConsumer == "own",
+                $"HB-04a and the player's charm is still the one in storage  [got {keptThroughConsumer}]");
+
+            // Plain units are interchangeable, so there is no handle to match and nothing changes.
+            var plain = new FakeStorage().With(PLANK, 3).With(IRON, 2);
+            var plainChain = Steps(
+                (new[] { (IRON, 2) }, PLANK, 2),
+                (new[] { (GOLD, 1) }, TARGET, 1));
+            new PlanExecutor<FakeItem>(plain).Run(plainChain, 1, new FakeStepProducer(plainChain));
+
+            Eq(plain.CountItem(PLANK), 3, "HB-05 a plain conjured stack is still taken back by type");
+            Eq(plain.CountItem(IRON), 2, "HB-05a with its materials refunded");
+
+            // A stack carrying the same state but holding more than this run stored also holds units
+            // the player owned. Taking it whole to recover one unit would destroy the rest.
+            var shared = new FakeStorage()
+                .WithUniqueType(CHARM)
+                .WithUniqueStack(CHARM, 3, "shared")
+                .With(IRON, 2);
+
+            var sharedChain = Steps(
+                (new[] { (IRON, 2) }, CHARM, 1),
+                (new[] { (GOLD, 1) }, TARGET, 1));
+            new PlanExecutor<FakeItem>(shared).Run(sharedChain, 1, new FakeStepProducer(sharedChain, "shared"));
+
+            Eq(shared.CountItem(CHARM), 3, "HB-06 a matching stack bigger than the run stored is left whole");
+            Eq(shared.MarksOf(CHARM).Count, 1, "HB-06a with only the conjured stack taken back");
+        }
+
+        // ---- One sweep of the network, one handle per group of units that share state ----
+        // Issue 25-A: a step needing N units called Extract N times, and every call walked every
+        // disk. The sweep now drains up to `count` in one pass and hands back a handle per state
+        // boundary, so nothing has to ask again - and a caller that can hold several items gets both
+        // disks' units instead of stopping at the first boundary.
+        private static void NetworkDrainsInOneSweep()
+        {
+            Section("A withdrawal drains the whole network in one sweep");
+            const int unlimited = int.MaxValue;
+
+            var standaloneOnly = new FakeDiskNetwork().WithDisk().WithDisk().WithDisk();
+            standaloneOnly.WithStandalone(0, 1).WithStandalone(1, 1).WithStandalone(2, 1);
+            var drawn = NetworkWithdrawal.Drain(standaloneOnly, 3, unlimited);
+            Eq(drawn.Count, 3, "NW-01 three stacks that each stand for themselves come back as three handles");
+            Eq(TotalUnits(drawn), 3, "NW-01a paying for all three units");
+
+            var mixed = new FakeDiskNetwork().WithDisk().WithDisk();
+            mixed.WithPooled(0, 4, "A").WithStandalone(1, 6);
+            var mixedDraw = NetworkWithdrawal.Drain(mixed, 10, unlimited);
+            Eq(mixed.PooledDraws, 2, "NW-02 the network is swept for pooled stock exactly once");
+            // Two pooled draws, one empty probe at the drained disk, then one per stack taken: nine
+            // for ten units across two disks, where asking per unit would have made twenty.
+            Eq(mixed.TotalDraws, 9, "NW-02a and asked nine times in total, not once per unit");
+            Eq(TotalUnits(mixedDraw), 10, "NW-02b for all ten units");
+
+            var samePool = new FakeDiskNetwork().WithDisk().WithDisk();
+            samePool.WithPooled(0, 7, "A").WithPooled(1, 9, "A");
+            Eq(NetworkWithdrawal.Drain(samePool, 12, unlimited).Count, 1,
+                "NW-03 pooled stock sharing one state folds into a single handle");
+
+            var samePoolCapped = new FakeDiskNetwork().WithDisk().WithDisk();
+            samePoolCapped.WithPooled(0, 7, "A").WithPooled(1, 9, "A");
+            var capped = NetworkWithdrawal.Drain(samePoolCapped, 12, 1);
+            Eq(capped.Count, 1, "NW-04 and still one handle for a caller that can only hold one");
+            Eq(TotalUnits(capped), 12, "NW-04a carrying all twelve units");
+
+            // The reported cross-disk case: one disk's state must not be stamped over the other's,
+            // but a caller holding two items loses nothing by taking both.
+            var twoStates = new FakeDiskNetwork().WithDisk().WithDisk();
+            twoStates.WithPooled(0, 7, "A").WithPooled(1, 9, "B");
+            var split = NetworkWithdrawal.Drain(twoStates, 12, unlimited);
+            Eq(split.Count, 2, "NW-05 a disk whose state differs opens a second handle");
+            Eq(TotalUnits(split), 12, "NW-05a so both disks pay into the same withdrawal");
+
+            var twoStatesCapped = new FakeDiskNetwork().WithDisk().WithDisk();
+            twoStatesCapped.WithPooled(0, 7, "A").WithPooled(1, 9, "B");
+            var stopped = NetworkWithdrawal.Drain(twoStatesCapped, 12, 1);
+            Eq(TotalUnits(stopped), 7, "NW-06 one item handle still stops at the state boundary");
+            Eq(twoStatesCapped.UnitsOn(1), 9, "NW-06a with the second disk's draw put back");
+            Eq(twoStatesCapped.SlotsOn(1), 1, "NW-06b into the slot it came from");
+
+            var pooledThenStandalone = new FakeDiskNetwork().WithDisk().WithDisk();
+            pooledThenStandalone.WithPooled(0, 4, "A").WithStandalone(1, 6);
+            var followed = NetworkWithdrawal.Drain(pooledThenStandalone, 10, unlimited);
+            Eq(TotalUnits(followed), 10, "NW-07 stacks that stand alone are drawn after pooled stock");
+            Eq(followed.Count, 7, "NW-07a each as its own handle");
+
+            var pooledThenStandaloneCapped = new FakeDiskNetwork().WithDisk().WithDisk();
+            pooledThenStandaloneCapped.WithPooled(0, 4, "A").WithStandalone(1, 6);
+            var suppressed = NetworkWithdrawal.Drain(pooledThenStandaloneCapped, 10, 1);
+            Eq(TotalUnits(suppressed), 4, "NW-08 a caller already holding an item refuses the fallback");
+            Eq(pooledThenStandaloneCapped.UnitsOn(1), 6, "NW-08a leaving every standalone stack alone");
+
+            // Fold into the most recent handle only. Folding into any earlier matching one would
+            // return two handles here, changing what RefundLedger.Refund withholds from the end.
+            var alternating = new FakeDiskNetwork().WithDisk().WithDisk().WithDisk();
+            alternating.WithPooled(0, 10, "A").WithPooled(1, 10, "B").WithPooled(2, 10, "A");
+            Eq(NetworkWithdrawal.Drain(alternating, 30, unlimited).Count, 3,
+                "NW-09 a state that comes back later opens a new handle rather than rejoining the first");
+
+            // Against a network that still holds stock, so these are not true by exhaustion. Note
+            // Drain's own two guards are redundant with downstream ones - PlanWithdrawal refuses
+            // count <= 0, and a zero handle budget puts the draw back - so removing either leaves
+            // these green. NW-10b1 is the load-bearing one: it goes red on a broken PutBack.
+            var untouched = new FakeDiskNetwork().WithDisk();
+            untouched.WithPooled(0, 8, "A");
+            Eq(NetworkWithdrawal.Drain(untouched, 0, unlimited).Count, 0, "NW-10a nothing asked for, nothing drawn");
+            Eq(untouched.TotalUnits, 8, "NW-10a1 and the network is untouched");
+            Eq(NetworkWithdrawal.Drain(untouched, 5, 0).Count, 0, "NW-10b no handle to hold it, nothing drawn");
+            Eq(untouched.TotalUnits, 8, "NW-10b1 and the network is still untouched");
+            Eq(NetworkWithdrawal.Drain(new FakeDiskNetwork(), 5, unlimited).Count, 0, "NW-10c an empty network draws nothing");
+
+            var short1 = new FakeDiskNetwork().WithDisk();
+            short1.WithPooled(0, 12, "A");
+            Eq(TotalUnits(NetworkWithdrawal.Drain(short1, 50, unlimited)), 12, "NW-10d a short network never over-draws");
+
+            // Sweep the handle budget contiguously rather than sampling it: issue 20 shipped a
+            // passing test over a defect because the only divergent value was never tried.
+            bool everyBudgetHolds = true;
+            for (int budget = 0; budget <= 13; budget++)
+            {
+                var swept = new FakeDiskNetwork().WithDisk();
+                swept.WithStandalone(0, 12);
+                var handles = NetworkWithdrawal.Drain(swept, 12, budget);
+                int expected = budget < 12 ? budget : 12;
+                if (handles.Count != expected || TotalUnits(handles) != expected)
+                    everyBudgetHolds = false;
+            }
+            IsTrue(everyBudgetHolds, "NW-11 every handle budget from 0 to 13 draws exactly what it can hold");
+
+            IsTrue(SingleHandleDrainMatchesLegacy(), "NW-12 one-handle drains still agree with the pre-change rule on every layout");
+
+            // A put-back leaves the disk for the next draw to find. This is the one shape where the
+            // one-sweep drain and the old per-call loop could have diverged.
+            var reDrawn = new FakeDiskNetwork().WithDisk().WithDisk();
+            reDrawn.WithPooled(0, 5, "A").WithPooled(1, 6, "B");
+            NetworkWithdrawal.Drain(reDrawn, 11, 1);
+            Eq(reDrawn.TotalUnits, 6, "NW-13 what a put-back restored is still there for the next draw");
+        }
+
+        private static int TotalUnits(List<WithdrawalHandle> handles)
+        {
+            int total = 0;
+            foreach (WithdrawalHandle handle in handles)
+                total += handle.Units;
+            return total;
+        }
+
+        // Holds the rewritten sweep against the rule it replaced across a matrix of layouts, rather
+        // than at the handful of points a reader would think to pick.
+        private static bool SingleHandleDrainMatchesLegacy()
+        {
+            var layouts = new List<Func<FakeDiskNetwork>>
+            {
+                () => Layout(net => net.WithPooled(0, 7, "A").WithPooled(1, 9, "A"), 2),
+                () => Layout(net => net.WithPooled(0, 7, "A").WithPooled(1, 9, "B"), 2),
+                () => Layout(net => net.WithPooled(0, 7, "B").WithPooled(1, 9, "A"), 2),
+                () => Layout(net => net.WithStandalone(0, 3).WithStandalone(1, 4), 2),
+                () => Layout(net => net.WithPooled(0, 4, "A").WithStandalone(1, 6), 2),
+                () => Layout(net => net.WithStandalone(0, 6).WithPooled(1, 4, "A"), 2),
+                () => Layout(net => net.WithPooled(1, 9, "A"), 2),
+                () => Layout(net => net.WithPooled(0, 10, "A").WithPooled(2, 10, "B"), 3),
+                () => Layout(net => net.WithPooled(0, 3, "A").WithPooled(1, 3, "A").WithPooled(2, 3, "B"), 3),
+                () => Layout(net => net.WithStandalone(0, 2, 3).WithPooled(1, 5, "A"), 2),
+                // Pooled and standalone stock on the SAME disk: the one shape where a disk's own
+                // "unique only when nothing plain matched" rule meets the network-wide pooled pass.
+                () => Layout(net => net.WithPooled(0, 4, "A").WithStandalone(0, 3), 2),
+                () => Layout(net => net.WithStandalone(0, 3).WithPooled(0, 4, "A"), 2),
+                () => Layout(net => net, 2)
+            };
+
+            foreach (var layout in layouts)
+            {
+                for (int count = 0; count <= 20; count++)
+                {
+                    var rewrittenNetwork = layout();
+                    var legacyNetwork = layout();
+                    var rewritten = NetworkWithdrawal.Drain(rewrittenNetwork, count, 1);
+                    var legacy = LegacySingleHandleDrain.Drain(legacyNetwork, count);
+
+                    if (rewritten.Count != legacy.Count || TotalUnits(rewritten) != TotalUnits(legacy))
+                        return false;
+
+                    for (int handle = 0; handle < rewritten.Count; handle++)
+                    {
+                        if (rewritten[handle].Units != legacy[handle].Units
+                            || rewritten[handle].Draws.Count != legacy[handle].Draws.Count)
+                            return false;
+                    }
+
+                    // Equal totals drawn from the wrong disks, or a put-back left unrestored, would
+                    // pass every check above. Conservation lives in what the network holds after.
+                    for (int disk = 0; disk < rewrittenNetwork.DiskCount; disk++)
+                    {
+                        if (rewrittenNetwork.UnitsOn(disk) != legacyNetwork.UnitsOn(disk))
+                            return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private static FakeDiskNetwork Layout(Func<FakeDiskNetwork, FakeDiskNetwork> stock, int diskCount)
+        {
+            var network = new FakeDiskNetwork();
+            for (int disk = 0; disk < diskCount; disk++)
+                network.WithDisk();
+            return stock(network);
         }
 
         private static void Section(string title) => Console.WriteLine($"-- {title}");
