@@ -282,5 +282,15 @@ UI: {
 		NoStorageInRange: you are too far from a Crafting Terminal.
 		NoStorageConnected: that Terminal has no storage disks connected.
 		NoTerminalFound: that Crafting Terminal is no longer there.
+		NotAtDriveBay: you are too far from that Drive Bay.
+		DiskNotInSlot: that slot no longer holds that disk.
+		UpgradeUnavailable: that disk has no upgrade available.
+		MaterialsNoLongerAvailable: storage no longer holds the materials for that upgrade.
+		DiskNotFound: that Drive Bay is no longer there.
+		DiskRecoveryRefused: that disk cannot be recovered onto the replacement you are holding.
+		NothingToDefragment: there was nothing to defragment.
+		DiskClaimRefused: that disk belongs to another player.
+		DriveBaySlotUnavailable: that Drive Bay slot was filled first.
+		DriveBayNotOnNetwork: that Drive Bay is not connected to this Terminal.
 	}
 }

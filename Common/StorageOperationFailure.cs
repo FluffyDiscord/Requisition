@@ -25,6 +25,16 @@ namespace TerraStorage.Common
         NoStorageInRange = 9,
         NoStorageConnected = 10,
         NoTerminalFound = 11,
+        NotAtDriveBay = 12,
+        DiskNotInSlot = 13,
+        UpgradeUnavailable = 14,
+        MaterialsNoLongerAvailable = 15,
+        DiskNotFound = 16,
+        DiskRecoveryRefused = 17,
+        NothingToDefragment = 18,
+        DiskClaimRefused = 19,
+        DriveBaySlotUnavailable = 20,
+        DriveBayNotOnNetwork = 21,
     }
 
     public static class StorageOperationFailures
@@ -42,6 +52,16 @@ namespace TerraStorage.Common
             StorageOperationFailure.NoStorageInRange,
             StorageOperationFailure.NoStorageConnected,
             StorageOperationFailure.NoTerminalFound,
+            StorageOperationFailure.NotAtDriveBay,
+            StorageOperationFailure.DiskNotInSlot,
+            StorageOperationFailure.UpgradeUnavailable,
+            StorageOperationFailure.MaterialsNoLongerAvailable,
+            StorageOperationFailure.DiskNotFound,
+            StorageOperationFailure.DiskRecoveryRefused,
+            StorageOperationFailure.NothingToDefragment,
+            StorageOperationFailure.DiskClaimRefused,
+            StorageOperationFailure.DriveBaySlotUnavailable,
+            StorageOperationFailure.DriveBayNotOnNetwork,
         };
 
         public static IReadOnlyList<StorageOperationFailure> GetDeniedFailures() => Denied;
@@ -86,7 +106,17 @@ namespace TerraStorage.Common
                     or StorageOperationFailure.NothingQuickStacked
                     or StorageOperationFailure.NoStorageInRange
                     or StorageOperationFailure.NoStorageConnected
-                    or StorageOperationFailure.NoTerminalFound => candidate,
+                    or StorageOperationFailure.NoTerminalFound
+                    or StorageOperationFailure.NotAtDriveBay
+                    or StorageOperationFailure.DiskNotInSlot
+                    or StorageOperationFailure.UpgradeUnavailable
+                    or StorageOperationFailure.MaterialsNoLongerAvailable
+                    or StorageOperationFailure.DiskNotFound
+                    or StorageOperationFailure.DiskRecoveryRefused
+                    or StorageOperationFailure.NothingToDefragment
+                    or StorageOperationFailure.DiskClaimRefused
+                    or StorageOperationFailure.DriveBaySlotUnavailable
+                    or StorageOperationFailure.DriveBayNotOnNetwork => candidate,
                 _ => StorageOperationFailure.Unspecified,
             };
         }

@@ -77,6 +77,22 @@ both directions and `PlayerHoldsDisk` cannot be relied on as the *only* arm. Tha
 decision needing a live session, so it is recorded at the end of
 [23](23-agent-audit-2026-08-25.md) rather than guessed at here.
 
+> **Narrowed 2026-08-26, still open.**
+> [27](27-packets-named-disks-instead-of-a-terminal.md) added a proximity check to
+> `HandleSyncDiskInsert`: the insert now has to come from a sender standing within 15 tiles of the
+> bay, which the Drive Bay UI enforces on itself anyway. So the attacker must be physically at a
+> Drive Bay rather than anywhere in the world. **Both objections above still hold** — the offline
+> inventory is still invisible, and the stale-equipment problem is unchanged — and the attacker can
+> place their own bay, so this narrows the reach without closing the hole. It still needs the live
+> session.
+>
+> Two things in this file are superseded by 27: `RefuseInsert` now also sends the *reason*
+> (`DiskClaimRefused` or `DriveBaySlotUnavailable`) alongside the disk return and the bay correction,
+> so the two-clients-race case tells the loser why; and the wire-count bound this file added to
+> `ReadGuidList` covers six fewer handlers, because those packets no longer carry a GUID list at all
+> — `ReadGuidList` is gone. `WireCount` itself still guards the chunked-sync length and
+> `DiskData.ReadNet`, and `WB-*` still pins it.
+
 ## 2. A wire-supplied count sized the server's allocations — HIGH
 
 `ReadGuidList` did `new List<Guid>(count)` with `count` straight off the wire, from eight

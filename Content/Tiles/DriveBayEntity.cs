@@ -352,12 +352,11 @@ namespace TerraStorage.Content.Tiles
             RefreshVisualState(StorageNetwork.HasTerminalNearby(Position));
 
             // Request disk fill data from the server so drive lights update to correct colors.
-            if (Main.netMode == NetmodeID.MultiplayerClient)
-            {
-                var ids = GetInsertedDiskIds();
-                if (ids.Count > 0)
-                    NetworkHandler.SendRequestDiskData(ModLoader.GetMod("TerraStorage"), ids);
-            }
+            // Naming this bay rather than its disk GUIDs is what lets the request stay unscoped by
+            // distance: the server answers with what this bay holds, and a bay far from any
+            // Terminal still gets its lights.
+            if (Main.netMode == NetmodeID.MultiplayerClient && HasDisks())
+                NetworkHandler.SendRequestDiskData(ModLoader.GetMod("TerraStorage"), ID);
         }
 
         // Find the DriveBayEntity at a given tile position (accounts for multi-tile).

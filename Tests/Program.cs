@@ -83,6 +83,9 @@ namespace TerraStorage.Tests
             DenialReasonsSurviveTheWire();
             WireCountBoundsTests();
             DiskClaimTests();
+            TerminalReachIsOneRule();
+            DiskAccessRules();
+            AuthorizationIsWiredIntoTheHandlers();
             BandOfDoorIsPayableFromStacksThatStandAlone();
             SeparateStacksKeepTheirStateThroughARefund();
             BandOfDoorFixtureBuildsTheReportedPlan();
@@ -2828,6 +2831,261 @@ namespace TerraStorage.Tests
                 "MX-11 a disk repeated in the request never donates to itself");
         }
 
+        // The UI closes its panel at a tile distance from the block's stored position; the server
+        // used to measure pixels to the block's 3x3 centre, which sits 1.5 tiles down-right of it.
+        // A player up-and-left could therefore be inside the range the panel enforced and outside
+        // the one the server did - the panel stays open while every packet it sends is refused.
+        // These sweep the boundary rather than sampling it, which is issue 20's whole lesson.
+        private static void TerminalReachIsOneRule()
+        {
+            Section("Terminal reach: one origin for the panel and the packet");
+
+            Eq(TerminalReach.GetRangeInTiles(), 15,
+                "TR-01 the range is the 15 tiles both UI panels close at");
+            Eq(TerminalReach.GetTilePixelSize(), 16,
+                "TR-02 a tile is the 16 pixels both UI panels divide by");
+
+            const int blockTileX = 100;
+            const int blockTileY = 200;
+            float tileSize = TerminalReach.GetTilePixelSize();
+
+            IsTrue(TerminalReach.IsWithinRange(blockTileX * tileSize, blockTileY * tileSize,
+                    blockTileX, blockTileY),
+                "TR-03 standing on the block is in range");
+            IsTrue(TerminalReach.IsWithinRange((blockTileX + 15f) * tileSize, blockTileY * tileSize,
+                    blockTileX, blockTileY),
+                "TR-04 exactly 15 tiles away is still in range");
+            IsFalse(TerminalReach.IsWithinRange((blockTileX + 15.01f) * tileSize, blockTileY * tileSize,
+                    blockTileX, blockTileY),
+                "TR-05 a hundredth of a tile past 15 is not");
+            IsTrue(TerminalReach.IsWithinRange((blockTileX - 15f) * tileSize, blockTileY * tileSize,
+                    blockTileX, blockTileY)
+                && TerminalReach.IsWithinRange(blockTileX * tileSize, (blockTileY - 15f) * tileSize,
+                    blockTileX, blockTileY),
+                "TR-06 the rule does not care which side of the block the player stands on");
+
+            // Eight directions, 0 to 20 tiles in twentieths. A rule with one boundary flips once per
+            // direction; a rule measured from a different origin flips somewhere else, or twice.
+            int directionsWithOneFlip = 0;
+            int stepsDisagreeingWithThePanel = 0;
+            for (int direction = 0; direction < 8; direction++)
+            {
+                double angle = direction * Math.PI / 4d;
+                double unitX = Math.Cos(angle);
+                double unitY = Math.Sin(angle);
+
+                bool previousVerdict = true;
+                int flips = 0;
+                double flippedAt = -1d;
+                for (int step = 0; step <= 400; step++)
+                {
+                    double distanceInTiles = step * 0.05d;
+                    float playerX = (float)((blockTileX + unitX * distanceInTiles) * tileSize);
+                    float playerY = (float)((blockTileY + unitY * distanceInTiles) * tileSize);
+
+                    bool inRange = TerminalReach.IsWithinRange(playerX, playerY, blockTileX, blockTileY);
+                    if (inRange != PanelWouldStayOpen(playerX, playerY, blockTileX, blockTileY))
+                        stepsDisagreeingWithThePanel++;
+
+                    if (step > 0 && inRange != previousVerdict)
+                    {
+                        flips++;
+                        flippedAt = distanceInTiles;
+                    }
+                    previousVerdict = inRange;
+                }
+
+                // Where it flips, not just that it flips once: a rule with the wrong range still has
+                // exactly one boundary. One sweep step of tolerance, because the flip is recorded at
+                // the first step past it.
+                bool flippedAtTheStatedRange = flips == 1
+                    && Math.Abs(flippedAt - TerminalReach.GetRangeInTiles()) <= 0.05d + 1e-9d;
+                if (flippedAtTheStatedRange) directionsWithOneFlip++;
+            }
+
+            Eq(directionsWithOneFlip, 8,
+                "TR-07 the verdict flips exactly once in every direction, and at the stated range");
+            Eq(stepsDisagreeingWithThePanel, 0,
+                "TR-08 the packet rule agrees with the panel's own formula at every swept point");
+        }
+
+        // TerminalUISystem.UpdateUI and DriveBayUISystem.UpdateUI, verbatim: the player's centre in
+        // tiles against the entity's stored Position, closed when the distance exceeds 15.
+        private static bool PanelWouldStayOpen(float playerCenterXPixels, float playerCenterYPixels,
+            int blockTileX, int blockTileY)
+        {
+            float playerTileX = playerCenterXPixels / 16f;
+            float playerTileY = playerCenterYPixels / 16f;
+            double distance = Math.Sqrt((playerTileX - blockTileX) * (playerTileX - blockTileX)
+                + (playerTileY - blockTileY) * (playerTileY - blockTileY));
+
+            return !(distance > 15f);
+        }
+
+        private static void DiskAccessRules()
+        {
+            Section("Disk access: who may operate a Terminal, and when an entry may be dropped");
+
+            IsTrue(DiskAccess.MayOperateTerminal(true, false),
+                "DA-01 standing at the Terminal is enough");
+
+            // The regression this pins is real and shipped: Defragment was the one handler scoped
+            // by range, with no second arm, so it refused every Remote Terminal user outright. An
+            // AND here would not be a stricter rule, it would be that bug restored - and this is
+            // the row that fails when someone writes one.
+            IsTrue(DiskAccess.MayOperateTerminal(false, true),
+                "DA-02 a Remote Terminal reaches a Terminal the player is nowhere near");
+
+            IsFalse(DiskAccess.MayOperateTerminal(false, false),
+                "DA-03 neither arm means no");
+            IsTrue(DiskAccess.MayOperateTerminal(true, true),
+                "DA-04 both arms is still yes");
+
+            IsTrue(DiskAccess.MayPruneDiskData(0, false),
+                "DA-06 an empty entry no bay references may be dropped");
+            IsFalse(DiskAccess.MayPruneDiskData(3, false),
+                "DA-07 an entry still holding items is never dropped, wherever its disk went");
+            IsFalse(DiskAccess.MayPruneDiskData(0, true),
+                "DA-08 an entry another bay still holds is never dropped");
+            IsFalse(DiskAccess.MayPruneDiskData(3, true),
+                "DA-09 neither arm alone is enough");
+
+            // Sweep rather than sample: the destructive mistake here is turning the AND into an OR,
+            // which shows up only on the stacks-held rows.
+            int prunable = 0;
+            for (int usedStacks = 0; usedStacks <= 8; usedStacks++)
+            {
+                foreach (bool anotherBayHoldsDisk in new[] { false, true })
+                {
+                    if (DiskAccess.MayPruneDiskData(usedStacks, anotherBayHoldsDisk))
+                        prunable++;
+                }
+            }
+            Eq(prunable, 1,
+                "DA-10 exactly one of the eighteen states may be pruned: empty and unreferenced");
+        }
+
+        // The handlers themselves cannot be compiled outside the game, so these read the source the
+        // way DN-06/DN-07/DN-08 already do. They pin the wiring the predicates above are useless
+        // without: that the rule is actually called, that the GUID list really left the wire, and
+        // that a refused deposit hands the item back instead of eating it.
+        private static void AuthorizationIsWiredIntoTheHandlers()
+        {
+            Section("Authorization wiring: the rule reaches every handler that needs it");
+
+            string repoRoot = FindRepoRoot();
+            IsTrue(repoRoot != null, "DA-11 repo root located from " + AppContext.BaseDirectory);
+            if (repoRoot == null) return;
+
+            string network = ReadModSource(repoRoot, "Systems/NetworkHandler.cs");
+
+            var handlersNeedingATerminal = new[]
+            {
+                "HandleWithdrawItem(Mod mod",
+                "HandleWithdrawItemByModData(Mod mod",
+                "HandleWithdrawItemByFullItemTag(Mod mod",
+                "HandleDepositItem(Mod mod",
+                "HandleCraftRequest(Mod mod",
+                "HandleDefragRequest(Mod mod",
+                "HandleUpgradeDiskRequest(Mod mod",
+            };
+
+            int gated = 0;
+            foreach (string signature in handlersNeedingATerminal)
+            {
+                string body = ExtractMethodBody(network, signature);
+                if (body.Contains("TryResolveOperableTerminal", StringComparison.Ordinal)) gated++;
+                else Check(false, $"DA-12 {signature} acts without resolving an operable Terminal");
+            }
+            Eq(gated, handlersNeedingATerminal.Length,
+                "DA-12a every handler that spends a network resolves it from the named Terminal");
+
+            // The signature change doc 25 recorded as the blocker for naming this handler's refusals.
+            IsTrue(network.Contains("HandleUpgradeDiskRequest(Mod mod, BinaryReader reader, int whoAmI)",
+                    StringComparison.Ordinal)
+                && network.Contains("HandleUpgradeDiskRequest(mod, reader, whoAmI)", StringComparison.Ordinal),
+                "DA-13 the upgrade handler takes the sender, and the dispatcher passes it");
+
+            // A GUID list left on a client-to-server packet is the hole itself, so its absence is
+            // asserted rather than assumed. Server-to-client broadcasts may still take a list -
+            // those the server built itself.
+            var clientToServerSenders = new[]
+            {
+                "SendWithdrawItem(Mod mod",
+                "SendWithdrawItemByModData(Mod mod",
+                "SendWithdrawItemByFullItemTag(Mod mod",
+                "SendDepositItem(Mod mod",
+                "SendCraftRequest(Mod mod",
+                "SendDefragRequest(Mod mod",
+                "SendUpgradeDiskRequest(Mod mod",
+                "SendRequestDiskData(Mod mod",
+            };
+
+            int sendersNamingABlock = 0;
+            foreach (string signature in clientToServerSenders)
+            {
+                int at = network.IndexOf(signature, StringComparison.Ordinal);
+                if (at < 0) { Check(false, $"DA-14 {signature} not found"); continue; }
+
+                string parameters = network.Substring(at, network.IndexOf(')', at) - at);
+                bool carriesADiskList = parameters.Contains("List<Guid>", StringComparison.Ordinal);
+                bool namesABlock = parameters.Contains("EntityId", StringComparison.Ordinal);
+
+                if (!carriesADiskList && namesABlock) sendersNamingABlock++;
+                else Check(false, $"DA-14 {signature} still carries a client-supplied disk list");
+            }
+            Eq(sendersNamingABlock, clientToServerSenders.Length,
+                "DA-14a every client-to-server storage packet names a block, not a disk list");
+
+            Eq(CountOccurrences(network, "ReadGuidList"), 0,
+                "DA-14b the reader that pre-sized a list from a wire count is gone with it");
+
+            // One origin for the range rule: the literals this replaced were the disagreement.
+            Eq(CountOccurrences(network, "240f"), 0,
+                "DA-15 no hand-rolled pixel range survives in the handlers");
+            Eq(CountOccurrences(network, "* 16f + 24f"), 0,
+                "DA-15a nor the centre offset that disagreed with the panel");
+
+            // The panels are the other half of that rule, and the half a player sees. A panel that
+            // keeps its own copy is free to drift back into the band where it stays open and every
+            // packet it sends is refused - which is the defect, not the literal.
+            var filesThatMustNotOwnARange = new[]
+            {
+                "Content/UI/TerminalUISystem.cs",
+                "Content/UI/DriveBayUISystem.cs",
+                "Systems/QuickStackSystem.cs",
+                "Systems/AndroLibCompat.cs",
+            };
+
+            int filesDeferringToTheSharedRule = 0;
+            foreach (string relativePath in filesThatMustNotOwnARange)
+            {
+                string source = ReadModSource(repoRoot, relativePath);
+                bool ownsARange = source.Contains("MaxInteractDistance", StringComparison.Ordinal)
+                    || source.Contains("240f", StringComparison.Ordinal)
+                    || source.Contains("/ 16f", StringComparison.Ordinal);
+
+                if (!ownsARange && source.Contains("TerminalReach.", StringComparison.Ordinal))
+                    filesDeferringToTheSharedRule++;
+                else
+                    Check(false, $"DA-17 {relativePath} still keeps its own copy of the range rule");
+            }
+            Eq(filesDeferringToTheSharedRule, filesThatMustNotOwnARange.Length,
+                "DA-17a every panel and helper asks the same rule the packet handlers ask");
+
+            // The one ordering in this change that can destroy a player's stack: the client empties
+            // the slot before sending, so a refusal that keeps the item deletes it.
+            string depositBody = ExtractMethodBody(network, "HandleDepositItem(Mod mod");
+            int guardAt = depositBody.IndexOf("if (Main.netMode != NetmodeID.Server)", StringComparison.Ordinal);
+            int trackingAt = depositBody.IndexOf("BeginModificationTracking", StringComparison.Ordinal);
+            IsTrue(guardAt >= 0 && trackingAt > guardAt, "DA-16 the deposit handler has a refusal window to check");
+
+            string refusalWindow = depositBody.Substring(guardAt, trackingAt - guardAt);
+            int earlyReturns = CountOccurrences(refusalWindow, "return;") - 1; // the netMode guard's own
+            Eq(CountOccurrences(refusalWindow, "SendReturnItemToClient("), earlyReturns,
+                "DA-16a every refused deposit hands the item back before it gives up on it");
+        }
+
         private static string ReadModSource(string repoRoot, string relativePath)
             => StripLineComments(File.ReadAllText(Path.Combine(repoRoot, relativePath.Replace('/', Path.DirectorySeparatorChar))));
 
@@ -2953,7 +3211,17 @@ namespace TerraStorage.Tests
             Eq((byte)StorageOperationFailure.NoStorageInRange, 9, "DN-14i NoStorageInRange is 9");
             Eq((byte)StorageOperationFailure.NoStorageConnected, 10, "DN-14j NoStorageConnected is 10");
             Eq((byte)StorageOperationFailure.NoTerminalFound, 11, "DN-14k NoTerminalFound is 11");
-            Eq(Enum.GetValues<StorageOperationFailure>().Length, 12,
+            Eq((byte)StorageOperationFailure.NotAtDriveBay, 12, "DN-14n NotAtDriveBay is 12");
+            Eq((byte)StorageOperationFailure.DiskNotInSlot, 13, "DN-14o DiskNotInSlot is 13");
+            Eq((byte)StorageOperationFailure.UpgradeUnavailable, 14, "DN-14p UpgradeUnavailable is 14");
+            Eq((byte)StorageOperationFailure.MaterialsNoLongerAvailable, 15, "DN-14q MaterialsNoLongerAvailable is 15");
+            Eq((byte)StorageOperationFailure.DiskNotFound, 16, "DN-14r DiskNotFound is 16");
+            Eq((byte)StorageOperationFailure.DiskRecoveryRefused, 17, "DN-14s DiskRecoveryRefused is 17");
+            Eq((byte)StorageOperationFailure.NothingToDefragment, 18, "DN-14t NothingToDefragment is 18");
+            Eq((byte)StorageOperationFailure.DiskClaimRefused, 19, "DN-14u DiskClaimRefused is 19");
+            Eq((byte)StorageOperationFailure.DriveBaySlotUnavailable, 20, "DN-14v DriveBaySlotUnavailable is 20");
+            Eq((byte)StorageOperationFailure.DriveBayNotOnNetwork, 21, "DN-14w DriveBayNotOnNetwork is 21");
+            Eq(Enum.GetValues<StorageOperationFailure>().Length, 22,
                 "DN-14l a new member was appended without pinning its value");
             Eq(denied.Count, Enum.GetValues<StorageOperationFailure>().Length - 1,
                 "DN-14m every member but None is reportable");
@@ -2992,7 +3260,7 @@ namespace TerraStorage.Tests
             {
                 var mapped = StorageOperationFailures.GetFailureFromWireValue((byte)wireValue);
 
-                var required = wireValue < 12
+                var required = wireValue < 22
                     ? (StorageOperationFailure)wireValue
                     : StorageOperationFailure.Unspecified;
 
