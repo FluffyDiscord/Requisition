@@ -120,6 +120,18 @@ namespace TerraStorage.Content.Items
             DiskId = new Guid(reader.ReadBytes(16));
             IsArchived = reader.ReadBoolean();
             int count = reader.ReadInt32();
+
+            // The count sizes the list before a single stack is read, so a forged one allocates
+            // whatever it asks for. A disk cannot hold more stacks than its tier does, and Tier is
+            // the item's own compile-time property rather than anything the packet chose.
+            // tModLoader hands NetReceive a stream over exactly the bytes the sender declared, so
+            // leaving the list empty is safe: the unread remainder is its problem, not ours.
+            if (!WireCount.FitsDiskCapacity(count, Tier.GetCapacity()))
+            {
+                ArchivedItems = new List<StoredItemStack>();
+                return;
+            }
+
             ArchivedItems = new List<StoredItemStack>(count);
             for (int i = 0; i < count; i++)
                 ArchivedItems.Add(StoredItemStack.ReadNet(reader));

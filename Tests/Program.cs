@@ -81,6 +81,8 @@ namespace TerraStorage.Tests
             ScrollBoundsComeFromTheDrawGeometry();
             StackIdentityTests();
             DenialReasonsSurviveTheWire();
+            WireCountBoundsTests();
+            DiskClaimTests();
             BandOfDoorIsPayableFromStacksThatStandAlone();
             SeparateStacksKeepTheirStateThroughARefund();
             BandOfDoorFixtureBuildsTheReportedPlan();
@@ -3495,6 +3497,84 @@ namespace TerraStorage.Tests
             for (int disk = 0; disk < diskCount; disk++)
                 network.WithDisk();
             return stock(network);
+        }
+
+        // ---- Scenario: a count a packet supplied must not size an allocation ----
+        // List<T>(capacity) commits the whole backing array before the first element is read, so a
+        // ~20-byte packet claiming int.MaxValue elements allocates gigabytes. The read loop cannot
+        // catch it: Terraria reuses one buffer, so reading past the packet returns stale bytes
+        // instead of throwing.
+        private static void WireCountBoundsTests()
+        {
+            Section("WireCount - a count off the wire may not size an allocation");
+
+            const int GuidBytes = WireCount.GuidBytes;
+            // 131070 / 16, the most GUIDs the largest possible packet could carry.
+            const int LargestHonestGuidCount = 8191;
+
+            IsTrue(WireCount.FitsInOnePacket(0, GuidBytes),
+                "WB-01 an empty list is an honest count");
+            IsTrue(WireCount.FitsInOnePacket(LargestHonestGuidCount, GuidBytes),
+                "WB-02 a list filling the whole buffer is still honest");
+            IsFalse(WireCount.FitsInOnePacket(LargestHonestGuidCount + 1, GuidBytes),
+                "WB-03 one element past the buffer cannot have been sent");
+            IsFalse(WireCount.FitsInOnePacket(int.MaxValue, GuidBytes),
+                "WB-04 the attack value is refused before it sizes anything");
+            IsFalse(WireCount.FitsInOnePacket(-1, GuidBytes),
+                "WB-05 a negative count is refused, not handed to List<T>");
+            IsFalse(WireCount.FitsInOnePacket(int.MinValue, GuidBytes),
+                "WB-06 the extreme negative is refused by the same sign check");
+            IsFalse(WireCount.FitsInOnePacket(1, 0),
+                "WB-07 an element size of zero never divides");
+
+            // A disk's own tier bounds its stacks far more tightly than the packet does.
+            const int Tier6Capacity = 2048, Tier1Capacity = 64;
+
+            IsTrue(WireCount.FitsDiskCapacity(Tier6Capacity, Tier6Capacity),
+                "WB-08 a full Terra disk is an honest count");
+            IsFalse(WireCount.FitsDiskCapacity(Tier6Capacity + 1, Tier6Capacity),
+                "WB-09 one stack past a full disk cannot be real");
+            IsFalse(WireCount.FitsDiskCapacity(int.MaxValue, Tier1Capacity),
+                "WB-10 the attack value is refused against the smallest disk");
+            IsFalse(WireCount.FitsDiskCapacity(-1, Tier6Capacity),
+                "WB-11 a negative stack count is refused");
+            IsTrue(WireCount.FitsDiskCapacity(0, 0),
+                "WB-12 an empty disk of no capacity holds nothing, honestly");
+        }
+
+        // ---- Scenario: naming a disk GUID proves nothing ----
+        // Every client receives every disk's GUID, so the server has to establish separately that
+        // the sender has any claim on the disk it named.
+        private static void DiskClaimTests()
+        {
+            Section("DiskClaim - who may name a disk GUID over the wire");
+
+            var Unassigned = Guid.Empty;
+            var SomeDisk = Guid.NewGuid();
+            const bool InUse = true, NotInUse = false;
+            const bool Held = true, NotHeld = false;
+
+            IsTrue(DiskClaim.SenderMayClaim(Unassigned, InUse, NotHeld),
+                "DC-01 a fresh uninitialised disk is always allowed");
+            IsTrue(DiskClaim.SenderMayClaim(SomeDisk, NotInUse, NotHeld),
+                "DC-02 a GUID no physical disk carries is allowed (unarchive mints one client-side)");
+            IsTrue(DiskClaim.SenderMayClaim(SomeDisk, InUse, Held),
+                "DC-03 the sender's own disk is allowed");
+            IsFalse(DiskClaim.SenderMayClaim(SomeDisk, InUse, NotHeld),
+                "DC-04 someone else's live disk is refused");
+
+            // The scans the caller passes in answer meaninglessly for an empty GUID: "is it in use"
+            // says true so that recovery refuses it, and "does the sender hold one" finds any other
+            // blank disk in their inventory. The empty arm has to win over both.
+            IsTrue(DiskClaim.SenderMayClaim(Unassigned, InUse, Held),
+                "DC-05 empty wins over an in-use scan that answers true for empty");
+            IsTrue(DiskClaim.SenderMayClaim(Unassigned, NotInUse, NotHeld),
+                "DC-05a and over both scans answering false");
+
+            IsTrue(DiskClaim.MayRestoreArchivedItems(worldAlreadyHasDisk: false),
+                "DC-06 archived items restore onto a GUID the world does not know");
+            IsFalse(DiskClaim.MayRestoreArchivedItems(worldAlreadyHasDisk: true),
+                "DC-07 restoring never overwrites a disk that already exists");
         }
 
         private static void Section(string title) => Console.WriteLine($"-- {title}");

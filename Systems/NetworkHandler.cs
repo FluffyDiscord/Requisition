@@ -201,9 +201,23 @@ namespace TerraStorage.Systems
                 sbe = blockEntity;
                 if (Main.netMode == NetmodeID.Server)
                 {
+                    // The GUID on this item came off the wire, and every client is told every
+                    // disk's GUID, so naming one proves nothing about whose disk it is.
+                    var insertedDisk = item.ModItem as StorageDiskBase;
+                    if (insertedDisk != null && !SenderMayClaimDisk(whoAmI, insertedDisk.DiskId))
+                    {
+                        RefuseInsert(mod, whoAmI, sbe, item);
+                        return;
+                    }
+
                     // InsertDisk assigns the GUID and registers the disk in StorageWorldSystem
                     // so clients can retrieve disk data by the correct GUID via RequestDiskData.
-                    sbe.InsertDisk(item, slot);
+                    if (!sbe.InsertDisk(item, slot))
+                    {
+                        // The slot filled before this packet arrived.
+                        RefuseInsert(mod, whoAmI, sbe, item);
+                        return;
+                    }
                 }
                 else
                 {
@@ -286,6 +300,10 @@ namespace TerraStorage.Systems
             int slot = reader.ReadInt32();
             var item = ItemIO.Receive(reader, true);
 
+            // Fixed-size array, index off the wire — the same guard the disk slots carry.
+            if (slot < 0 || slot >= CraftingCoreEntity.StationSlotCount)
+                return;
+
             if (Terraria.DataStructures.TileEntity.ByID.TryGetValue(entityId, out var entity)
                 && entity is CraftingCoreEntity cce)
             {
@@ -308,6 +326,10 @@ namespace TerraStorage.Systems
         {
             int entityId = reader.ReadInt32();
             int slot = reader.ReadInt32();
+
+            // Fixed-size array, index off the wire — see HandleSyncStationInsert.
+            if (slot < 0 || slot >= CraftingCoreEntity.StationSlotCount)
+                return;
 
             if (Terraria.DataStructures.TileEntity.ByID.TryGetValue(entityId, out var entity)
                 && entity is CraftingCoreEntity cce)
@@ -394,6 +416,9 @@ namespace TerraStorage.Systems
         {
             int diskCount = reader.ReadInt32();
             var diskIds = ReadGuidList(reader, diskCount);
+            if (diskIds == null)
+                return;
+
             var fullItemTag = TagIO.Read(reader);
             bool shift = reader.ReadBoolean();
 
@@ -421,6 +446,9 @@ namespace TerraStorage.Systems
         {
             int diskCount = reader.ReadInt32();
             var diskIds = ReadGuidList(reader, diskCount);
+            if (diskIds == null)
+                return;
+
             var modData = TagIO.Read(reader);
             bool shift = reader.ReadBoolean();
 
@@ -448,6 +476,9 @@ namespace TerraStorage.Systems
         {
             int count = reader.ReadInt32();
             var diskIds = ReadGuidList(reader, count);
+            if (diskIds == null)
+                return;
+
             var item = ItemIO.Receive(reader, true);
 
             if (Main.netMode == NetmodeID.Server)
@@ -565,6 +596,9 @@ namespace TerraStorage.Systems
         {
             int diskCount = reader.ReadInt32();
             var diskIds = ReadGuidList(reader, diskCount);
+            if (diskIds == null)
+                return;
+
             int itemType = reader.ReadInt32();
             int count = reader.ReadInt32();
             int prefix = reader.ReadInt32();
@@ -593,6 +627,9 @@ namespace TerraStorage.Systems
 
         private static void HandleWithdrawItemResult(BinaryReader reader)
         {
+            // Server → client only. Main.LocalPlayer on a dedicated server is the dummy player.
+            if (Main.netMode != NetmodeID.MultiplayerClient) return;
+
             var item = ItemIO.Receive(reader, true);
             bool shift = reader.ReadBoolean();
 
@@ -658,6 +695,9 @@ namespace TerraStorage.Systems
         {
             int diskCount = reader.ReadInt32();
             var diskIds = ReadGuidList(reader, diskCount);
+            if (diskIds == null)
+                return;
+
             int recipeItemType = reader.ReadInt32();
             int recipeIndex = reader.ReadInt32();
             int craftAmount = reader.ReadInt32();
@@ -767,6 +807,8 @@ namespace TerraStorage.Systems
         {
             int count = reader.ReadInt32();
             var diskIds = ReadGuidList(reader, count);
+            if (diskIds == null)
+                return;
 
             DBG($"HandleRequestDiskData: received {count} ids from whoAmI={whoAmI}: {string.Join(", ", diskIds.Select(g => g.ToString()[..8]))}");
 
@@ -870,12 +912,25 @@ namespace TerraStorage.Systems
 
         private static void HandleSyncDiskDataChunked(BinaryReader reader)
         {
+            if (Main.netMode != NetmodeID.MultiplayerClient) return;
+
             var diskId = new Guid(reader.ReadBytes(16));
             int seqNum = reader.ReadInt32();
             ushort chunkIndex = reader.ReadUInt16();
             ushort totalChunks = reader.ReadUInt16();
             int dataLength = reader.ReadInt32();
+
+            // ReadBytes allocates the whole length before reading it, so this is the same
+            // allocate-from-a-lie shape as a list capacity. The sender writes 50,000-byte chunks.
+            if (!WireCount.FitsInOnePacket(dataLength, 1))
+                return;
+
             byte[] data = reader.ReadBytes(dataLength);
+
+            // Checked before the buffer below is sized from totalChunks, not after: the same
+            // check-before-you-allocate rule the count bounds exist for.
+            if (totalChunks == 0 || chunkIndex >= totalChunks)
+                return;
 
             if (!_chunkBuffers.TryGetValue(diskId, out var buf) || buf.SeqNum != seqNum)
             {
@@ -889,6 +944,15 @@ namespace TerraStorage.Systems
                 _chunkBuffers[diskId] = buf;
             }
 
+            // The buffer may have been sized by an earlier packet claiming a different total.
+            if (chunkIndex >= buf.TotalChunks)
+                return;
+
+            // Counting a chunk that already arrived would let a repeat stand in for one still
+            // missing, and the reassembly below would then read a null chunk.
+            if (buf.Chunks[chunkIndex] != null)
+                return;
+
             buf.Chunks[chunkIndex] = data;
             buf.Received++;
 
@@ -901,6 +965,11 @@ namespace TerraStorage.Systems
 
                 using var br = new BinaryReader(ms);
                 var diskData = DiskData.ReadNet(br);
+                if (diskData == null)
+                {
+                    _chunkBuffers.Remove(diskId);
+                    return;
+                }
 
                 var sys = StorageWorldSystem.Instance;
                 sys.ApplyDiskDataFromNetwork(diskData);
@@ -961,6 +1030,11 @@ namespace TerraStorage.Systems
 
         private static void HandleSyncDiskData(BinaryReader reader)
         {
+            // Server-authoritative state arriving from a client is not a correction, it is a forgery.
+            // ApplyDiskDataFromNetwork guards itself, but SetDiskSeqNum and RefreshAllDriveBays below
+            // would still run for whatever GUIDs the packet named.
+            if (Main.netMode != NetmodeID.MultiplayerClient) return;
+
             try
             {
                 int count = reader.ReadInt32();
@@ -969,6 +1043,10 @@ namespace TerraStorage.Systems
                 for (int i = 0; i < count; i++)
                 {
                     var data = DiskData.ReadNet(reader);
+                    // Break rather than return: the disks already applied still need the refresh.
+                    if (data == null)
+                        break;
+
                     sys.ApplyDiskDataFromNetwork(data);
                     sys.SetDiskSeqNum(data.DiskId, seqNum);
                 }
@@ -994,6 +1072,9 @@ namespace TerraStorage.Systems
 
         private static void HandleSyncDriveBay(Mod mod, BinaryReader reader, int whoAmI)
         {
+            // Server → client only. Without this a client could rewrite all 40 slots of any bay.
+            if (Main.netMode != NetmodeID.MultiplayerClient) return;
+
             int entityId = reader.ReadInt32();
             if (Terraria.DataStructures.TileEntity.ByID.TryGetValue(entityId, out var entity)
                 && entity is DriveBayEntity sbe)
@@ -1181,7 +1262,12 @@ namespace TerraStorage.Systems
             int slotIdx   = reader.ReadInt32();
             var diskId    = new Guid(reader.ReadBytes(16));
             int diskCount = reader.ReadInt32();
-            ReadGuidList(reader, diskCount); // read to advance the stream; the network is re-derived below
+            // Read to advance the stream; the network is re-derived below. Still has to be a count
+            // that could describe a real list, or the rest of this packet is read from nowhere.
+            var packetDiskIds = ReadGuidList(reader, diskCount);
+            if (packetDiskIds == null)
+                return;
+
             int optionIdx = reader.ReadInt32();
             int staCnt    = reader.ReadInt32();
             var stations  = new System.Collections.Generic.HashSet<int>();
@@ -1279,6 +1365,9 @@ namespace TerraStorage.Systems
             if (count < 0 || count > reachable.Count) return;
 
             var diskIds = ReadGuidList(reader, count);
+            if (diskIds == null)
+                return;
+
             foreach (var diskId in diskIds)
             {
                 if (!reachable.Contains(diskId))
@@ -1427,6 +1516,34 @@ namespace TerraStorage.Systems
 
         // 15 tiles, matching the range quick-stack and position-deposit already enforce.
         private const float TerminalRangeSq = 240f * 240f;
+
+        // Whether the client that sent a packet may name this disk GUID. Disk GUIDs reach every
+        // client (StorageDiskBase.NetSend sends all 16 bytes), so the GUID itself establishes
+        // nothing — either no physical disk carries it, or the sender is the one carrying it.
+        private static bool SenderMayClaimDisk(int whoAmI, Guid diskId)
+        {
+            bool diskGuidInUse = IsDiskGuidInUse(diskId);
+            bool senderHoldsDisk = PlayerHoldsDisk(whoAmI, diskId);
+
+            return DiskClaim.SenderMayClaim(diskId, diskGuidInUse, senderHoldsDisk);
+        }
+
+        // Turn away a disk insert without costing the sender the disk or leaving it believing the
+        // insert happened. Both matter: the client puts the disk into its own copy of the bay and
+        // empties its cursor before the packet is sent, so a refusal that said nothing would leave
+        // that client showing a disk the server does not have, while the disk itself existed nowhere.
+        private static void RefuseInsert(Mod mod, int toClient, DriveBayEntity bay, Item item)
+        {
+            if (bay != null)
+                SendSyncDriveBay(mod, bay, toClient);
+
+            // Only ever a Storage Disk. The sender gave one up to send this packet; anything else in
+            // that slot was never theirs to be handed back.
+            if (item == null || item.IsAir || item.ModItem is not StorageDiskBase)
+                return;
+
+            SendReturnItemToClient(mod, toClient, item);
+        }
 
         // True if this player physically holds a Storage Disk carrying that GUID.
         private static bool PlayerHoldsDisk(int whoAmI, Guid diskId)
@@ -1824,8 +1941,15 @@ namespace TerraStorage.Systems
 
         // ─── Helpers ────────────────────────────────────────────────────
 
+        // Null when the count could not honestly describe a list this packet carried. Callers must
+        // return on null rather than carry on: the count sizes the allocation before a single GUID
+        // is read, and continuing past a count already known to be a lie reads the rest of the
+        // packet from an offset that no longer means anything.
         private static List<Guid> ReadGuidList(BinaryReader reader, int count)
         {
+            if (!WireCount.FitsInOnePacket(count, WireCount.GuidBytes))
+                return null;
+
             var list = new List<Guid>(count);
             for (int i = 0; i < count; i++)
                 list.Add(new Guid(reader.ReadBytes(16)));

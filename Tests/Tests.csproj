@@ -24,6 +24,10 @@
     <Compile Include="..\Common\StackIdentity.cs" />
     <!-- Which stacks on a disk a donor could merge into, without asking the rule about all of them. -->
     <Compile Include="..\Common\MergeCandidateIndex.cs" />
+    <!-- Whether a count a packet supplied may size an allocation. -->
+    <Compile Include="..\Common\WireCount.cs" />
+    <!-- Whether the sender of a packet may name a particular disk GUID. -->
+    <Compile Include="..\Common\DiskClaim.cs" />
     <!-- Deposit arithmetic: the pair of numbers a partial deposit has to keep straight. -->
     <Compile Include="..\Common\DepositOutcome.cs" />
     <!-- Why a storage operation was refused: the wire codes, the decisions behind them, and the
