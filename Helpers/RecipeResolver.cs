@@ -695,6 +695,9 @@ namespace TerraStorage.Helpers
                 item.stack -= count;
                 return part;
             }
+
+            public bool SameStoredState(Item first, Item second)
+                => StorageWorldSystem.ItemsShareStoredState(first, second);
         }
 
         // Acquires every listed material, crafting shortfalls, and consumes them as one transaction:

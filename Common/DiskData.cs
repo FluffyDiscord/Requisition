@@ -269,7 +269,7 @@ namespace TerraStorage.Common
             return BuildExtractedItem(match);
         }
 
-        private static bool ModItemDataMatches(TagCompound stored, TagCompound target)
+        public static bool ModItemDataMatches(TagCompound stored, TagCompound target)
         {
             if (stored == null && target == null)
                 return true;

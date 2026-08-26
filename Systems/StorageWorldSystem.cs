@@ -557,6 +557,26 @@ namespace TerraStorage.Systems
             return tag.Count > 0 ? tag : null;
         }
 
+        // Whether two live items are in the same state, on the same terms ExtractStoredStack matches
+        // a stored stack on. Used by the refund to tell the product a run conjured from the player's
+        // own stock of that type, which position alone cannot do: a product lands in the first disk
+        // with room, ahead of stock the player holds on a later disk.
+        public static bool ItemsShareStoredState(Item first, Item second)
+        {
+            if (first == null || second == null || first.IsAir || second.IsAir)
+                return false;
+
+            if (first.type != second.type || first.prefix != second.prefix)
+                return false;
+
+            TagCompound firstModItemData = ModItemDataOf(first);
+            TagCompound secondModItemData = ModItemDataOf(second);
+            if (!DiskData.ModItemDataMatches(firstModItemData, secondModItemData))
+                return false;
+
+            return DiskData.ModStateMatches(ItemIO.Save(first), ItemIO.Save(second));
+        }
+
         // Extract a specific per-instance item (e.g. UnloadedItem) identified by its exact
         // ModData. Searches disks in order and returns the first matching stack.
         public Item ExtractItemWithModData(IEnumerable<Guid> diskIds, TagCompound modData)

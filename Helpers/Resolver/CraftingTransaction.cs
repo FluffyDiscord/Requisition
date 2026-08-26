@@ -35,6 +35,13 @@ namespace TerraStorage.Helpers.Resolver
         // Splits `count` units off, returning a handle for them and leaving `item` describing the
         // rest. Only called with 0 < count < StackOf(item).
         TItem SplitOff(TItem item, int count);
+
+        // Whether two handles describe units in the same state, so withholding one in place of the
+        // other loses nothing. NOT object identity: a step's product is inserted into storage and a
+        // later step draws it back out as a different handle, and that drawn handle is the one the
+        // refund has to recognise. Units with no state to compare are interchangeable, so a plain
+        // handle matches any other plain handle of its type.
+        bool SameStoredState(TItem first, TItem second);
     }
 
     // Undoing an insert, for both transactions.
@@ -93,6 +100,7 @@ namespace TerraStorage.Helpers.Resolver
         private readonly ICraftingStorage<TItem> _storage;
         private readonly List<(TItem item, int itemType)> _taken = new();
         private readonly Dictionary<int, int> _conjured = new();
+        private readonly List<(TItem handle, int itemType, int count)> _conjuredHandles = new();
 
         public RefundLedger(ICraftingStorage<TItem> storage)
         {
@@ -128,10 +136,15 @@ namespace TerraStorage.Helpers.Resolver
         // Units of this type that this run created rather than the player owning them. A later
         // step extracts them back out of storage mixed in with the player's own stock, so the
         // refund has to know how many of what it is holding must NOT be handed back.
-        public void MarkConjured(int itemType, int count)
+        //
+        // Takes the handle the run produced, not just the count. Position cannot stand in for it:
+        // a product lands in the first disk with room, which is ahead of stock the player holds on
+        // a later disk, so the conjured handle is not reliably the trailing one.
+        public void MarkConjured(TItem handle, int itemType, int count)
         {
             _conjured.TryGetValue(itemType, out int already);
             _conjured[itemType] = already + count;
+            _conjuredHandles.Add((handle, itemType, count));
         }
 
         // Puts back what the player owned, withholding conjured units as it goes. Withholding
@@ -141,13 +154,18 @@ namespace TerraStorage.Helpers.Resolver
         // real materials as leftover.
         public void Refund()
         {
-            // From the END of the list, not the front. A step's product is inserted after the stock
-            // the player already had, so extraction hands it back last and the conjured handles are
-            // the trailing ones. Withholding from the front kept the count right and put the wrong
-            // items back: the player's own stacks were dropped and stateless copies took their
-            // place, which for a type whose stacks stand for themselves is their mod state gone.
+            // By handle first, and only then by position. A step's product goes into the first disk
+            // with room, which is ahead of any stock the player holds on a later disk, so the
+            // conjured handle is NOT reliably the trailing one - withholding purely from the end
+            // drops a player's stack and re-inserts the run's copy in its place. The count balances
+            // either way; for a type whose stacks stand for themselves the state does not.
             var withheld = new int[_taken.Count];
 
+            WithholdMatchingHandles(withheld);
+
+            // Whatever no handle claimed is units with no state to tell apart - interchangeable, so
+            // any of them will do. The end of the list is still the best guess for those, because a
+            // product with nothing to distinguish it merged into stock that was already there.
             for (int index = _taken.Count - 1; index >= 0; index--)
             {
                 var (item, itemType) = _taken[index];
@@ -156,8 +174,13 @@ namespace TerraStorage.Helpers.Resolver
                 if (outstanding <= 0)
                     continue;
 
-                int drop = Math.Min(outstanding, _storage.StackOf(item));
-                withheld[index] = drop;
+                int alreadyWithheld = withheld[index];
+                int room = _storage.StackOf(item) - alreadyWithheld;
+                if (room <= 0)
+                    continue;
+
+                int drop = Math.Min(outstanding, room);
+                withheld[index] = alreadyWithheld + drop;
                 _conjured[itemType] = outstanding - drop;
             }
 
@@ -174,6 +197,42 @@ namespace TerraStorage.Helpers.Resolver
             }
 
             _taken.Clear();
+        }
+
+        // Each handle the run produced claims the drawn handles carrying its state, oldest draw
+        // first. Bounded by what that step actually made, so a stack the player grew past it keeps
+        // the units they owned.
+        private void WithholdMatchingHandles(int[] withheld)
+        {
+            foreach (var (handle, itemType, count) in _conjuredHandles)
+            {
+                int outstanding = Math.Min(count, GetOutstandingConjured(itemType));
+
+                for (int index = 0; index < _taken.Count && outstanding > 0; index++)
+                {
+                    var (drawn, drawnType) = _taken[index];
+                    if (drawnType != itemType)
+                        continue;
+
+                    int room = _storage.StackOf(drawn) - withheld[index];
+                    if (room <= 0)
+                        continue;
+
+                    if (!_storage.SameStoredState(handle, drawn))
+                        continue;
+
+                    int drop = Math.Min(outstanding, room);
+                    withheld[index] += drop;
+                    outstanding -= drop;
+                    _conjured[itemType] = GetOutstandingConjured(itemType) - drop;
+                }
+            }
+        }
+
+        private int GetOutstandingConjured(int itemType)
+        {
+            _conjured.TryGetValue(itemType, out int outstanding);
+            return outstanding;
         }
 
         // Conjured units the refund never saw, because no later step consumed them - they are
@@ -329,8 +388,8 @@ namespace TerraStorage.Helpers.Resolver
         // back alongside the ingredients it was made from and leave the player holding both.
         private TItem Abort(RefundLedger<TItem> ledger, List<(TItem handle, int itemType, int count)> intermediates)
         {
-            foreach (var (_, itemType, count) in intermediates)
-                ledger.MarkConjured(itemType, count);
+            foreach (var (handle, itemType, count) in intermediates)
+                ledger.MarkConjured(handle, itemType, count);
 
             ledger.Refund();
 
