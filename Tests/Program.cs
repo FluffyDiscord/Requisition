@@ -89,6 +89,7 @@ namespace TerraStorage.Tests
             NetworkDrainsInOneSweep();
             TakeBackRecoversTheRunsOwnStack();
             RefundKeepsThePlayersStackNotTheLastOne();
+            DefragmentSweepMovesStacksWithoutLosingAny();
 
             Console.WriteLine($"\n=== {_pass} passed, {_fail} failed ===");
             if (_fail > 0)
@@ -2806,25 +2807,66 @@ namespace TerraStorage.Tests
                    && diskData.Contains("=> a.StacksWith(b) &&"),
                 "MX-08b the merge rule reaches StacksWith through the overload that carries the guard");
 
-            string worldSystem = ReadModSource(repoRoot, "Systems/StorageWorldSystem.cs");
-            string buildBody = ExtractMethodBody(worldSystem, "private static void BuildMergeTargets");
+            // The sweep moved into Common/DefragmentCore.cs, where DG-* executes it. What text still
+            // has to pin is the part behaviour cannot see: that the candidates come from the index
+            // at all. A linear rescan of the target produces IDENTICAL results, so no assertion
+            // about what the sweep MOVES can tell the two apart - only the source can.
+            string core = ReadModSource(repoRoot, "Common/DefragmentCore.cs");
+            string buildBody = ExtractMethodBody(core, "private static void BuildMergeTargets");
+            string sweepBody = ExtractMethodBody(core, "public static List<int> Sweep");
 
-            IsTrue(buildBody.Contains("Accepts = DiskData.CanMergeStacks("),
-                "MX-09 the merge rule, not the index, still decides whether a candidate accepts");
+            IsTrue(buildBody.Length > 0 && sweepBody.Length > 0,
+                "MX-09a the sweep and its candidate filter were located in DefragmentCore");
+
             IsTrue(buildBody.Contains("GetCandidates("),
                 "MX-10 and the candidates come from the index rather than a rescan of the disk");
             // Pin the absence of the linear WALK, not of the token: the bounds check that keeps a
             // stale slot from crediting the wrong stack has to read target.Items.Count too.
-            IsTrue(!buildBody.Contains("index < target.Items.Count"),
+            IsTrue(!buildBody.Contains("< target.Items.Count"),
                 "MX-10a with no linear walk of the target left in it");
             IsTrue(buildBody.Contains("index >= target.Items.Count"),
                 "MX-10b and a slot past the end of the disk is passed over rather than credited");
 
             // A disk list naming one disk twice makes it its own donor; removing a stack from the
-            // donor then shifts every slot the index recorded for the target.
-            string defragBody = ExtractMethodBody(worldSystem, "public List<Guid> Defragment");
-            IsTrue(defragBody.Contains("ReferenceEquals(target, donor)"),
+            // donor then shifts every slot the index recorded for the target. Comparing the Items
+            // lists catches an alias that comparing disk indices cannot.
+            IsTrue(sweepBody.Contains("ReferenceEquals(target.Items, donor.Items)"),
                 "MX-11 a disk repeated in the request never donates to itself");
+
+            // Everything below is the half that still cannot be linked, because it binds Terraria.
+            // A source match is the only mechanism available for it, and it is the residual gap.
+            string worldSystem = ReadModSource(repoRoot, "Systems/StorageWorldSystem.cs");
+
+            // The rule the sweep asks is the rule DiskData defines, in that argument order. A
+            // transposed pair, or a fallback to comparing type and prefix, is issue 24 verbatim -
+            // and every DG-* case would stay green through it.
+            string canMergeBody = ExtractMethodBody(worldSystem,
+                "public bool CanMerge(StoredItemStack target, StoredItemStack donor)");
+            IsTrue(worldSystem.Contains("=> DiskData.CanMergeStacks(target, donor)")
+                   || canMergeBody.Contains("DiskData.CanMergeStacks(target, donor)"),
+                "MX-09 the merge rule, not the index, still decides whether a candidate accepts");
+
+            // Without this the sweep could be extracted and then quietly re-implemented in place:
+            // every DG-*, DF-* and MX-* assertion would stay green while the shipped path diverged.
+            string defragBody = ExtractMethodBody(worldSystem, "public List<Guid> Defragment");
+            IsTrue(defragBody.Contains("DefragmentCore.Sweep("),
+                "MX-12 Defragment delegates to the sweep that DG-* executes");
+            IsTrue(!defragBody.Contains("for (int"),
+                "MX-12a and keeps no sweep loop of its own");
+
+            IsTrue(worldSystem.Contains("=> DiskData.HasPerInstanceData(stack)"),
+                "MX-13 the sweep's uniqueness verdict is DiskData's");
+            IsTrue(worldSystem.Contains("=> CopyStackWithCount(source, count)"),
+                "MX-13a and a stack it splits is built by CopyStackWithCount");
+
+            // Issue 04's third fix bullet - carry ModData and FullItemTag onto the new stack - is
+            // this method, and nothing asserted it at all until now.
+            string copyBody = ExtractMethodBody(worldSystem,
+                "private static StoredItemStack CopyStackWithCount");
+            IsTrue(copyBody.Contains("ModData") && copyBody.Contains("FullItemTag"),
+                "MX-14 a split stack carries the per-instance data that makes it what it is");
+            IsTrue(copyBody.Contains("InsertionOrder") && copyBody.Contains("CopyIdentityVerdictFrom"),
+                "MX-14a along with its insertion order and its settled identity verdict");
         }
 
         private static string ReadModSource(string repoRoot, string relativePath)
@@ -3659,6 +3701,188 @@ namespace TerraStorage.Tests
                 "DC-07 restoring never overwrites a disk that already exists");
         }
 
+        // ---- The defragment sweep itself, not a copy of it ----
+        // Until DefragmentCore was extracted, DF-* pinned PlanDonorMove's rules and MX-* matched the
+        // sweep's source text, but nothing executed the sweep: it lived in StorageWorldSystem, which
+        // binds Terraria.Item. Issue 04 - defragment destroying and duplicating per-instance mod
+        // data - happened in this function, and issue 24 one level under it.
+        private static void DefragmentSweepMovesStacksWithoutLosingAny()
+        {
+            Section("The defragment sweep, executed rather than transcribed");
+
+            var rules = new FakeDefragmentRules();
+
+            var emptyTarget = FakeDisks.Disk(10);
+            var singleDonor = FakeDisks.Disk(10, FakeDisks.Stack(7, 30));
+            DefragmentCore.Sweep(new[] { emptyTarget, singleDonor }, rules);
+            Eq(FakeDisks.Layout(emptyTarget), "t7x30", "DG-01 a plain stack moves into free space");
+            Eq(singleDonor.Items.Count, 0, "DG-01a leaving the donor empty");
+
+            // Two donors of one identity have to end as ONE stack. The sweep records each slot it
+            // appends into the merge index before appending it; a sweep that skipped that would give
+            // the second donor no candidates and open a second slot.
+            var poolTarget = FakeDisks.Disk(10);
+            var firstDonor = FakeDisks.Disk(10, FakeDisks.Stack(7, 30));
+            var secondDonor = FakeDisks.Disk(10, FakeDisks.Stack(7, 40));
+            DefragmentCore.Sweep(new[] { poolTarget, firstDonor, secondDonor }, rules);
+            Eq(poolTarget.Items.Count, 1, "DG-02 a second donor of one identity tops up the slot the first opened");
+            Eq(poolTarget.Items[0].Count, 70, "DG-02a rather than opening a second slot");
+
+            var partialTarget = FakeDisks.Disk(10, FakeDisks.Stack(7, 90));
+            var spillDonor = FakeDisks.Disk(10, FakeDisks.Stack(7, 30));
+            DefragmentCore.Sweep(new[] { partialTarget, spillDonor }, rules);
+            Eq(FakeDisks.Layout(partialTarget), "t7x99,t7x21", "DG-03 a partial stack is filled to maxStack before a fresh slot opens");
+            Eq(spillDonor.Items.Count, 0, "DG-03a and the donor is emptied");
+
+            // Issue 04: a stack that stands for itself may never be folded into a plain one, however
+            // willing the target looks. The sweep does not even offer the rule the chance to say yes.
+            rules.AskedPairs.Clear();
+            var willingTarget = FakeDisks.Disk(10, FakeDisks.Stack(7, 10));
+            var uniqueDonor = FakeDisks.Disk(10, FakeDisks.Unique(7, 5));
+            DefragmentCore.Sweep(new[] { willingTarget, uniqueDonor }, rules);
+            Eq(willingTarget.Items[0].Count, 10, "DG-04 a unique donor never merges into a stack of its own type");
+            Eq(willingTarget.Items.Count, 2, "DG-04a it takes a slot of its own");
+            Eq(rules.AskedPairs.Count, 0, "DG-04b and the merge rule is never asked about it at all");
+
+            var crampedTarget = FakeDisks.Disk(2, FakeDisks.Stack(7, 10));
+            var twoUniques = FakeDisks.Disk(10, FakeDisks.Unique(7, 5), FakeDisks.Unique(8, 5));
+            DefragmentCore.Sweep(new[] { crampedTarget, twoUniques }, rules);
+            Eq(twoUniques.Items.Count, 1, "DG-05 a unique stack with no free slot left stays where it is");
+            Eq(twoUniques.Items[0].Count, 5, "DG-05a whole, never partially moved");
+
+            // Issue 24: sharing a type and prefix is what the merge INDEX keys on, and it is never
+            // sufficient. Two stacks carrying different mod state are the same item and still must
+            // not be folded, because folding discards one state.
+            rules.AskedPairs.Clear();
+            var stateTarget = FakeDisks.Disk(10, FakeDisks.Stack(7, 10, "A"), FakeDisks.Stack(8, 50));
+            var stateDonor = FakeDisks.Disk(10, FakeDisks.Stack(7, 20, "B"));
+            DefragmentCore.Sweep(new[] { stateTarget, stateDonor }, rules);
+            Eq(FakeDisks.Layout(stateTarget), "t7x10,t8x50,t7x20", "DG-06 stacks sharing a type and prefix but not their mod state do not merge");
+            Eq(rules.AskedPairs.Count, 1, "DG-06a the rule was asked about exactly the one stack sharing the key");
+            IsTrue(rules.AskedPairs.TrueForAll(p => p.Target.ItemType == 7),
+                "DG-06b and never about a stack of another identity");
+
+            // A disk list naming one disk twice used to make it its own donor, and removing a stack
+            // then shifted every slot the index had recorded for the target.
+            var repeated = FakeDisks.Disk(10, FakeDisks.Stack(7, 5), FakeDisks.Stack(7, 3));
+            var alias = FakeDisks.Alias(repeated);
+            IsTrue(ReferenceEquals(repeated.Items, alias.Items), "DG-07 the fixture really is one disk named twice");
+            var selfMoved = DefragmentCore.Sweep(new[] { repeated, alias }, rules);
+            Eq(selfMoved.Count, 0, "DG-07a a disk repeated in the request never donates to itself");
+            Eq(FakeDisks.Layout(repeated), "t7x5,t7x3", "DG-07b so its stacks are left exactly as they were");
+
+            // Moving a stack removes it from the donor, which shifts every slot above it down. The
+            // walk runs downwards so that shifting cannot make it skip a stack.
+            var orderTarget = FakeDisks.Disk(10);
+            var threeStacks = FakeDisks.Disk(10, FakeDisks.Stack(1, 5), FakeDisks.Stack(2, 5), FakeDisks.Stack(3, 5));
+            DefragmentCore.Sweep(new[] { orderTarget, threeStacks }, rules);
+            Eq(orderTarget.Items.Count, 3, "DG-08 every stack on the donor is moved, none skipped");
+            Eq(threeStacks.Items.Count, 0, "DG-08a and the donor is emptied");
+            Eq(FakeDisks.Layout(orderTarget), "t3x5,t2x5,t1x5", "DG-08b the donor is walked from its last slot down");
+
+            var oneSlotTarget = FakeDisks.Disk(1);
+            var bigDonor = FakeDisks.Disk(10, FakeDisks.Stack(7, 3), FakeDisks.Stack(7, 99), FakeDisks.Stack(7, 99));
+            DefragmentCore.Sweep(new[] { oneSlotTarget, bigDonor }, rules);
+            Eq(FakeDisks.Layout(oneSlotTarget), "t7x99", "DG-09 only as much moves as there are free slots");
+            Eq(FakeDisks.Layout(bigDonor), "t7x3,t7x99", "DG-09a and the rest stays on the donor");
+
+            var fullTarget = FakeDisks.Disk(1, FakeDisks.Stack(9, 1));
+            var blockedDonor = FakeDisks.Disk(10, FakeDisks.Stack(7, 5));
+            var nothingMoved = DefragmentCore.Sweep(new[] { fullTarget, blockedDonor }, rules);
+            Eq(nothingMoved.Count, 0, "DG-10 a full target moves nothing");
+            Eq(FakeDisks.Layout(blockedDonor), "t7x5", "DG-10a and the donor keeps its stack");
+
+            var reportTarget = FakeDisks.Disk(10);
+            var reportDonor = FakeDisks.Disk(10, FakeDisks.Stack(7, 5));
+            var untouched = FakeDisks.Disk(10);
+            var moved = DefragmentCore.Sweep(new[] { reportTarget, reportDonor, untouched }, rules);
+            Eq(string.Join(",", moved), "0,1", "DG-11 only the disks whose contents changed are reported, ascending");
+
+            var idleTarget = FakeDisks.Disk(10, FakeDisks.Stack(7, 5));
+            var emptyDonor = FakeDisks.Disk(10);
+            Eq(DefragmentCore.Sweep(new[] { idleTarget, emptyDonor }, rules).Count, 0,
+                "DG-11a a sweep that moves nothing reports nothing");
+
+            DefragmentSweepSurvivesASlotVanishingMidSweep();
+            DefragmentSweepConservesUnitsAndModState();
+        }
+
+        // Nothing removes from a target disk while the sweep is running today. The merge index holds
+        // slot positions for a whole target, so if anything ever did, a recorded slot could point
+        // past the end of the disk or at a stack of an entirely different item. Both have to cost a
+        // missed merge and never a count credited to the wrong stack.
+        private static void DefragmentSweepSurvivesASlotVanishingMidSweep()
+        {
+            var rules = new FakeDefragmentRules();
+
+            var shrinking = FakeDisks.Disk(10, FakeDisks.Stack(7, 10), FakeDisks.Stack(7, 20));
+            var donor = FakeDisks.Disk(10, FakeDisks.Stack(7, 6));
+            rules.RemoveSlotBeforeNextCanMerge(shrinking.Items, 1);
+            DefragmentCore.Sweep(new[] { shrinking, donor }, rules);
+            Eq(shrinking.Items.Count, 1, "DG-12 a slot recorded by the index but gone from the disk is passed over");
+            Eq(shrinking.Items[0].Count, 16, "DG-12a and the count lands on the stack that is still there");
+
+            // The dangerous case is not the slot past the end - it is the live slot of another item
+            // that shifted down into a recorded position. The bounds check cannot see that one; the
+            // merge rule being re-asked for every candidate is what refuses it.
+            var shifting = FakeDisks.Disk(10, FakeDisks.Stack(7, 10), FakeDisks.Stack(7, 20), FakeDisks.Stack(8, 50));
+            var shiftDonor = FakeDisks.Disk(10, FakeDisks.Stack(7, 6));
+            rules.RemoveSlotBeforeNextCanMerge(shifting.Items, 0);
+            DefragmentCore.Sweep(new[] { shifting, shiftDonor }, rules);
+            var strandedOtherItem = shifting.Items.Find(s => s.ItemType == 8);
+            Eq(strandedOtherItem.Count, 50, "DG-12b a stack of another item shifted into a recorded slot is never credited");
+
+            // A stack already at maxStack has no room, so the sweep passes over it without paying
+            // for the identity comparison - which is the expensive one on a bulk-storage disk.
+            rules.AskedPairs.Clear();
+            var atCapacity = FakeDisks.Disk(10, FakeDisks.Stack(7, 99));
+            var toppingUp = FakeDisks.Disk(10, FakeDisks.Stack(7, 20));
+            DefragmentCore.Sweep(new[] { atCapacity, toppingUp }, rules);
+            Eq(rules.AskedPairs.Count, 0, "DG-13 a stack already at maxStack is skipped before the merge rule is asked");
+            Eq(FakeDisks.Layout(atCapacity), "t7x99,t7x20", "DG-13a and the donor takes a fresh slot instead");
+        }
+
+        private static void DefragmentSweepConservesUnitsAndModState()
+        {
+            var rules = new FakeDefragmentRules();
+
+            // A relocated unique stack must be the SAME stack, not a rebuilt copy: everything that
+            // makes it unique rides on the object, and issue 04 is what happens when it does not.
+            var receiving = FakeDisks.Disk(10);
+            var uniqueStack = FakeDisks.Unique(7, 5);
+            var giving = FakeDisks.Disk(10, uniqueStack);
+            DefragmentCore.Sweep(new[] { receiving, giving }, rules);
+            IsTrue(ReferenceEquals(receiving.Items[0], uniqueStack),
+                "DG-15 a stack that moves whole is the same stack, not a copy of it");
+
+            var splitTarget = FakeDisks.Disk(3);
+            var mixedDonor = FakeDisks.Disk(10, FakeDisks.Stack(1, 5),
+                FakeDisks.Stack(2, 300), FakeDisks.Stack(3, 5));
+            int beforeSplit = FakeDisks.TotalUnits(splitTarget, mixedDonor);
+            DefragmentCore.Sweep(new[] { splitTarget, mixedDonor }, rules);
+            Eq(FakeDisks.Layout(mixedDonor), "t1x5,t2x102", "DG-16 a partly drained stack keeps its remainder and its neighbours keep their slots");
+            Eq(FakeDisks.TotalUnits(splitTarget, mixedDonor), beforeSplit, "DG-16a with every unit accounted for");
+
+            // maxStack belongs to the item being moved, so the donor's is what bounds the merge.
+            var lowMaxTarget = FakeDisks.Disk(10, FakeDisks.Stack(7, 50, "plain", maxStack: 60));
+            var highMaxDonor = FakeDisks.Disk(10, FakeDisks.Stack(7, 30, "plain", maxStack: 99));
+            DefragmentCore.Sweep(new[] { lowMaxTarget, highMaxDonor }, rules);
+            Eq(lowMaxTarget.Items[0].Count, 80, "DG-17 the moving stack's own maxStack bounds the merge");
+
+            // Issue 04 in the shape the sweep can express: two states go in, two states come out,
+            // neither stamped onto the other's units.
+            var stateTarget = FakeDisks.Disk(10, FakeDisks.Stack(7, 10, "A"));
+            var stateDonor = FakeDisks.Disk(10, FakeDisks.Stack(7, 10, "A"), FakeDisks.Stack(7, 10, "B"));
+            int beforeState = FakeDisks.TotalUnits(stateTarget, stateDonor);
+            DefragmentCore.Sweep(new[] { stateTarget, stateDonor }, rules);
+            var pooledA = stateTarget.Items.Find(s => s.ModState == "A");
+            var keptB = stateTarget.Items.Find(s => s.ModState == "B");
+            Eq(pooledA.Count, 20, "DG-18 stacks sharing their mod state pool together");
+            Eq(keptB.Count, 10, "DG-18a a stack carrying different state keeps its own slot and its units");
+            Eq(FakeDisks.TotalUnits(stateTarget, stateDonor), beforeState, "DG-18b and no unit is created or destroyed");
+            Eq(stateTarget.Items.Count, 2, "DG-18c neither state is stamped onto the other's stack");
+        }
+
         private static void Section(string title) => Console.WriteLine($"-- {title}");
 
         private static void Check(bool cond, string name)
@@ -3668,6 +3892,7 @@ namespace TerraStorage.Tests
         }
 
         private static void Eq(int actual, int expected, string name) => Check(actual == expected, $"{name}  [expected {expected}, got {actual}]");
+        private static void Eq(string actual, string expected, string name) => Check(actual == expected, $"{name}  [expected {expected}, got {actual}]");
         private static void IsTrue(bool c, string n) => Check(c, n);
         private static void IsFalse(bool c, string n) => Check(!c, n);
     }
