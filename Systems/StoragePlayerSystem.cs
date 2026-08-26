@@ -51,9 +51,15 @@ namespace TerraStorage.Systems
 
         public IReadOnlyList<Guid> LastOpenedDiskIds => _lastOpenedDiskIds;
 
-        public void SetLastOpenedDiskIds(List<Guid> diskIds)
+        // The Terminal those disks came from. Deposits name it instead of the disk list, because a
+        // client-supplied GUID tells the server nothing about whose disk it is. The list stays for
+        // the tooltip counts and the singleplayer path, which never cross the network.
+        public int LastOpenedTerminalId { get; private set; } = -1;
+
+        public void SetLastOpenedDiskIds(List<Guid> diskIds, int terminalEntityId)
         {
             _lastOpenedDiskIds = diskIds ?? new List<Guid>();
+            LastOpenedTerminalId = terminalEntityId;
         }
 
         public static StoragePlayerSystem Local => Main.LocalPlayer.GetModPlayer<StoragePlayerSystem>();
@@ -143,7 +149,7 @@ namespace TerraStorage.Systems
             if (Main.netMode == NetmodeID.MultiplayerClient)
             {
                 var mod = ModLoader.GetMod("TerraStorage");
-                NetworkHandler.SendDepositItem(mod, _lastOpenedDiskIds, item);
+                NetworkHandler.SendDepositItem(mod, LastOpenedTerminalId, item);
                 inventory[slot].TurnToAir();
             }
             else

@@ -12,6 +12,7 @@ using Terraria.GameInput;
 using Terraria.Localization;
 using Terraria.UI;
 using TerraStorage.Common;
+using TerraStorage.Content.Tiles;
 using TerraStorage.Content.UI;
 using TerraStorage.Content.UI.CraftingTree;
 using TerraStorage.Helpers;
@@ -34,6 +35,7 @@ namespace TerraStorage.Content.UI.Elements
         private static readonly RasterizerState ScissorRasterizer = new() { ScissorTestEnable = true };
 
         private List<Guid> _diskIds = new();
+        private TerminalEntity _terminal;
         private HashSet<int> _availableStations = new();
         private HashSet<CraftingCondition> _availableConditions = new();
         private List<(Recipe recipe, bool canCraft)> _allRecipes = new();
@@ -223,6 +225,13 @@ namespace TerraStorage.Content.UI.Elements
             }
 
             return RecipeResolver.CheckRecipeConditionsPublic(recipe, _availableConditions);
+        }
+
+        // The Terminal this panel is operating. Its packets name it rather than the disk list they
+        // used to carry, because the server cannot tell whose disks a client-supplied GUID names.
+        public void SetTerminal(TerminalEntity terminal)
+        {
+            _terminal = terminal;
         }
 
         public void SetDiskIds(List<Guid> diskIds)
@@ -1281,7 +1290,7 @@ namespace TerraStorage.Content.UI.Elements
                 if (!Main.mouseItem.IsAir && !shift)
                     return;
                 var mod = Terraria.ModLoader.ModLoader.GetMod("TerraStorage");
-                NetworkHandler.SendWithdrawItem(mod, _diskIds, _selectedRecipe.createItem.type, takeCount, -1, shift);
+                NetworkHandler.SendWithdrawItem(mod, _terminal.ID, _selectedRecipe.createItem.type, takeCount, -1, shift);
 
                 Terraria.Audio.SoundEngine.PlaySound(Terraria.ID.SoundID.Grab);
                 return;
@@ -1339,8 +1348,8 @@ namespace TerraStorage.Content.UI.Elements
                 if (_selectedRecipe != null)
                 {
                     var mod = Terraria.ModLoader.ModLoader.GetMod("TerraStorage");
-                    NetworkHandler.SendCraftRequest(mod, _diskIds, _selectedRecipe.createItem.type,
-                        _craftAmount * _selectedRecipe.createItem.stack, _availableStations, _availableConditions, _cleanCraft, _craftToInventory,
+                    NetworkHandler.SendCraftRequest(mod, _terminal.ID, _selectedRecipe.createItem.type,
+                        _craftAmount * _selectedRecipe.createItem.stack, _cleanCraft, _craftToInventory,
                         _lockRecipe ? _selectedRecipe.RecipeIndex : -1);
                     // No pickup sound here: the server has not answered yet, and playing the sound
                     // of a successful craft on SEND told the player a refused craft had worked.

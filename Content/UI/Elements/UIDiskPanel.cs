@@ -326,8 +326,8 @@ namespace TerraStorage.Content.UI.Elements
             if (Main.netMode == NetmodeID.MultiplayerClient)
             {
                 var mod = ModLoader.GetMod("TerraStorage");
-                NetworkHandler.SendUpgradeDiskRequest(mod, entry.Bay.ID, entry.Slot, guid,
-                    _diskIds, _ingCacheOptionIdx, _stations, _conditions);
+                NetworkHandler.SendUpgradeDiskRequest(mod, _terminal.ID, entry.Bay.ID, entry.Slot,
+                    guid, _ingCacheOptionIdx);
                 Terraria.Audio.SoundEngine.PlaySound(SoundID.Grab);
                 return;
             }
@@ -364,7 +364,7 @@ namespace TerraStorage.Content.UI.Elements
             if (Main.netMode == NetmodeID.MultiplayerClient)
             {
                 var mod = ModLoader.GetMod("TerraStorage");
-                NetworkHandler.SendDefragRequest(mod, _diskIds);
+                NetworkHandler.SendDefragRequest(mod, _terminal.ID);
                 return;
             }
 
